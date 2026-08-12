@@ -95,6 +95,7 @@ async function callGateway(action, payload) {
 
   if (!CFG.gatewayUrl) throw new Error('No gateway configured. Set TARANIS_CONFIG.gatewayUrl.');
   if (!session || !session.token) throw new Error('Signed out. Sign in again.');
+  await ensureToken();
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 60000);
@@ -143,6 +144,7 @@ async function callGateway(action, payload) {
 
 async function supaSelect(table, query) {
   if (!CFG.supabaseUrl || !session || !session.token) throw new Error('NO_SUPABASE');
+  await ensureToken();
   const res = await fetch(CFG.supabaseUrl + '/rest/v1/' + table + '?' + query, {
     headers: {
       apikey: CFG.supabaseAnonKey,
@@ -169,6 +171,7 @@ async function readRows(table, query, action, payload) {
 
 /** Upload a file to Supabase Storage. Returns the stored path. */
 async function uploadToStorage(file, path, onProgress) {
+  await ensureToken();
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', CFG.supabaseUrl + '/storage/v1/object/documents/' + encodeURI(path));
@@ -192,13 +195,81 @@ async function uploadToStorage(file, path, onProgress) {
 
 /* ------------------------------------------------------------------ auth */
 
-async function sendMagicLink(email) {
-  const res = await fetch(CFG.supabaseUrl + '/auth/v1/otp', {
+/* Email + password, not a magic link. The project's built-in SMTP is capped at
+   two messages an hour and cannot be raised, which made links unusable. Nothing
+   about the security model changes: Supabase still issues the JWT, the gateway
+   still verifies it against /auth/v1/user, and console_users is still the list
+   that decides who is allowed in. Passwords are set by an admin in Supabase;
+   this page never creates an account. */
+
+const SESSION_KEY = 'taranis.session';
+
+async function signInWithPassword(email, password) {
+  const res = await fetch(CFG.supabaseUrl + '/auth/v1/token?grant_type=password', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', apikey: CFG.supabaseAnonKey },
-    body: JSON.stringify({ email, create_user: false })
+    body: JSON.stringify({ email, password })
   });
-  if (!res.ok) throw new Error('Could not send the link. Check the address is on the allow list.');
+  let data = {};
+  try { data = await res.json(); } catch (_) { /* fall through to the generic message */ }
+  if (!res.ok) {
+    const m = String(data.error_description || data.msg || data.error || '');
+    if (/invalid login/i.test(m))  throw new Error('That email and password do not match.');
+    if (/not confirmed/i.test(m))  throw new Error('This account has not been confirmed. Ask an admin to confirm it in Supabase.');
+    if (/rate limit|too many/i.test(m)) throw new Error('Too many attempts. Wait a minute and try again.');
+    throw new Error(m || 'Could not sign in.');
+  }
+  return {
+    token:   data.access_token,
+    refresh: data.refresh_token,
+    email:   (data.user && data.user.email) || email,
+    expires: Date.now() + (Number(data.expires_in || 3600) * 1000)
+  };
+}
+
+/* Held in sessionStorage, not localStorage: it survives a page refresh, which
+   is what stops a reload throwing you back to the cover, and it is discarded
+   when the tab is closed. */
+function saveSession(s) {
+  session = s;
+  try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(s)); } catch (_) { /* private mode */ }
+}
+
+function loadSession() {
+  try { const raw = sessionStorage.getItem(SESSION_KEY); return raw ? JSON.parse(raw) : null; }
+  catch (_) { return null; }
+}
+
+/** Supabase tokens last an hour. Trade the refresh token for a fresh one. */
+async function refreshSession() {
+  if (!session || !session.refresh) return false;
+  try {
+    const res = await fetch(CFG.supabaseUrl + '/auth/v1/token?grant_type=refresh_token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: CFG.supabaseAnonKey },
+      body: JSON.stringify({ refresh_token: session.refresh })
+    });
+    if (!res.ok) return false;
+    const d = await res.json();
+    if (!d.access_token) return false;
+    saveSession({
+      token:   d.access_token,
+      refresh: d.refresh_token || session.refresh,
+      email:   session.email,
+      expires: Date.now() + (Number(d.expires_in || 3600) * 1000)
+    });
+    return true;
+  } catch (_) { return false; }
+}
+
+/** Called before every authenticated request, so the hour never runs out mid-click. */
+async function ensureToken() {
+  if (DEMO || !session || !session.token) return;
+  if (!session.expires || Date.now() < session.expires - 120000) return;
+  if (!(await refreshSession())) {
+    signOut();
+    throw new Error('Your session expired. Sign in again.');
+  }
 }
 
 /** Supabase returns the token in the URL fragment after the link is used. */
@@ -219,6 +290,7 @@ function readTokenFromUrl() {
 function signOut() {
   session = null;
   DEMO = false;
+  try { sessionStorage.removeItem(SESSION_KEY); } catch (_) {}
   if (pollTimer) clearInterval(pollTimer);
   $('app').className = '';
   $('gate').style.display = 'grid';
@@ -1151,27 +1223,53 @@ function start() {
   }
 }
 
-$('gate-go').addEventListener('click', async () => {
+async function doSignIn() {
   const email = $('gate-email').value.trim();
-  if (!email) return toast('Enter your work email.', true);
+  const pass  = $('gate-pass').value;
+  if (!email || !pass) return toast('Enter your email and password.', true);
   if (!CFG.supabaseUrl) {
     $('gate-note').textContent =
       'No Supabase project connected yet. Open the sample data below, or set TARANIS_CONFIG in config.js.';
     return;
   }
-  const b = $('gate-go'); b.disabled = true; b.textContent = 'Sending…';
+  const b = $('gate-go'); b.disabled = true; b.textContent = 'Signing in…';
   try {
-    await sendMagicLink(email);
-    $('gate-note').textContent = 'Check ' + email + '. The link works once and expires in an hour.';
+    saveSession(await signInWithPassword(email, pass));
+    $('gate-pass').value = '';
+    $('gate-note').textContent = 'Only addresses on the allow list can sign in.';
+    start();
   } catch (e) {
     $('gate-note').textContent = e.message;
-  } finally { b.disabled = false; b.textContent = 'Send sign-in link'; }
-});
+  } finally { b.disabled = false; b.textContent = 'Sign in'; }
+}
+
+$('gate-go').addEventListener('click', doSignIn);
+$('gate-email').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('gate-pass').focus(); });
+$('gate-pass').addEventListener('keydown', (e) => { if (e.key === 'Enter') doSignIn(); });
 
 $('gate-demo').addEventListener('click', () => { DEMO = true; session = { email: 'sample' }; start(); });
 $('signout').addEventListener('click', signOut);
 
-(function boot() {
+(async function boot() {
+  // A recovery or invite link still arrives with the token in the fragment,
+  // so that path is kept. The normal path is now a stored session.
   const t = readTokenFromUrl();
-  if (t) { session = t; start(); }
+  if (t && t.token) {
+    saveSession({ token: t.token, refresh: null, email: t.email, expires: Date.now() + 3600000 });
+    start();
+    return;
+  }
+  const s = loadSession();
+  if (!s || !s.token) return;
+  session = s;
+  try {
+    await ensureToken();
+    const r = await fetch(CFG.supabaseUrl + '/auth/v1/user', {
+      headers: { apikey: CFG.supabaseAnonKey, Authorization: 'Bearer ' + session.token }
+    });
+    if (!r.ok) throw new Error('stale');
+    start();
+  } catch (_) {
+    signOut();
+  }
 })();
