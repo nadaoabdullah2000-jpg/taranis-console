@@ -1,5 +1,5 @@
 /* =========================================================================
-   Taranis Console
+   Taranis CRM
    -------------------------------------------------------------------------
    Replaces the Telegram bots with a signed-in web console.
 
@@ -124,6 +124,67 @@ async function callGateway(action, payload) {
   }
 }
 
+/* ------------------------------------------------- read straight from Supabase
+
+   Reading goes to Supabase directly over PostgREST rather than through n8n.
+   Two reasons: the contact book and the mandate list are plain SELECTs that
+   need no workflow logic, and this means every read-only tab works as soon
+   as the database is connected — before the gateway exists at all.
+
+   Row Level Security decides what comes back, so the anon key in the page
+   grants nothing on its own. Writes still go through the gateway, because
+   approving or sending has to run the workflow behind it.
+   ------------------------------------------------------------------------- */
+
+async function supaSelect(table, query) {
+  if (!CFG.supabaseUrl || !session || !session.token) throw new Error('NO_SUPABASE');
+  const res = await fetch(CFG.supabaseUrl + '/rest/v1/' + table + '?' + query, {
+    headers: {
+      apikey: CFG.supabaseAnonKey,
+      Authorization: 'Bearer ' + session.token,
+      Accept: 'application/json'
+    }
+  });
+  if (res.status === 401 || res.status === 403) throw new Error('Not permitted. Ask for access to be added.');
+  if (!res.ok) throw new Error('Database returned ' + res.status);
+  return await res.json();
+}
+
+/** Try Supabase, fall back to the gateway, so a tab works either way. */
+async function readRows(table, query, action, payload) {
+  if (DEMO) { const d = await demoResponse(action); return d.rows || []; }
+  try {
+    return await supaSelect(table, query);
+  } catch (e) {
+    if (e.message !== 'NO_SUPABASE') throw e;
+    const d = await callGateway(action, payload);
+    return d.rows || [];
+  }
+}
+
+/** Upload a file to Supabase Storage. Returns the stored path. */
+async function uploadToStorage(file, path, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', CFG.supabaseUrl + '/storage/v1/object/documents/' + encodeURI(path));
+    xhr.setRequestHeader('apikey', CFG.supabaseAnonKey);
+    xhr.setRequestHeader('Authorization', 'Bearer ' + session.token);
+    xhr.setRequestHeader('x-upsert', 'false');
+    if (file.type) xhr.setRequestHeader('Content-Type', file.type);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve(path);
+      else if (xhr.status === 409) reject(new Error('A file with that name is already stored. Change the version label.'));
+      else if (xhr.status === 401 || xhr.status === 403) reject(new Error('Not allowed to upload. Ask for the documents bucket to be opened to you.'));
+      else reject(new Error('Upload failed (' + xhr.status + ')'));
+    };
+    xhr.onerror = () => reject(new Error('Upload failed. Check your connection.'));
+    xhr.send(file);
+  });
+}
+
 /* ------------------------------------------------------------------ auth */
 
 async function sendMagicLink(email) {
@@ -174,7 +235,7 @@ const TABS = [
   { id: 'meetings', icon: '\u25D0', label: 'Meetings',     title: 'Meetings',
     sub: 'Schedule a Zoom against a contact and keep it on their record.' },
   { id: 'docs',     icon: '\u25AC', label: 'Documents',    title: 'Documents',
-    sub: 'Decks, monthly reports and weekly notes, with the link to send.' },
+    sub: 'Upload a deck or report, and it is versioned, stored and announced to the team.' },
   { id: 'network',  icon: '\u25CB', label: 'Network',      title: 'LinkedIn network',
     sub: 'First-degree connections, separate from the contact book.' },
   { id: 'ask',      icon: '\u25C7', label: 'Ask',          title: 'Ask',
@@ -264,6 +325,18 @@ function empty(headline, note) {
     el('p', null, note || ''));
 }
 
+/** Same shape as load(), but the caller supplies the fetch itself. */
+async function fill(body, get, draw) {
+  try {
+    const rows = await get();
+    clear(body);
+    draw(rows);
+  } catch (e) {
+    clear(body);
+    body.appendChild(el('div', { class: 'banner' }, el('b', null, 'Could not load. '), e.message));
+  }
+}
+
 async function load(body, action, payload, draw) {
   try {
     const data = await callGateway(action, payload);
@@ -349,8 +422,18 @@ RENDER.contacts = function (body) {
   function run() {
     clear(out);
     out.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading…'));
-    load(out, 'contacts.search', { q: input.value.trim(), filter }, (d) => {
-      const rows = d.rows || [];
+    fill(out, () => {
+      const q = input.value.trim();
+      let sel = 'select=*&limit=60&order=last_interaction.desc.nullslast';
+      if (q) {
+        const t = '*' + q.replace(/[,()*]/g, '') + '*';
+        sel += '&or=(name.ilike.' + t + ',company.ilike.' + t + ',city.ilike.' + t + ')';
+      }
+      if (filter === 'knows') sel += '&knows_taranis=not.is.null';
+      if (filter === 'due')   sel += '&next_step=not.is.null';
+      if (filter === 'quiet') sel += '&last_interaction=lt.' + new Date(Date.now() - 60 * 86400000).toISOString();
+      return readRows('contacts', sel, 'contacts.search', { q, filter });
+    }, (rows) => {
       if (!rows.length) return out.appendChild(empty('No one matches', 'Try a surname, or the firm on its own.'));
       for (const c of rows) {
         const q = daysSince(c.last_interaction);
@@ -420,8 +503,9 @@ RENDER.email = function (body) {
 };
 
 RENDER.opps = function (body) {
-  load(body, 'wi.mandates.list', { limit: 40 }, (d) => {
-    const rows = d.rows || [];
+  fill(body, () => readRows('wi_mandates',
+        'select=id,investor_name,organization_name,investor_country,investor_city,investor_type,strategies,ticket_min_usd,qualification,fit_score,fit_reason,missing_hard_fields,linkedin_url&order=id.desc&limit=40',
+        'wi.mandates.list', { limit: 40 }), (rows) => {
     if (!rows.length) return body.appendChild(empty('No opportunities yet', 'Screened mandates from With Intelligence land here.'));
     for (const m of rows) {
       const tone = m.qualification === 'matched' ? 'good' : m.qualification === 'uncertain' ? 'signal' : 'bad';
@@ -493,17 +577,115 @@ RENDER.meetings = function (body) {
 };
 
 RENDER.docs = function (body) {
-  load(body, 'docs.list', {}, (d) => {
-    const rows = d.rows || [];
-    if (!rows.length) return body.appendChild(empty('The archive is empty', 'Decks and reports uploaded to the library appear here.'));
-    for (const x of rows) body.appendChild(entry({
-      tone: x.is_current ? 'good' : '',
+  clear(body);
+
+  /* ---------- upload ---------- */
+  let picked = null;
+
+  const input = el('input', { type: 'file', id: 'doc-file',
+    accept: '.pdf,.pptx,.ppt,.docx,.doc,.xlsx,.xls,.png,.jpg,.jpeg' });
+  const drop = el('label', { class: 'drop', for: 'doc-file' },
+    input,
+    el('h4', null, 'Add a document'),
+    el('p', null, 'Drop a deck or report here, or click to choose one. Up to 50 MB.'));
+
+  const chosen = el('div');
+  const title = el('input', { class: 'search', placeholder: 'Title, e.g. Taranis Market Sentiment' });
+  const kind = el('select', { class: 'search' });
+  for (const [v, l] of [['tms', 'TMS presentation'], ['gdn', 'GDN monthly report'],
+                        ['deck', 'Pitch deck'], ['note', 'Weekly note'], ['other', 'Other']])
+    kind.appendChild(el('option', { value: v }, l));
+  const period = el('input', { class: 'search', type: 'month' });
+  const version = el('input', { class: 'search', placeholder: 'Version, e.g. v15' });
+  const current = el('input', { type: 'checkbox', id: 'doc-current', checked: 'checked' });
+  const send = el('button', { class: 'btn' }, 'Upload and announce');
+  const prog = el('div', { class: 'bar' }, el('i'));
+  prog.style.display = 'none';
+
+  body.append(
+    drop, chosen,
+    el('div', { class: 'grid2', style: 'margin-top:12px' }, title, kind),
+    el('div', { class: 'grid2', style: 'margin-top:10px' }, period, version),
+    el('div', { class: 'toolbar', style: 'margin-top:12px;align-items:center' },
+      el('label', { style: 'display:flex;gap:7px;align-items:center;font-size:13.5px;color:var(--ink-2)' },
+        current, 'Make this the current version'),
+      send),
+    prog);
+
+  function show(f) {
+    picked = f;
+    clear(chosen);
+    if (!f) return;
+    chosen.appendChild(el('div', { class: 'picked' },
+      el('span', { class: 'nm' }, f.name),
+      el('span', { class: 'sz' }, (f.size / 1048576).toFixed(1) + ' MB')));
+    if (!title.value) title.value = f.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ');
+  }
+  input.addEventListener('change', () => show(input.files[0]));
+  ['dragenter', 'dragover'].forEach(ev =>
+    drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(ev =>
+    drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', e => {
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) show(e.dataTransfer.files[0]);
+  });
+
+  send.addEventListener('click', async () => {
+    if (!picked) return toast('Choose a file first.', true);
+    if (!title.value.trim()) return toast('Give it a title.', true);
+    if (picked.size > 50 * 1048576) return toast('That is over 50 MB. Ask for the limit to be raised.', true);
+    if (DEMO) return toast('Sample data — connect Supabase to upload for real.', true);
+
+    // A predictable path keeps versions of the same document together.
+    const safe = picked.name.replace(/[^A-Za-z0-9._-]+/g, '-');
+    const path = kind.value + '/' + (period.value || new Date().toISOString().slice(0, 7)) + '/' +
+                 (version.value.trim() || 'v1') + '-' + safe;
+
+    send.disabled = true; send.textContent = 'Uploading…';
+    prog.style.display = 'block';
+    try {
+      await uploadToStorage(picked, path, (pc) => { prog.firstChild.style.width = pc + '%'; });
+      send.textContent = 'Filing…';
+      // n8n does the versioning, archiving of the previous one, and the
+      // announcement — the same work DOC 01 already does today.
+      await callGateway('docs.upload', {
+        storage_path: path,
+        doc_key: kind.value,
+        title: title.value.trim(),
+        version_label: version.value.trim() || null,
+        period: period.value || null,
+        is_current: current.checked,
+        filename: picked.name,
+        size_bytes: picked.size,
+        mime: picked.type || null
+      });
+      toast('Uploaded. The team has been told.');
+      go('docs');
+    } catch (e) {
+      toast(e.message, true);
+    } finally {
+      send.disabled = false; send.textContent = 'Upload and announce';
+      prog.style.display = 'none'; prog.firstChild.style.width = '0';
+    }
+  });
+
+  /* ---------- the archive ---------- */
+  const list = el('div', { style: 'margin-top:26px' });
+  body.appendChild(list);
+  list.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading…'));
+
+  fill(list, () => readRows('documents',
+      'select=doc_key,title,version_label,period_date,public_url,is_current,uploaded_at&order=uploaded_at.desc&limit=40',
+      'docs.list', {}), (rows) => {
+    if (!rows.length) return list.appendChild(empty('The archive is empty', 'Whatever you upload above appears here.'));
+    for (const x of rows) list.appendChild(entry({
+      tone: x.is_current ? 'good' : 'quiet',
       rail: x.version_label || '',
       action: x.title,
-      who: x.month_label || '',
-      evidence: [['link  ', x.public_url], ['added ', fmtDate(x.added_on)]],
-      tags: x.is_current ? [['current', 'good']] : [],
-      actions: [{ label: 'Copy the link', run: () => copy(x.public_url) }]
+      who: x.month_label || (x.period_date ? fmtDate(x.period_date) : ''),
+      evidence: [['link  ', x.public_url], ['added ', fmtDate(x.added_on || x.uploaded_at)]],
+      tags: [x.is_current ? ['current', 'good'] : ['superseded', 'quiet']],
+      actions: x.public_url ? [{ label: 'Copy the link', run: () => copy(x.public_url) }] : []
     }));
   });
 };
@@ -518,8 +700,13 @@ RENDER.network = function (body) {
   function run() {
     if (!q.value.trim()) return;
     clear(out);
-    load(out, 'li.search', { q: q.value.trim() }, (d) => {
-      const rows = d.rows || [];
+    fill(out, () => readRows('linkedin_connections',
+        'select=full_name,slug&full_name=ilike.*' + q.value.trim().replace(/[,()*]/g,'') + '*&limit=25',
+        'li.search', { q: q.value.trim() })
+        .then(rs => rs.map(r => ({ full_name: r.full_name,
+              profile_url: r.profile_url || ('https://www.linkedin.com/in/' + (r.slug || '')),
+              match: (r.full_name||'').toLowerCase() === q.value.trim().toLowerCase() ? 'exact' : 'partial' }))),
+      (rows) => {
       if (!rows.length) return out.appendChild(empty('Not a first-degree connection', 'They may still be in the contact book — check Contacts.'));
       for (const p of rows) out.appendChild(entry({
         tone: p.match === 'exact' ? 'good' : 'accent',
@@ -567,7 +754,7 @@ RENDER.ask = function (body) {
 
   if (!log.childNodes.length) {
     log.appendChild(el('div', { class: 'msg' },
-      el('div', { class: 'from' }, 'Console'),
+      el('div', { class: 'from' }, 'Taranis'),
       el('div', { class: 'bub' },
         'Ask about anyone in the book, what was sent and when, opportunities, documents, or the network. ' +
         'Every answer is queried fresh — it never answers from what it said earlier.')));
@@ -584,7 +771,7 @@ RENDER.ask = function (body) {
     log.appendChild(el('div', { class: 'msg me' },
       el('div', { class: 'from' }, 'You'), el('div', { class: 'bub' }, q)));
     const wait = el('div', { class: 'msg' },
-      el('div', { class: 'from' }, 'Console'),
+      el('div', { class: 'from' }, 'Taranis'),
       el('div', { class: 'bub' }, el('span', { class: 'typing' }, el('i'), el('i'), el('i'))));
     log.appendChild(wait);
     log.scrollTop = log.scrollHeight;
@@ -593,7 +780,7 @@ RENDER.ask = function (body) {
       wait.remove();
       const bub = el('div', { class: 'bub' });
       renderAnswer(bub, d.answer || 'No answer came back.');
-      const m = el('div', { class: 'msg' }, el('div', { class: 'from' }, 'Console'), bub);
+      const m = el('div', { class: 'msg' }, el('div', { class: 'from' }, 'Taranis'), bub);
       if (d.sources && d.sources.length) {
         bub.appendChild(el('div', { class: 'srcs' }, 'queried: ' + d.sources.join(', ')));
       }
@@ -601,7 +788,7 @@ RENDER.ask = function (body) {
     } catch (e) {
       wait.remove();
       log.appendChild(el('div', { class: 'msg' },
-        el('div', { class: 'from' }, 'Console'),
+        el('div', { class: 'from' }, 'Taranis'),
         el('div', { class: 'bub', style: 'border-color:var(--bad);color:var(--bad)' }, e.message)));
     }
     log.scrollTop = log.scrollHeight;
@@ -790,7 +977,9 @@ function demoResponse(action) {
       { doc_key: 'tms', title: 'Taranis Market Sentiment', version_label: 'v14', month_label: 'Jul 2026',
         public_url: 'https://example.com/tms-jul.pdf', is_current: true, added_on: Date.now() - 1.2e9 },
       { doc_key: 'gdn', title: 'GDN monthly report', version_label: 'v9', month_label: 'Jun 2026',
-        public_url: 'https://example.com/gdn-jun.pdf', is_current: false, added_on: Date.now() - 4e9 }
+        public_url: 'https://example.com/gdn-jun.pdf', is_current: false, added_on: Date.now() - 4e9 },
+      { doc_key: 'tms', title: 'Taranis Market Sentiment', version_label: 'v13', month_label: 'Jun 2026',
+        public_url: 'https://example.com/tms-jun.pdf', is_current: false, added_on: Date.now() - 4.1e9 }
     ] },
     'li.search': { rows: [
       { full_name: 'Miles Kerstein', profile_url: 'https://www.linkedin.com/in/example', match: 'exact' }
@@ -816,7 +1005,7 @@ function demoResponse(action) {
 function start() {
   $('gate').style.display = 'none';
   $('app').className = 'on';
-  $('who').textContent = DEMO ? 'Sample console' : (session.email || 'Signed in');
+  $('who').textContent = DEMO ? 'Sample data' : (session.email || 'Signed in');
   buildNav();
   go('today');
   if (!DEMO) {
@@ -832,7 +1021,7 @@ $('gate-go').addEventListener('click', async () => {
   if (!email) return toast('Enter your work email.', true);
   if (!CFG.supabaseUrl) {
     $('gate-note').textContent =
-      'No Supabase project configured yet. Open the sample console below, or set TARANIS_CONFIG in config.js.';
+      'No Supabase project connected yet. Open the sample data below, or set TARANIS_CONFIG in config.js.';
     return;
   }
   const b = $('gate-go'); b.disabled = true; b.textContent = 'Sending…';

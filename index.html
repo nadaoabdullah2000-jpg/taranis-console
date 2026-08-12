@@ -4,7 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="referrer" content="strict-origin-when-cross-origin">
-<title>Taranis Console</title>
+
+<!-- Installable app -->
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#00657B">
+<link rel="icon" href="./icon-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Taranis CRM">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Taranis CRM</title>
 
 <!--
   Content Security Policy.
@@ -16,8 +26,10 @@
   default-src 'none';
   script-src 'self';
   style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
-  font-src https://fonts.gstatic.com;
+  font-src 'self' https://fonts.gstatic.com;
   img-src 'self' data:;
+  manifest-src 'self';
+  worker-src 'self';
   connect-src 'self' https://quantcairo.app.n8n.cloud https://*.supabase.co wss://*.supabase.co;
   form-action 'none';
   frame-ancestors 'none';
@@ -26,62 +38,128 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..700&family=Inter:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 
 <style>
 /* ============================================================
-   Taranis Console — instrument-panel typography
-   Display: Instrument Serif   Body: IBM Plex Sans   Data: IBM Plex Mono
+   Taranis CRM
+   Display : GT Flexa Ext Rg     (falls back to Archivo Expanded)
+   Body    : AktivGrotesk-Light  (falls back to Inter Light)
+   Data    : IBM Plex Mono
+   Palette : the Taranis brand swatches
    ============================================================ */
+
+/* The licensed faces load from ./fonts/ if the files are present.
+   If they are not, the browser silently uses the free stand-ins
+   below and the layout is unaffected. */
+@font-face{
+  font-family:'GT Flexa Ext';
+  src:url('./fonts/GT-Flexa-Expanded-Regular.woff2') format('woff2');
+  font-weight:400; font-style:normal; font-display:swap;
+}
+@font-face{
+  font-family:'Aktiv Grotesk';
+  src:url('./fonts/AktivGrotesk-Light.woff2') format('woff2');
+  font-weight:300; font-style:normal; font-display:swap;
+}
+@font-face{
+  font-family:'Aktiv Grotesk';
+  src:url('./fonts/AktivGrotesk-Regular.woff2') format('woff2');
+  font-weight:400; font-style:normal; font-display:swap;
+}
+@font-face{
+  font-family:'Aktiv Grotesk';
+  src:url('./fonts/AktivGrotesk-Medium.woff2') format('woff2');
+  font-weight:500 600; font-style:normal; font-display:swap;
+}
+
 :root{
-  --ink:#14181f;
-  --ink-2:#3d454f;
-  --ink-3:#6b7480;
-  --paper:#f6f6f3;
+  /* --- brand ------------------------------------------------ */
+  --teal:#00657B;        /* deep teal   */
+  --sky:#57C0D6;         /* mid cyan    */
+  --sky-2:#6CCADE;       /* light cyan  */
+  --ochre:#C48500;       /* amber       */
+  --olive:#949362;       /* khaki       */
+
+  /* --- surfaces & text -------------------------------------- */
+  /* Body text sits on white, and #00657B alone is too light to
+     read comfortably at 15px, so the ink is a darker cousin of it. */
+  --ink:#052A33;
+  --ink-2:#00657B;
+  --ink-3:#5F8089;
+  --paper:#F2F8F9;
   --card:#ffffff;
-  --rule:#dcdcd5;
-  --rule-2:#ebebe5;
-  --accent:#1d4e89;
-  --accent-soft:#e8eef6;
-  --signal:#a8560c;      /* needs a person */
-  --signal-soft:#fbf0e3;
-  --good:#186b3d;
-  --good-soft:#e7f2eb;
-  --bad:#96122f;
-  --bad-soft:#fbe9ec;
-  --shadow:0 1px 2px rgba(20,24,31,.05),0 8px 24px -12px rgba(20,24,31,.18);
+  --rule:#CDE2E7;
+  --rule-2:#E5F1F3;
+
+  /* --- states ------------------------------------------------ */
+  --accent:#00657B;      --accent-soft:#DFEFF3;
+  --good:#00657B;        --good-soft:#DFEFF3;
+  --signal:#A97300;      --signal-soft:#FAF0DA;   /* ochre, darkened for contrast */
+  --quiet:#7C7B4E;       --quiet-soft:#EFEFE4;    /* olive: screened out, not an error */
+  /* The palette has no red, and a failure cannot be signalled in
+     teal. This brick is mixed to sit beside the ochre. */
+  --bad:#A6402E;         --bad-soft:#F9E9E5;
+
+  --shadow:0 1px 2px rgba(5,42,51,.05),0 8px 24px -12px rgba(5,42,51,.22);
   --rail:44px;
+
+  --font-display:'GT Flexa Ext','Archivo',system-ui,sans-serif;
+  --font-body:'Aktiv Grotesk','Inter',system-ui,-apple-system,sans-serif;
+  --font-data:'IBM Plex Mono',ui-monospace,monospace;
 }
 @media (prefers-color-scheme: dark){
   :root{
-    --ink:#eceae4; --ink-2:#b3b8c0; --ink-3:#7f8791;
-    --paper:#101318; --card:#171b22; --rule:#2a2f38; --rule-2:#20242b;
-    --accent:#7aa7dd; --accent-soft:#1a2534;
-    --signal:#e0a262; --signal-soft:#2b2116;
-    --good:#6dc191; --good-soft:#152720;
-    --bad:#e78ba0;  --bad-soft:#2a161c;
-    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.6);
+    --ink:#E6F2F4; --ink-2:#A4C6CE; --ink-3:#77969E;
+    --paper:#032027; --card:#082D37; --rule:#134450; --rule-2:#0D3843;
+    --accent:#6CCADE; --accent-soft:#0B3A46;
+    --good:#6CCADE;   --good-soft:#0B3A46;
+    --signal:#E0A64A; --signal-soft:#31270F;
+    --quiet:#B5B37C;  --quiet-soft:#2A2A1A;
+    --bad:#E08A76;    --bad-soft:#331812;
+    --shadow:0 1px 2px rgba(0,0,0,.45),0 8px 24px -12px rgba(0,0,0,.65);
   }
 }
 *,*::before,*::after{box-sizing:border-box}
 html,body{height:100%}
 body{
   margin:0; background:var(--paper); color:var(--ink);
-  font-family:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
-  font-size:15px; line-height:1.5;
+  font-family:var(--font-body);
+  font-size:15px; font-weight:300; line-height:1.55;
   -webkit-font-smoothing:antialiased;
 }
 button,input,textarea,select{font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
-.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.mono{font-family:var(--font-data);font-variant-numeric:tabular-nums}
 
-/* ---------- Sign in ---------- */
-#gate{position:fixed;inset:0;display:grid;place-items:center;background:var(--paper);z-index:100;padding:24px}
+/* ---------- The logo ---------- */
+/* The supplied file, unaltered. It is drawn for dark backgrounds — the
+   wordmark is near-white and the trefoil cyan — so it only ever sits on
+   the brand black. Both places it appears are black for that reason. */
+.wm{display:block;width:100%;height:auto;aspect-ratio:199/134}
+
+/* ---------- Sign in: the brand cover ---------- */
+#gate{
+  position:fixed;inset:0;display:grid;place-items:center;z-index:100;padding:24px;
+  background:#101315 url('./brand-pattern.svg') center/cover no-repeat;
+  color:#F2F8F9;
+}
 .gate-card{width:100%;max-width:380px}
-.gate-mark{font-family:"Instrument Serif",serif;font-size:44px;line-height:1;letter-spacing:-.01em;margin:0 0 4px}
-.gate-sub{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 32px}
+#gate .field span{color:#BBD3D9}
+#gate .field input{
+  background:rgba(255,255,255,.05);border-color:rgba(87,192,214,.35);color:#F2F8F9;
+}
+#gate .field input::placeholder{color:#6D858C}
+#gate .field input:focus{border-color:var(--sky);background:rgba(255,255,255,.09);outline:none}
+#gate .btn{background:var(--sky);border-color:var(--sky);color:#06232B}
+#gate .btn:hover{background:var(--sky-2);border-color:var(--sky-2);opacity:1}
+#gate .gate-note{color:#93AAB1}
+#gate .linkish{color:var(--sky)}
+#gate :focus-visible{outline-color:var(--sky)}
+.gate-mark{width:196px;margin:0 0 20px}
+.gate-sub{font-family:var(--font-data);font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:#7FA9B4;margin:0 0 34px}
 .field{display:block;margin-bottom:12px}
 .field span{display:block;font-size:12px;font-weight:600;margin-bottom:6px;color:var(--ink-2)}
 .field input{width:100%;padding:11px 12px;border:1px solid var(--rule);border-radius:6px;background:var(--card)}
@@ -98,15 +176,20 @@ button,input,textarea,select{font:inherit;color:inherit}
 #app.on{display:grid;grid-template-columns:216px 1fr;grid-template-rows:100%}
 
 nav{border-right:1px solid var(--rule);background:var(--card);display:flex;flex-direction:column;overflow-y:auto}
-.brand{padding:20px 18px 16px;border-bottom:1px solid var(--rule-2)}
-.brand h1{font-family:"Instrument Serif",serif;font-size:25px;margin:0;line-height:1;letter-spacing:-.01em}
-.brand p{font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:6px 0 0}
+.brand{padding:18px 18px 14px;border-bottom:1px solid var(--rule-2);background:#101315;color:#fff;text-align:center}
+.brand .wm{width:96px;margin:0 auto 6px}
+@media (display-mode:standalone){
+  nav{padding-top:env(safe-area-inset-top)}
+  .head{padding-top:calc(22px + env(safe-area-inset-top))}
+  #ask-bar{padding-bottom:calc(18px + env(safe-area-inset-bottom))}
+}
+.brand p{font-family:var(--font-data);font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:#6F949D;margin:0}
 .navlist{padding:10px 8px;flex:1}
 .navbtn{display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;border:0;background:none;border-radius:6px;cursor:pointer;text-align:left;font-size:14px;color:var(--ink-2);margin-bottom:1px}
 .navbtn:hover{background:var(--rule-2)}
 .navbtn[aria-current="page"]{background:var(--accent-soft);color:var(--accent);font-weight:600}
 .navbtn .ic{width:16px;text-align:center;font-size:13px;opacity:.8}
-.navbtn .ct{margin-left:auto;font-family:"IBM Plex Mono",monospace;font-size:11px;background:var(--signal);color:#fff;padding:1px 6px;border-radius:9px;font-weight:600}
+.navbtn .ct{margin-left:auto;font-family:var(--font-data);font-size:11px;background:var(--signal);color:#fff;padding:1px 6px;border-radius:9px;font-weight:600}
 @media (prefers-color-scheme:dark){.navbtn .ct{color:#171b22}}
 .navfoot{padding:12px;border-top:1px solid var(--rule-2);font-size:12px;color:var(--ink-3)}
 .navfoot .who{display:block;color:var(--ink-2);font-weight:600;margin-bottom:2px;word-break:break-all}
@@ -114,7 +197,7 @@ nav{border-right:1px solid var(--rule);background:var(--card);display:flex;flex-
 
 main{overflow-y:auto;display:flex;flex-direction:column}
 .head{padding:22px 28px 14px;border-bottom:1px solid var(--rule);position:sticky;top:0;background:var(--paper);z-index:5}
-.head h2{font-family:"Instrument Serif",serif;font-size:30px;margin:0;line-height:1.05;letter-spacing:-.01em}
+.head h2{font-family:var(--font-display);font-stretch:125%;font-weight:600;letter-spacing:-.02em;font-size:28px;margin:0;line-height:1.05;letter-spacing:-.01em}
 .head p{margin:5px 0 0;color:var(--ink-3);font-size:13.5px;max-width:64ch}
 .body{padding:20px 28px 48px;flex:1}
 .toolbar{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
@@ -124,37 +207,39 @@ main{overflow-y:auto;display:flex;flex-direction:column}
 .entry{background:var(--card);border:1px solid var(--rule);border-radius:8px;margin-bottom:10px;display:grid;grid-template-columns:var(--rail) 1fr;overflow:hidden;box-shadow:var(--shadow)}
 .entry-rail{border-right:1px solid var(--rule-2);display:flex;flex-direction:column;align-items:center;padding:14px 0 10px;gap:7px;background:var(--rule-2)}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--ink-3);flex:none}
-.dot.good{background:var(--good)} .dot.signal{background:var(--signal)} .dot.bad{background:var(--bad)} .dot.accent{background:var(--accent)}
-.rail-n{font-family:"IBM Plex Mono",monospace;font-size:10px;color:var(--ink-3);writing-mode:vertical-rl;letter-spacing:.06em}
+.dot.good{background:var(--good)} .dot.signal{background:var(--signal)} .dot.bad{background:var(--bad)}
+.dot.accent{background:var(--sky)} .dot.quiet{background:var(--quiet)}
+.rail-n{font-family:var(--font-data);font-size:10px;color:var(--ink-3);writing-mode:vertical-rl;letter-spacing:.06em}
 .entry-main{padding:14px 16px}
 .entry-act{font-size:15px;font-weight:600;margin:0 0 3px;line-height:1.35}
 .entry-who{font-size:13px;color:var(--ink-2);margin:0 0 8px}
 .entry-who b{font-weight:600;color:var(--ink)}
-.ev{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-2);line-height:1.65;padding-left:14px;border-left:2px solid var(--rule);margin:0}
+.ev{font-family:var(--font-data);font-size:12px;color:var(--ink-2);line-height:1.65;padding-left:14px;border-left:2px solid var(--rule);margin:0}
 .ev div{margin-bottom:1px}
 .ev .k{color:var(--ink-3)}
 .acts{display:flex;gap:6px;margin-top:11px;flex-wrap:wrap}
-.tag{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:3px;background:var(--rule-2);color:var(--ink-2);font-weight:500}
+.tag{font-family:var(--font-data);font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:3px;background:var(--rule-2);color:var(--ink-2);font-weight:500}
 .tag.good{background:var(--good-soft);color:var(--good)}
 .tag.signal{background:var(--signal-soft);color:var(--signal)}
 .tag.bad{background:var(--bad-soft);color:var(--bad)}
 .tag.accent{background:var(--accent-soft);color:var(--accent)}
+.tag.quiet{background:var(--quiet-soft);color:var(--quiet)}
 
 .empty{text-align:center;padding:56px 20px;color:var(--ink-3)}
 .empty p{margin:0 0 14px;font-size:14px}
-.empty .big{font-family:"Instrument Serif",serif;font-size:22px;color:var(--ink-2);margin-bottom:6px}
+.empty .big{font-family:var(--font-display);font-stretch:125%;letter-spacing:-.005em;font-size:22px;color:var(--ink-2);margin-bottom:6px}
 
 /* ---------- Ask (chat) ---------- */
 #ask-wrap{display:flex;flex-direction:column;height:100%}
 #ask-log{flex:1;overflow-y:auto;padding:20px 28px}
 .msg{max-width:78ch;margin-bottom:18px}
-.msg .from{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:5px}
+.msg .from{font-family:var(--font-data);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:5px}
 .msg.me{margin-left:auto}
 .msg.me .bub{background:var(--accent-soft);border-color:transparent}
 .bub{background:var(--card);border:1px solid var(--rule);border-radius:8px;padding:13px 15px;white-space:pre-wrap;word-wrap:break-word;font-size:14.5px;line-height:1.6}
 .bub b{font-weight:600}
 .bub a{color:var(--accent)}
-.srcs{margin-top:9px;padding-top:8px;border-top:1px solid var(--rule-2);font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3)}
+.srcs{margin-top:9px;padding-top:8px;border-top:1px solid var(--rule-2);font-family:var(--font-data);font-size:11px;color:var(--ink-3)}
 #ask-bar{border-top:1px solid var(--rule);padding:12px 28px 18px;background:var(--paper);position:sticky;bottom:0}
 #ask-row{display:flex;gap:8px;align-items:flex-end;max-width:900px}
 #ask-in{flex:1;padding:11px 13px;border:1px solid var(--rule);border-radius:8px;background:var(--card);resize:none;max-height:150px;font-size:14.5px}
@@ -171,7 +256,7 @@ main{overflow-y:auto;display:flex;flex-direction:column}
 .sheet.on{display:grid}
 .sheet-in{background:var(--card);border-radius:10px;max-width:620px;width:100%;max-height:86vh;overflow-y:auto;box-shadow:0 24px 60px -12px rgba(0,0,0,.4)}
 .sheet-hd{padding:18px 22px 12px;border-bottom:1px solid var(--rule-2)}
-.sheet-hd h3{font-family:"Instrument Serif",serif;font-size:23px;margin:0}
+.sheet-hd h3{font-family:var(--font-display);font-stretch:125%;letter-spacing:-.005em;font-size:23px;margin:0}
 .sheet-bd{padding:18px 22px}
 .sheet-ft{padding:14px 22px 18px;display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--rule-2)}
 .ta{width:100%;padding:11px 12px;border:1px solid var(--rule);border-radius:6px;background:var(--paper);resize:vertical;min-height:150px;font-size:14px;line-height:1.6}
@@ -181,6 +266,20 @@ main{overflow-y:auto;display:flex;flex-direction:column}
 #toast.on{transform:translateX(-50%) translateY(0)}
 #toast.bad{background:var(--bad)}
 
+/* Documents upload */
+.drop{border:1.5px dashed var(--rule);border-radius:10px;background:var(--card);padding:26px 20px;text-align:center;transition:border-color .15s,background .15s;cursor:pointer}
+.drop:hover,.drop.over{border-color:var(--sky);background:var(--accent-soft)}
+.drop h4{font-family:var(--font-display);font-stretch:125%;font-weight:600;font-size:17px;margin:0 0 4px}
+.drop p{margin:0;font-size:13px;color:var(--ink-3)}
+.drop input[type=file]{display:none}
+.picked{display:flex;align-items:center;gap:10px;background:var(--accent-soft);border-radius:7px;padding:9px 13px;margin-top:10px;font-size:13.5px}
+.picked .nm{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.picked .sz{font-family:var(--font-data);font-size:11.5px;color:var(--ink-3);margin-left:auto;flex:none}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:620px){.grid2{grid-template-columns:1fr}}
+.bar{height:4px;background:var(--rule-2);border-radius:2px;overflow:hidden;margin-top:10px}
+.bar i{display:block;height:100%;background:var(--sky);width:0;transition:width .25s}
+
 .banner{background:var(--signal-soft);border:1px solid var(--signal);color:var(--signal);padding:9px 14px;border-radius:6px;font-size:13px;margin-bottom:16px}
 .banner b{font-weight:600}
 
@@ -189,7 +288,7 @@ main{overflow-y:auto;display:flex;flex-direction:column}
   #app.on{grid-template-columns:1fr;grid-template-rows:auto 1fr}
   nav{flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--rule);align-items:center}
   .brand{border-bottom:0;border-right:1px solid var(--rule-2);padding:12px 14px;flex:none}
-  .brand h1{font-size:19px} .brand p{display:none}
+  .brand .wm{width:62px;margin:0} .brand p{display:none}
   .navlist{display:flex;padding:8px;flex:none}
   .navbtn{white-space:nowrap;margin:0 1px 0 0}
   .navbtn .ic{display:none}
@@ -204,8 +303,8 @@ main{overflow-y:auto;display:flex;flex-direction:column}
 <!-- ===================== SIGN IN ===================== -->
 <div id="gate">
   <div class="gate-card">
-    <h1 class="gate-mark">Taranis</h1>
-    <p class="gate-sub">Fundraising console</p>
+    <h1 class="gate-mark"><img class="wm" src="./taranis-logo.png" alt="Taranis" width="199" height="134"></h1>
+    <p class="gate-sub">Customer relationship management</p>
     <label class="field"><span>Work email</span>
       <input id="gate-email" type="email" autocomplete="username" placeholder="you@taranis.net"></label>
     <button class="btn" id="gate-go" style="width:100%">Send sign-in link</button>
@@ -217,7 +316,7 @@ main{overflow-y:auto;display:flex;flex-direction:column}
 <!-- ===================== APP ===================== -->
 <div id="app">
   <nav>
-    <div class="brand"><h1>Taranis</h1><p>Console</p></div>
+    <div class="brand"><img class="wm" src="./taranis-logo.png" alt="Taranis" width="199" height="134"><p>CRM</p></div>
     <div class="navlist" id="navlist"></div>
     <div class="navfoot">
       <span class="who" id="who">—</span>
@@ -242,5 +341,6 @@ main{overflow-y:auto;display:flex;flex-direction:column}
 <div id="toast" role="status" aria-live="polite"></div>
 
 <script src="./app.js"></script>
+<script src="./pwa.js"></script>
 </body>
 </html>
