@@ -13,13 +13,14 @@
    (the HTML, the script, the icons).
    ========================================================================= */
 
-const VERSION = 'taranis-v7';
+const VERSION = 'taranis-v10';
 const SHELL = [
   './',
   './index.html',
   './app.js',
   './pwa.js',
   './brand-pattern.svg',
+  './brand-pattern-light.svg',
   './taranis-logo.png',
   './icon-192.png',
   './icon-512.png',
