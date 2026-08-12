@@ -233,14 +233,16 @@ async function readRows(table, query, action, payload) {
 }
 
 /** Upload a file to Supabase Storage. Returns the stored path. */
-async function uploadToStorage(file, path, onProgress) {
+async function uploadToStorage(file, path, onProgress, replace) {
   await ensureToken();
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', CFG.supabaseUrl + '/storage/v1/object/documents/' + encodeURI(path));
     xhr.setRequestHeader('apikey', CFG.supabaseAnonKey);
     xhr.setRequestHeader('Authorization', 'Bearer ' + session.token);
-    xhr.setRequestHeader('x-upsert', 'false');
+    // Off by default so a second upload of the same month cannot quietly
+    // destroy the first. Replacing has to be asked for.
+    xhr.setRequestHeader('x-upsert', replace ? 'true' : 'false');
     if (file.type) xhr.setRequestHeader('Content-Type', file.type);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
@@ -264,6 +266,10 @@ async function uploadToStorage(file, path, onProgress) {
         }
         if (/exceeded|too large/i.test(why)) {
           return reject(new Error('The bucket rejects a file this size. Raise its limit in Storage settings.'));
+        }
+        if (/already exists|Duplicate/i.test(why)) {
+          return reject(new Error('Something is already stored at ' + path
+            + '. Give this one a version label, or tick "Replace what is there" to overwrite it.'));
         }
       } catch (_) { /* not JSON; fall through to the status */ }
 
@@ -1592,6 +1598,7 @@ RENDER.docs = function (body) {
   const period = el('input', { class: 'search', type: 'month' });
   const version = el('input', { class: 'search', placeholder: 'Version, e.g. v15' });
   const current = el('input', { type: 'checkbox', id: 'doc-current', checked: 'checked' });
+  const replace = el('input', { type: 'checkbox', id: 'doc-replace' });
   const send = el('button', { class: 'btn' }, 'Upload and announce');
   const prog = el('div', { class: 'bar' }, el('i'));
   prog.style.display = 'none';
@@ -1603,6 +1610,8 @@ RENDER.docs = function (body) {
     el('div', { class: 'toolbar', style: 'margin-top:12px;align-items:center' },
       el('label', { style: 'display:flex;gap:7px;align-items:center;font-size:13.5px;color:var(--ink-2)' },
         current, 'Make this the current version'),
+      el('label', { style: 'display:flex;gap:7px;align-items:center;font-size:13.5px;color:var(--ink-2)' },
+        replace, 'Replace what is there'),
       send),
     prog);
 
@@ -1632,13 +1641,19 @@ RENDER.docs = function (body) {
 
     // A predictable path keeps versions of the same document together.
     const safe = picked.name.replace(/[^A-Za-z0-9._-]+/g, '-');
+    // A blank version used to mean "v1" every time, so the second upload of
+    // the same document in the same month always collided. Unlabelled
+    // uploads now carry the day and time instead, and stay distinct.
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
+    const label = version.value.trim();
     const path = kind.value + '/' + (period.value || new Date().toISOString().slice(0, 7)) + '/' +
-                 (version.value.trim() || 'v1') + '-' + safe;
+                 (label || stamp) + '-' + safe;
 
     send.disabled = true; send.textContent = 'Uploading…';
     prog.style.display = 'block';
     try {
-      await uploadToStorage(picked, path, (pc) => { prog.firstChild.style.width = pc + '%'; });
+      await uploadToStorage(picked, path, (pc) => { prog.firstChild.style.width = pc + '%'; },
+        replace.checked);
       send.textContent = 'Filing…';
       // n8n does the versioning, archiving of the previous one, and the
       // announcement — the same work DOC 01 already does today.
@@ -2389,13 +2404,45 @@ async function openProfile(c) {
   const nameLike = '*' + String(c.name || '').replace(/[,()*]/g, '') + '*';
 
   const [mail, notes] = await Promise.all([
-    (async () => { try {
-      let sel = 'select=*&order=received_at.desc&limit=25';
-      sel += addr
-        ? '&or=(counterparty_addr.eq.' + encodeURIComponent(addr) + ',counterparty_name.ilike.' + nameLike + ')'
-        : '&counterparty_name.ilike.' + nameLike;
-      return await readRows('crm_emails_app', sel, 'emails.search', { q: c.name, side: 'all' });
-    } catch (_) { return []; } })(),
+    (async () => {
+      /* Somebody who was only ever CC'd is not the counterparty on the
+         thread, so searching counterparty_addr misses them entirely --
+         which is exactly what happened to everyone added from a CC list.
+         Both readings are collected and merged: the shaped view for the
+         summary and the side, and the raw table for every message their
+         address appears on at all, in From, To or CC. */
+      const out = new Map();
+
+      try {
+        let sel = 'select=*&order=received_at.desc&limit=25';
+        sel += addr
+          ? '&or=(counterparty_addr.eq.' + encodeURIComponent(addr) + ',counterparty_name.ilike.' + nameLike + ')'
+          : '&counterparty_name.ilike.' + nameLike;
+        for (const m of await readRows('crm_emails_app', sel, 'emails.search', { q: c.name, side: 'all' })) {
+          out.set(String(m.id), m);
+        }
+      } catch (_) { /* fall through to the raw table */ }
+
+      try {
+        const ors = [];
+        if (c.id !== undefined && c.id !== null && /^\d+$/.test(String(c.id))) {
+          ors.push('contact_id.eq.' + c.id);
+        }
+        if (addr) {
+          const t = '*' + addr.replace(/[,()*]/g, '') + '*';
+          ors.push('from_addr.ilike.' + t, 'to_addr.ilike.' + t, 'cc_addr.ilike.' + t);
+        }
+        if (ors.length) {
+          const rows = await supaSelect('crm_emails',
+            'select=id,received_at,direction,from_addr,to_addr,cc_addr,subject,summary'
+            + '&or=(' + ors.join(',') + ')&order=received_at.desc&limit=40');
+          for (const m of rows) if (!out.has(String(m.id))) out.set(String(m.id), m);
+        }
+      } catch (_) { /* the shaped rows still show */ }
+
+      return Array.from(out.values())
+        .sort((x, y) => String(y.received_at || '').localeCompare(String(x.received_at || '')));
+    })(),
     (async () => { try {
       let sel = 'select=*&order=note_date.desc&limit=25&or=(contact_name.ilike.' + nameLike;
       if (c.id) sel += ',contact_id.eq.' + encodeURIComponent(c.id);
@@ -2420,15 +2467,34 @@ async function openProfile(c) {
   host.appendChild(head(mail.length
     ? (mail.length >= 25 ? '25+ emails' : mail.length + (mail.length === 1 ? ' email' : ' emails'))
     : 'No email on record'));
+  const clean = (v) => String(v || '').replace(/["<>]/g, '').replace(/\s+/g, ' ').trim();
+  const onIt = (m) => {
+    // Say plainly how this person was on the message, because "1 as CC" in
+    // the notes is meaningless without knowing which one.
+    if (!addr) return '';
+    const inF = String(m.from_addr || '').toLowerCase().indexOf(addr) > -1;
+    const inT = String(m.to_addr || '').toLowerCase().indexOf(addr) > -1;
+    const inC = String(m.cc_addr || '').toLowerCase().indexOf(addr) > -1;
+    return inF ? 'they sent it' : inT ? 'sent to them' : inC ? 'copied in' : '';
+  };
+
   for (const m of mail) {
     const out = String(m.direction || '').toLowerCase().indexOf('out') === 0
       || String(m.direction || '').toLowerCase() === 'sent';
     host.appendChild(entry({
       tone: 'quiet', rail: out ? 'sent' : 'in',
       action: m.subject || '(no subject)',
-      who: fmtDate(m.received_at),
-      evidence: [['about ', m.summary]],
-      actions: [{ label: 'Read the email', run: () => readEmail(m.id, m.subject) }]
+      who: fmtDate(m.received_at) + (onIt(m) ? '  ·  ' + onIt(m) : ''),
+      evidence: [
+        ['about ', m.summary],
+        ['from  ', clean(m.from_addr)],
+        ['to    ', clean(m.to_addr)],
+        ['cc    ', clean(m.cc_addr)],
+        ['intent', m.intent]
+      ],
+      actions: [
+        { label: 'Read the email', primary: true, run: () => readEmail(m.id, m.subject) }
+      ]
     }));
   }
 }
