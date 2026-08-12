@@ -191,8 +191,8 @@ nav{
   background:#0E1113 url('./brand-pattern.svg') center center / cover no-repeat;
   color:#DCE9EC;
   display:flex;flex-direction:column;overflow-y:auto}
-.brand{padding:22px 22px 16px;border-bottom:1px solid rgba(87,192,214,.18);text-align:left}
-.brand .wm{width:118px;max-width:60%;margin:0 0 7px}
+.brand{padding:20px 18px;border-bottom:1px solid rgba(87,192,214,.18);text-align:left}
+.brand .wm{width:100%;max-width:none;margin:0}
 @media (display-mode:standalone){
   nav{padding-top:env(safe-area-inset-top)}
   .head{padding-top:calc(22px + env(safe-area-inset-top))}
@@ -353,7 +353,7 @@ main{
 <!-- ===================== APP ===================== -->
 <div id="app">
   <nav>
-    <div class="brand"><img class="wm" src="./taranis-logo.png" alt="Taranis" width="467" height="240"><p>CRM</p></div>
+    <div class="brand"><img class="wm" src="./taranis-logo.png" alt="Taranis" width="467" height="240"></div>
     <div class="navlist" id="navlist"></div>
     <div class="navfoot">
       <span class="who" id="who">—</span>

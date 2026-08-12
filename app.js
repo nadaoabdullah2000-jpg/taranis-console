@@ -161,6 +161,32 @@ async function callGateway(action, payload) {
    approving or sending has to run the workflow behind it.
    ------------------------------------------------------------------------- */
 
+/* Postgres says precisely what it objected to, and PostgREST passes that
+   through in the body. Printing only the status code turns a one-line fix
+   into a guessing game, which is what happened with the storage bucket. */
+async function supaWhy(res, what) {
+  let e = {};
+  try { e = await res.json(); } catch (_) { /* not JSON */ }
+  const msg = String(e.message || e.error || '').trim();
+  const hint = String(e.hint || e.details || '').trim();
+
+  if (res.status === 401 || res.status === 403 || /row-level security/i.test(msg)) {
+    return 'Not permitted ' + what + '. That table needs a policy for the console.'
+      + (msg ? ' (' + msg + ')' : '');
+  }
+  if (/column .* does not exist|Could not find the .* column/i.test(msg)) {
+    return 'A column the app sends does not exist on that table: ' + msg;
+  }
+  if (/null value in column/i.test(msg)) {
+    return 'A required column was left empty and has no default: ' + msg;
+  }
+  if (/invalid input syntax|violates .* constraint/i.test(msg)) {
+    return 'The database rejected a value: ' + msg + (hint ? ' \u2014 ' + hint : '');
+  }
+  return 'Database returned ' + res.status + ' ' + what + (msg ? ': ' + msg : '')
+       + (hint ? ' (' + hint + ')' : '');
+}
+
 async function supaSelect(table, query) {
   if (!CFG.supabaseUrl || !session || !session.token) throw new Error('NO_SUPABASE');
   await ensureToken();
@@ -171,8 +197,7 @@ async function supaSelect(table, query) {
       Accept: 'application/json'
     }
   });
-  if (res.status === 401 || res.status === 403) throw new Error('Not permitted. Ask for access to be added.');
-  if (!res.ok) throw new Error('Database returned ' + res.status);
+  if (!res.ok) throw new Error(await supaWhy(res, 'reading ' + table));
   return await res.json();
 }
 
@@ -190,10 +215,7 @@ async function supaInsert(table, row) {
     },
     body: JSON.stringify(row)
   });
-  if (res.status === 401 || res.status === 403) {
-    throw new Error('Not permitted to save. The notes table needs an insert policy.');
-  }
-  if (!res.ok) throw new Error('Database returned ' + res.status + ' saving to ' + table);
+  if (!res.ok) throw new Error(await supaWhy(res, 'saving to ' + table));
   const back = await res.json();
   return Array.isArray(back) ? back[0] : back;
 }
@@ -781,12 +803,86 @@ RENDER.email = function (body) {
     }
   }
 
+  /* ------------------------------------------------------ add somebody
+
+     Straight into contacts, so a person met yesterday can be written to
+     today without waiting for CRM 04 to find them in the mailbox. */
+
+  const nName  = el('input', { class: 'search', placeholder: 'Full name' });
+  const nMail  = el('input', { class: 'search', type: 'email', placeholder: 'Email address' });
+  const nPhone = el('input', { class: 'search', placeholder: 'Phone' });
+  const nComp  = el('input', { class: 'search', placeholder: 'Company' });
+  const nRole  = el('input', { class: 'search', placeholder: 'Role' });
+  const nCity  = el('input', { class: 'search', placeholder: 'City' });
+  const nCtry  = el('input', { class: 'search', placeholder: 'Country' });
+  const nSide  = el('select', { class: 'search' },
+    el('option', { value: 'client' }, 'Client'),
+    el('option', { value: 'taranis' }, 'Taranis'));
+  const nKnows = el('select', { class: 'search' },
+    el('option', { value: '' }, 'Do they know Taranis?'),
+    el('option', { value: 'yes' }, 'Yes'),
+    el('option', { value: 'vaguely' }, 'Vaguely'),
+    el('option', { value: 'no' }, 'No'));
+  const nNotes = el('textarea', { class: 'ta', style: 'min-height:90px',
+    placeholder: 'Anything else worth knowing \u2014 where you met, what they are after, ticket size.' });
+
+  const addBtn = el('button', { class: 'btn', onclick: () => addPerson() }, 'Add them to the book');
+
+  async function addPerson() {
+    if (!nName.value.trim()) return toast('A name is the one thing required.', true);
+    addBtn.disabled = true; addBtn.textContent = 'Saving\u2026';
+    try {
+      const row = {
+        name:              nName.value.trim(),
+        email:             nMail.value.trim().toLowerCase() || null,
+        phone:             nPhone.value.trim() || null,
+        company:           nComp.value.trim() || null,
+        role:              nRole.value.trim() || null,
+        city:              nCity.value.trim() || null,
+        country:           nCtry.value.trim() || null,
+        category:          nSide.value === 'taranis' ? 'taranis' : 'client',
+        knows_taranis:     nKnows.value || null,
+        intelligence_text: nNotes.value.trim() || null,
+        source:            'console'
+      };
+      const saved = await supaInsert('contacts', row);
+      toast(row.name + ' added to the book.');
+      [nName, nMail, nPhone, nComp, nRole, nCity, nCtry].forEach(x => { x.value = ''; });
+      nNotes.value = ''; nKnows.value = '';
+      runList();
+      if (saved && saved.id) openProfile(Object.assign({ knows_us: 'unknown' }, saved));
+    } catch (e) {
+      toast(e.message, true);
+    } finally {
+      addBtn.disabled = false; addBtn.textContent = 'Add them to the book';
+    }
+  }
+
+  const lbl2 = (t, node) => el('label', { class: 'field' }, el('span', null, t), node);
+  const addForm = el('div', { style: 'max-width:900px;display:none;margin-bottom:8px' },
+    el('div', { class: 'grid2' }, lbl2('Name', nName), lbl2('Email', nMail)),
+    el('div', { class: 'grid2' }, lbl2('Phone', nPhone), lbl2('Company', nComp)),
+    el('div', { class: 'grid2' }, lbl2('Role', nRole), lbl2('Taranis or client', nSide)),
+    el('div', { class: 'grid2' }, lbl2('City', nCity), lbl2('Country', nCtry)),
+    lbl2('Do they know Taranis?', nKnows),
+    lbl2('Anything else', nNotes),
+    addBtn);
+
+  let addOpen = false;
+  const addToggle = el('button', { class: 'btn btn-sm btn-quiet', onclick: () => {
+    addOpen = !addOpen;
+    addForm.style.display = addOpen ? 'block' : 'none';
+    addToggle.textContent = addOpen ? 'Never mind' : '+ Add a person';
+    if (addOpen) nName.focus();
+  } }, '+ Add a person');
+
   const list = el('div');
   body.append(
     el('p', { class: 'mono',
       style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:26px 0 8px' },
       'Who to write to'),
-    el('div', { class: 'toolbar' }, find), sideChips, list);
+    el('div', { class: 'toolbar' }, find, addToggle),
+    addForm, sideChips, list);
   paintSide();
 
   function runList() {
@@ -1730,22 +1826,41 @@ RENDER.reports = function (body) {
 
 RENDER.network = function (body) {
   clear(body);
-  const q = el('input', { class: 'search', placeholder: 'Name to look up…' });
+  const q = el('input', { class: 'search', type: 'search',
+    placeholder: 'A name, or paste a LinkedIn profile URL\u2026' });
   body.appendChild(el('div', { class: 'toolbar' }, q,
     el('button', { class: 'btn btn-sm', onclick: () => run() }, 'Look up')));
   const out = el('div'); body.appendChild(out);
   q.addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
+
+  /* A pasted URL carries the query string, the trailing slash and sometimes
+     the country subdomain, none of which are in the stored profile_url. The
+     part that identifies the person is the slug after /in/, so that is what
+     gets matched. Anything that is not a URL is treated as a name. */
+  function asHandle(v) {
+    const m = String(v || '').match(/linkedin\.com\/in\/([^/?#\s]+)/i);
+    return m ? decodeURIComponent(m[1]).toLowerCase() : null;
+  }
+
   function run() {
-    if (!q.value.trim()) return;
+    const raw = q.value.trim();
+    if (!raw) return;
     clear(out);
+    const handle = asHandle(raw);
+    const term = (handle || raw).replace(/[,()*]/g, '');
     // linkedin_mutual gives one row per person with mutual_to as a list
     // of names, resolved from account_id through linkedin_accounts.
     fill(out, () => readRows('linkedin_mutual',
-        'select=*&full_name=ilike.*' + q.value.trim().replace(/[,()*]/g, '') + '*'
-          + '&order=mutual_count.desc&limit=40',
-        'li.mutual', { q: q.value.trim() }),
+        'select=*&or=(full_name.ilike.*' + term + '*,profile_url.ilike.*' + term + '*)'
+          + '&order=mutual_count.desc&limit=60',
+        'li.mutual', { q: raw }),
       (rows) => {
-      if (!rows.length) return out.appendChild(empty('Not a first-degree connection', 'They may still be in the contact book — check Contacts.'));
+      if (!rows.length) {
+        return out.appendChild(empty('Not a first-degree connection',
+          asHandle(q.value)
+            ? 'That profile is not in the cached connection list. They may still be in the contact book — check Contacts.'
+            : 'No connection by that name. Try a surname on its own, or paste their profile URL.'));
+      }
       for (const p of rows) {
         const who = Array.isArray(p.mutual_to) ? p.mutual_to.join(', ') : (p.mutual_to || '');
         out.appendChild(entry({
@@ -2158,71 +2273,116 @@ async function localDossier(host, person) {
    itself, every email either way, and any notes filed against them. The
    list views stay short because the detail lives here instead. */
 
+let PROFILE_BACK = null;
+
+/** A person as a page of their own, not a panel over the top of a list. */
 async function openProfile(c) {
-  // Callers hand over whatever they have. The Follow up list only knows a
-  // name and an address; an approval only knows an investor name. Anything
-  // that is not already a full contact record gets resolved against the
-  // book first, by address, then by name, so the panel is the same panel
-  // wherever it was opened from.
+  closeSheet();
+  if (current !== 'profile') PROFILE_BACK = current;
+  current = 'profile';
+  document.querySelectorAll('.navbtn').forEach(b => b.setAttribute('aria-current', 'false'));
+
+  const body = $('pg-body');
+  clear(body);
+  $('pg-title').textContent = (c && c.name) || 'Contact';
+  $('pg-sub').textContent = 'Reading the record\u2026';
+  const host = el('div');
+  body.appendChild(host);
+  host.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading\u2026'));
+
+  // Callers hand over whatever they have: the Follow up list knows a name and
+  // an address, an approval knows an investor name. Anything that is not a
+  // full contact record is resolved against the book first, so the page is
+  // the same page wherever it was opened from.
   if (c && c.knows_us === undefined) {
     try {
       const addr = String(c.email || c.addr || '').toLowerCase().trim();
-      let sel = 'select=*&limit=1';
-      if (addr) sel += '&email=ilike.' + encodeURIComponent(addr);
-      else sel += ilikeAny(['name'], String(c.name || ''));
-      let hit = await readRows('contacts_app', sel, 'contacts.search', { q: c.name || '', filter: 'all' });
+      let hit = [];
+      if (addr) {
+        hit = await readRows('contacts_app', 'select=*&limit=1&email=ilike.' + encodeURIComponent(addr),
+          'contacts.search', { q: c.name || '', filter: 'all' });
+      }
       if (!hit.length && c.name) {
-        hit = await readRows('contacts_app',
-          'select=*&limit=1' + ilikeAny(['name'], String(c.name)),
+        hit = await readRows('contacts_app', 'select=*&limit=1' + ilikeAny(['name'], String(c.name)),
           'contacts.search', { q: c.name, filter: 'all' });
       }
-      if (hit.length) c = Object.assign({}, c, hit[0]);
-      else c = Object.assign({}, c, { not_in_book: true });
+      c = hit.length ? Object.assign({}, c, hit[0]) : Object.assign({}, c, { not_in_book: true });
     } catch (_) { /* show what we were given */ }
   }
 
-  const host = el('div');
-  sheet(c.name || 'Contact', [host], [
-    el('button', { class: 'btn btn-sm', onclick: () => { closeSheet(); PENDING.draft = c.name; go('email'); } }, 'Draft an email'),
-    el('button', { class: 'btn btn-sm btn-quiet', onclick: () => { closeSheet(); PENDING.meet = c.name; go('meetings'); } }, 'Book a Zoom'),
-    el('button', { class: 'btn btn-sm btn-quiet', onclick: closeSheet }, 'Close')
-  ]);
+  clear(host);
+  $('pg-title').textContent = c.name || 'Contact';
+  $('pg-sub').textContent = [c.role || c.title, c.company].filter(Boolean).join('  \u00B7  ')
+    || 'Contact record';
 
-  const line = (k, v) => {
-    const t = asText(v);
-    return t ? el('div', { class: 'ev' }, el('div', null, el('span', { class: 'k' }, k + '  '), t)) : null;
-  };
-  const head = (t) => el('p', { class: 'mono',
-    style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:18px 0 6px' }, t);
+  const back = el('div', { class: 'acts', style: 'margin-bottom:20px' },
+    el('button', { class: 'btn btn-sm btn-quiet',
+      onclick: () => go(PROFILE_BACK || 'contacts') }, '\u2190 Back'),
+    el('button', { class: 'btn btn-sm',
+      onclick: () => { PENDING.draft = c.name; go('email'); } }, 'Draft an email'),
+    el('button', { class: 'btn btn-sm btn-quiet',
+      onclick: () => { PENDING.meet = c.name; go('meetings'); } }, 'Book a Zoom'));
+  host.appendChild(back);
 
-  const dq = daysSince(c.last_contact_at || c.last_interaction);
   if (c.not_in_book) {
     host.appendChild(el('div', { class: 'banner' },
       el('b', null, 'Not in the contact book. '),
       'Everything below comes from email and notes rather than a contact record.'));
   }
-  host.append(...[
-    line('role      ', c.role || c.title),
-    line('company   ', c.company),
-    line('where     ', [c.city, c.country].filter(Boolean).join(', ')),
-    line('email     ', c.email),
-    line('phone     ', c.phone || c.contact_phone),
-    line('knows us  ', c.knows_us),
-    line('side      ', c.side),
-    line('category  ', c.category),
-    line('status    ', c.status),
-    line('next step ', c.next_step),
-    line('last spoke', (c.last_contact_at || c.last_interaction)
-        ? fmtDate(c.last_contact_at || c.last_interaction) + (dq !== null ? '  (' + dq + ' days)' : '')
-        : 'never'),
-    line('exchanges ', c.contact_count),
-    line('ticket    ', c.aum_band),
-    line('region    ', c.region),
-    line('terms     ', c.introducer_terms),
-    line('intel     ', c.intelligence_text || c.raw_notes)
+
+  /* A field on the page, not a line in a code block. The label stays quiet;
+     the value is the thing you came to read, so it carries the weight. */
+  const field = (label, value, big) => {
+    const t = asText(value);
+    if (!t) return null;
+    return el('div', { style: 'margin-bottom:' + (big ? '14px' : '11px') },
+      el('div', { class: 'mono',
+        style: 'font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px' },
+        label),
+      el('div', { style: 'font-size:' + (big ? '16px' : '14.5px')
+        + ';font-weight:' + (big ? '600' : '500') + ';line-height:1.5' }, t));
+  };
+  const head = (t) => el('p', { class: 'mono',
+    style: 'font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);'
+         + 'margin:28px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--rule)' }, t);
+
+  const dq = daysSince(c.last_contact_at || c.last_interaction);
+  const grid = el('div', { class: 'grid2', style: 'max-width:820px' });
+  const col1 = el('div'), col2 = el('div');
+  grid.append(col1, col2);
+
+  col1.append(...[
+    field('Company', c.company, true),
+    field('Email', c.email, true),
+    field('Phone', c.phone || c.contact_phone, true),
+    field('Role', c.role || c.title),
+    field('Where', [c.city, c.country].filter(Boolean).join(', ')),
+    field('Region', c.region)
   ].filter(Boolean));
 
-  const loading = el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px;margin-top:16px' }, 'Reading the rest\u2026');
+  col2.append(...[
+    field('Last spoke', (c.last_contact_at || c.last_interaction)
+      ? fmtDate(c.last_contact_at || c.last_interaction) + (dq !== null ? '   (' + dq + ' days ago)' : '')
+      : 'Never', true),
+    field('Knows Taranis', c.knows_us),
+    field('Side', c.side === 'taranis' ? 'Taranis' : c.side === 'external' ? 'Client' : c.side),
+    field('Category', c.category),
+    field('Status', c.status),
+    field('Next step', c.next_step),
+    field('Ticket band', c.aum_band),
+    field('Introducer terms', c.introducer_terms),
+    field('Exchanges', c.contact_count)
+  ].filter(Boolean));
+
+  host.appendChild(grid);
+
+  const intel = asText(c.intelligence_text || c.raw_notes);
+  if (intel) {
+    host.append(head('What we know'), el('p', { style: 'max-width:820px;line-height:1.7' }, intel));
+  }
+
+  const loading = el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px;margin-top:22px' },
+    'Reading their email and notes\u2026');
   host.appendChild(loading);
 
   const addr = String(c.email || '').toLowerCase().trim();
@@ -2243,7 +2403,6 @@ async function openProfile(c) {
       return await supaSelect('notes', sel);
     } catch (_) { return []; } })()
   ]);
-
   loading.remove();
 
   if (notes.length) {
@@ -2258,7 +2417,9 @@ async function openProfile(c) {
     }
   }
 
-  host.appendChild(head(mail.length ? (mail.length >= 25 ? '25+ emails' : mail.length + ' emails') : 'No email on record'));
+  host.appendChild(head(mail.length
+    ? (mail.length >= 25 ? '25+ emails' : mail.length + (mail.length === 1 ? ' email' : ' emails'))
+    : 'No email on record'));
   for (const m of mail) {
     const out = String(m.direction || '').toLowerCase().indexOf('out') === 0
       || String(m.direction || '').toLowerCase() === 'sent';
