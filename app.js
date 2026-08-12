@@ -71,6 +71,24 @@ function toast(msg, bad) {
   toast._t = setTimeout(() => { t.className = ''; }, 3600);
 }
 
+/* PostgREST hands jsonb back as real objects and arrays, not strings. The
+   gateway used to cast them with ::text, so the app never saw one. Rendered
+   raw they come out as [object Object], or as nothing at all when empty. */
+function asText(v) {
+  if (v === null || v === undefined || v === '') return '';
+  if (Array.isArray(v)) {
+    return v.map(x => (x && typeof x === 'object')
+      ? (x.name || x.label || x.value || JSON.stringify(x))
+      : String(x)).filter(Boolean).join(', ');
+  }
+  if (typeof v === 'object') {
+    const parts = [];
+    for (const k in v) if (v[k] !== null && v[k] !== '') parts.push(k + ': ' + v[k]);
+    return parts.join(', ');
+  }
+  return String(v);
+}
+
 function fmtDate(v) {
   if (!v) return '—';
   const d = new Date(v);
@@ -206,10 +224,30 @@ async function uploadToStorage(file, path, onProgress) {
       if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
     };
     xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve(path);
-      else if (xhr.status === 409) reject(new Error('A file with that name is already stored. Change the version label.'));
-      else if (xhr.status === 401 || xhr.status === 403) reject(new Error('Not allowed to upload. Ask for the documents bucket to be opened to you.'));
-      else reject(new Error('Upload failed (' + xhr.status + ')'));
+      if (xhr.status >= 200 && xhr.status < 300) return resolve(path);
+
+      // Storage explains itself in the body, and throwing that away turned
+      // every failure into a bare number. Supabase also answers an RLS
+      // refusal with 400 rather than 403, so the status alone misleads.
+      let why = '';
+      try {
+        const e = JSON.parse(xhr.responseText || '{}');
+        why = e.message || e.error || '';
+        if (/row-level security|Unauthorized|403/i.test(why + ' ' + (e.statusCode || ''))) {
+          return reject(new Error('The documents bucket will not accept uploads from the console. '
+            + 'It needs a storage insert policy. (' + why + ')'));
+        }
+        if (/Bucket not found/i.test(why)) {
+          return reject(new Error('There is no bucket called "documents" in this project.'));
+        }
+        if (/exceeded|too large/i.test(why)) {
+          return reject(new Error('The bucket rejects a file this size. Raise its limit in Storage settings.'));
+        }
+      } catch (_) { /* not JSON; fall through to the status */ }
+
+      if (xhr.status === 409) return reject(new Error('A file with that name is already stored. Change the version label.'));
+      if (xhr.status === 401 || xhr.status === 403) return reject(new Error('Not allowed to upload. Ask for the documents bucket to be opened to you.'));
+      reject(new Error('Upload failed (' + xhr.status + ')' + (why ? ': ' + why : '')));
     };
     xhr.onerror = () => reject(new Error('Upload failed. Check your connection.'));
     xhr.send(file);
@@ -340,6 +378,8 @@ const TABS = [
     sub: 'Scheduled, waiting on approval, or cancelled. The join link and passcode live here.' },
   { id: 'docs',     icon: '\u25AC', label: 'Documents',    title: 'Documents',
     sub: 'Upload a deck or report, and it is versioned, stored and announced to the team.' },
+  { id: 'reports',  icon: '\u25F0', label: 'Reports',      title: 'Weekly report',
+    sub: 'The Friday dashboard, read from the stored snapshot rather than a Telegram attachment.' },
   { id: 'network',  icon: '\u25CB', label: 'Network',      title: 'LinkedIn network',
     sub: 'First-degree connections, separate from the contact book.' },
   { id: 'ask',      icon: '\u25C7', label: 'Ask',          title: 'Ask',
@@ -466,7 +506,72 @@ async function load(body, action, payload, draw) {
 
 const RENDER = {};
 
+/* What WI 01 screened lately, and why it threw things out. The reasons live
+   in hard_fail_reasons on each mandate, which is the same column OPS 02
+   counts for the Friday dashboard, so the two always agree. */
+async function wiStrip(host) {
+  try {
+    const since = new Date(Date.now() - 7 * 864e5).toISOString();
+    const rows = await readRows('wi_mandates',
+      'select=qualification,hard_fail_reasons,fit_reason,created_at'
+      + '&created_at=gte.' + since + '&limit=500', 'wi.mandates.list', {});
+    if (!rows.length) return;
+
+    const by = { matched: 0, uncertain: 0, rejected: 0 };
+    const why = {};
+    for (const r of rows) {
+      const q = String(r.qualification || '').toLowerCase();
+      if (by[q] !== undefined) by[q] += 1;
+      if (q !== 'rejected') continue;
+      let reasons = r.hard_fail_reasons;
+      if (typeof reasons === 'string') { try { reasons = JSON.parse(reasons); } catch (_) { reasons = []; } }
+      if (!Array.isArray(reasons) || !reasons.length) reasons = r.fit_reason ? [r.fit_reason] : ['not stated'];
+      for (const x of reasons) { const k = String(x).trim(); if (k) why[k] = (why[k] || 0) + 1; }
+    }
+    const top = Object.keys(why).sort((x, y) => why[y] - why[x]).slice(0, 5);
+
+    const num = (n, lbl, cls) => el('div', { style: 'min-width:96px' },
+      el('div', { class: 'mono', style: 'font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)' }, lbl),
+      el('div', { style: 'font-size:24px;font-weight:600;' + (cls || '') }, String(n)));
+
+    const box = el('div', { style: 'border:1px solid var(--rule);border-radius:10px;padding:16px 18px;margin-bottom:22px;background:var(--card)' },
+      el('p', { class: 'mono',
+        style: 'font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 12px' },
+        'Screening \u2014 last 7 days'),
+      el('div', { style: 'display:flex;gap:26px;flex-wrap:wrap;margin-bottom:' + (top.length ? '14px' : '0') },
+        num(rows.length, 'screened'),
+        num(by.matched, 'matched', 'color:var(--good)'),
+        num(by.uncertain, 'to review', 'color:var(--signal)'),
+        num(by.rejected, 'rejected', 'color:var(--bad)')));
+
+    if (top.length) {
+      box.appendChild(el('p', { class: 'mono',
+        style: 'font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin:0 0 6px' },
+        'Why they were rejected'));
+      const list = el('div', { class: 'ev' });
+      for (const k of top) {
+        list.appendChild(el('div', null,
+          el('span', { class: 'k' }, String(why[k]).padStart(3, ' ') + '  '), k));
+      }
+      box.appendChild(list);
+      box.appendChild(el('div', { class: 'acts' },
+        el('button', { class: 'btn btn-sm btn-quiet', onclick: () => go('opps') }, 'See the mandates'),
+        by.uncertain ? el('button', { class: 'btn btn-sm', onclick: () => go('approvals') },
+          by.uncertain + ' waiting on you') : null));
+    }
+    host.insertBefore(box, host.firstChild);
+  } catch (_) { /* the feed still shows without it */ }
+}
+
 RENDER.today = function (body) {
+  const strip = el('div');
+  body.appendChild(strip);
+  wiStrip(strip);
+
+  const feed = el('div');
+  body.appendChild(feed);
+  body = feed;
+
   fill(body, async () => {
     if (DEMO) { const d = await demoResponse('today.feed'); return { items: d.items || [] }; }
     const rows = await readRows('app_notifications',
@@ -498,7 +603,23 @@ RENDER.today = function (body) {
 };
 
 RENDER.approvals = function (body) {
-  load(body, 'wi.reviews.pending', {}, (d) => {
+  // Was the last tab still going through n8n. When the gateway refuses on
+  // the execution cap its error carries no CORS header, so the browser threw
+  // the response away and reported "Failed to fetch" instead of a reason.
+  // wi_mandates is readable directly, so nothing here needs a workflow.
+  fill(body, async () => {
+    const rows = await readRows('wi_mandates',
+      'select=id,investor_name,organization_name,investor_country,investor_type,'
+      + 'ticket_min_usd,fit_score,fit_reason'
+      + '&qualification=eq.uncertain&published_at=is.null'
+      + '&order=fit_score.desc.nullslast&limit=60',
+      'wi.reviews.pending', {});
+    return { rows: rows.map(r => Object.assign({}, r, {
+      review_id: String(r.id),
+      contact_name: r.investor_name,
+      company: r.organization_name
+    })) };
+  }, (d) => {
     const rows = d.rows || [];
     counts.approvals = rows.length;
     paintCounts();
@@ -510,14 +631,15 @@ RENDER.approvals = function (body) {
         action: r.contact_name || 'Unnamed investor',
         who: r.company || '',
         evidence: [
-          ['country ', r.investor_country],
-          ['type    ', r.investor_type],
+          ['country ', asText(r.investor_country)],
+          ['type    ', asText(r.investor_type)],
           ['ticket  ', r.ticket_min_usd],
           ['score   ', r.fit_score],
-          ['reason  ', r.fit_reason]
+          ['reason  ', asText(r.fit_reason)]
         ],
         tags: [['pending', 'signal']],
         actions: [
+          { label: 'View profile', run: () => openProfile({ name: r.contact_name || r.company }) },
           { label: 'Approve', primary: true, run: () => act('wi.review.approve', { review_id: r.review_id }, 'Approved') },
           { label: 'Correct a field', run: () => editSheet(r) },
           { label: 'Reject', run: () => act('wi.review.reject', { review_id: r.review_id }, 'Rejected') }
@@ -595,7 +717,8 @@ RENDER.contacts = function (body) {
             c.category ? [c.category, ''] : null
           ].filter(Boolean),
           actions: [
-            { label: 'Draft an email', primary: true, run: () => { PENDING.draft = c.name; go('email'); } },
+            { label: 'View profile', primary: true, run: () => openProfile(c) },
+            { label: 'Draft an email', run: () => { PENDING.draft = c.name; go('email'); } },
             { label: 'Book a Zoom', run: () => { PENDING.meet = c.name; go('meetings'); } },
             { label: 'History', run: () => askAbout('What did we send ' + c.name + ' and when was our last contact?') }
           ]
@@ -629,6 +752,98 @@ RENDER.email = function (body) {
     el('div', { class: 'toolbar' }, brief, go1));
   const out = el('div'); body.appendChild(out);
   if (PENDING.draft) { to.value = PENDING.draft; PENDING.draft = null; brief.focus(); }
+
+  /* ------------------------------------------------- who to write to
+
+     The book split the way the fundraising works: clients on one side,
+     Taranis people on the other. Name, country, what the last exchange was
+     about, and when it was — enough to decide who is worth writing to
+     without opening anyone. Picking someone fills the field above.
+     Read straight from contacts_app, so this needs no workflow. */
+
+  let side = 'external', findTimer = null;
+  const find = el('input', { class: 'search', type: 'search',
+    placeholder: 'Search by name, firm, city or country\u2026' });
+  find.addEventListener('input', () => { clearTimeout(findTimer); findTimer = setTimeout(runList, 300); });
+
+  const sideChips = el('div', { class: 'chips' });
+  const sideBtns = {};
+  for (const [k, lbl] of [['external', 'Clients'], ['taranis', 'Taranis people'],
+                          ['quiet', 'Gone quiet'], ['all', 'Everyone']]) {
+    sideBtns[k] = el('button', { class: 'chip', onclick: () => { side = k; paintSide(); runList(); } }, lbl);
+    sideChips.appendChild(sideBtns[k]);
+  }
+  function paintSide() {
+    for (const k in sideBtns) {
+      sideBtns[k].style.borderColor = (k === side) ? 'var(--accent)' : '';
+      sideBtns[k].style.color       = (k === side) ? 'var(--accent)' : '';
+      sideBtns[k].style.fontWeight  = (k === side) ? '600' : '';
+    }
+  }
+
+  const list = el('div');
+  body.append(
+    el('p', { class: 'mono',
+      style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:26px 0 8px' },
+      'Who to write to'),
+    el('div', { class: 'toolbar' }, find), sideChips, list);
+  paintSide();
+
+  function runList() {
+    clear(list);
+    list.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading\u2026'));
+    fill(list, () => {
+      const q = find.value.trim();
+      let sel = 'select=*&limit=120&order=last_contact_at.desc.nullslast';
+      if (q) {
+        const t = '*' + q.replace(/[,()*]/g, '') + '*';
+        sel += '&or=(name.ilike.' + t + ',company.ilike.' + t
+             + ',city.ilike.' + t + ',country.ilike.' + t + ')';
+      }
+      if (side === 'external' || side === 'taranis') sel += '&side=eq.' + side;
+      else if (side === 'quiet') sel += '&or=(days_quiet.gt.60,last_contact_at.is.null)';
+      return readRows('contacts_app', sel, 'contacts.search',
+        { q: q, filter: side === 'taranis' ? 'taranis' : side === 'external' ? 'clients' : 'all' });
+    }, (rows) => {
+      if (!rows.length) {
+        return list.appendChild(empty('Nobody here',
+          side === 'taranis' ? 'No internal people match that.' : 'Try a surname, a firm, or a country.'));
+      }
+      for (const c of rows) {
+        const dq = daysSince(c.last_contact_at || c.last_interaction);
+        list.appendChild(entry({
+          tone: c.knows_us === 'yes' ? 'good' : c.knows_us === 'vaguely' ? 'signal' : '',
+          rail: dq === null ? 'never' : dq + 'd',
+          action: c.name,
+          who: [c.country, c.company].filter(Boolean).join('  \u00B7  '),
+          evidence: [
+            ['country    ', c.country],
+            ['last spoke ', (c.last_contact_at || c.last_interaction)
+                ? fmtDate(c.last_contact_at || c.last_interaction)
+                  + (dq !== null ? '  (' + dq + ' days)' : '') : 'never'],
+            ['about      ', c.last_contact_summary || c.last_contact_note],
+            ['email      ', c.email]
+          ],
+          tags: [
+            c.side === 'taranis' ? ['taranis', 'accent'] : ['client', 'good'],
+            c.knows_us === 'yes' ? ['knows us', 'good'] : null
+          ].filter(Boolean),
+          actions: [
+            { label: 'Write to them', primary: true, run: () => {
+                to.value = c.name;
+                brief.focus();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+                toast('Writing to ' + c.name + '. Say what it should cover.');
+              } },
+            { label: 'View profile', run: () => openProfile(c) }
+          ]
+        }));
+      }
+      list.appendChild(el('p', { class: 'mono',
+        style: 'color:var(--ink-3);font-size:12px;margin-top:18px' }, 'Showing ' + rows.length));
+    });
+  }
+  runList();
 
   go1.addEventListener('click', async () => {
     if (!to.value.trim()) return toast('Name the contact first.', true);
@@ -784,7 +999,8 @@ RENDER.inbox = function (body) {
               p.owed ? ['owed a reply', 'signal'] : null
             ].filter(Boolean),
             actions: [
-              { label: 'Draft an email', primary: true, run: () => { PENDING.draft = p.name; go('email'); } },
+              { label: 'View profile', primary: true, run: () => openProfile(p) },
+              { label: 'Draft an email', run: () => { PENDING.draft = p.name; go('email'); } },
               { label: 'Read the last email', run: () => readEmail(p.id, p.subject) },
               { label: 'All their email', run: () => { input.value = p.name; view = 'emails'; run(); } },
               { label: 'History', run: () => askAbout('What did we send ' + p.name
@@ -819,6 +1035,11 @@ RENDER.inbox = function (body) {
           ].filter(Boolean),
           actions: [
             { label: 'Read the email', primary: true, run: () => readEmail(m.id, m.subject) },
+            m.counterparty_name || m.counterparty_addr
+              ? { label: 'View profile', run: () => openProfile({
+                  name: m.counterparty_name || m.counterparty_addr,
+                  email: m.counterparty_addr }) }
+              : null,
             m.counterparty_name
               ? { label: 'Draft a reply', run: () => { PENDING.draft = m.counterparty_name; go('email'); } }
               : null
@@ -839,18 +1060,23 @@ RENDER.opps = function (body) {
       body.appendChild(entry({
         tone,
         rail: '#' + m.id,
-        action: m.investor_name || 'Unnamed',
+        action: m.investor_name || m.organization_name || ('Mandate #' + m.id),
         who: [m.organization_name, m.investor_country, m.investor_city].filter(Boolean).join(' · '),
         evidence: [
-          ['type      ', m.investor_type],
-          ['strategy  ', m.strategies],
+          ['type      ', asText(m.investor_type)],
+          ['strategy  ', asText(m.strategies)],
           ['ticket    ', m.ticket_min_usd],
           ['score     ', m.fit_score],
-          ['reason    ', m.fit_reason],
-          ['not stated', m.missing_hard_fields]
+          ['reason    ', asText(m.fit_reason)],
+          ['not stated', asText(m.missing_hard_fields)],
+          // If a mandate is empty in every column above, say so rather than
+          // drawing a blank stripe with no explanation.
+          ['note      ', (!m.investor_name && !m.organization_name && !m.fit_reason)
+              ? 'This row has no investor details stored. WI 01 created it but never filled it in.' : null]
         ],
         tags: [[m.qualification, tone]],
         actions: [
+          { label: 'View profile', run: () => openProfile({ name: m.investor_name || m.organization_name }) },
           { label: 'Fill a gap', run: () => fillSheet(m) },
           m.qualification === 'rejected'
             ? { label: 'Accept anyway', run: () => act('wi.mandate.accept', { id: m.id }, 'Accepted and published') }
@@ -859,6 +1085,8 @@ RENDER.opps = function (body) {
         ].filter(Boolean)
       }));
     }
+    body.appendChild(el('p', { class: 'mono',
+      style: 'color:var(--ink-3);font-size:12px;margin-top:18px' }, 'Showing ' + rows.length));
   });
 };
 
@@ -1054,6 +1282,8 @@ RENDER.notes = function (body) {
           ],
           tags: [n.in_contact_book ? ['in the book', 'good'] : ['not linked', 'quiet']],
           actions: n.contact_name ? [
+            { label: 'View profile', primary: true,
+              run: () => openProfile({ name: n.contact_name, email: n.contact_email, id: n.contact_id }) },
             { label: 'History', run: () => askAbout('What did we send ' + n.contact_name
                 + ' and when did we last speak?') }
           ] : []
@@ -1363,6 +1593,141 @@ RENDER.docs = function (body) {
   });
 };
 
+RENDER.reports = function (body) {
+  clear(body);
+
+  /* OPS 02 writes the whole Friday dashboard into weekly_snapshots.metrics
+     as one jsonb blob, then sends a Telegram message and an HTML file. The
+     numbers are all in that blob, so the report can be read here instead of
+     hunting for an attachment in a group chat. */
+
+  fill(body, () => supaSelect('weekly_snapshots',
+    'select=taken_at,metrics&order=taken_at.desc&limit=12'), (rows) => {
+
+    if (!rows.length) {
+      return body.appendChild(empty('No report stored yet',
+        'OPS 02 runs Friday at 19:00 Cairo and saves a snapshot. Nothing has been saved so far.'));
+    }
+
+    const J = (v) => { if (typeof v === 'string') { try { return JSON.parse(v); } catch (_) { return {}; } } return v || {}; };
+    const A = (v) => { const x = J(v); return Array.isArray(x) ? x : []; };
+    const n = (v) => Number(v || 0);
+    const money = (v) => { const x = n(v); return x >= 1e6 ? '$' + (x / 1e6).toFixed(1) + 'm'
+                                    : x >= 1e3 ? '$' + Math.round(x / 1e3) + 'k' : '$' + x; };
+
+    let at = 0;
+    const host = el('div');
+
+    const pick = el('select', { class: 'search', style: 'max-width:280px' });
+    rows.forEach((r, i) => pick.appendChild(el('option', { value: String(i) },
+      'Week to ' + fmtDate(r.taken_at))));
+    pick.addEventListener('change', () => { at = Number(pick.value) || 0; draw(); });
+    body.append(el('div', { class: 'toolbar' }, pick), host);
+
+    function draw() {
+      clear(host);
+      const m = J(rows[at].metrics);
+      const p = rows[at + 1] ? J(rows[at + 1].metrics) : null;
+      const d = (k) => p && p[k] !== undefined ? n(m[k]) - n(p[k]) : null;
+      const mv = (k) => { const x = d(k); return x === null ? '' : (x > 0 ? '  \u25B2' + x : x < 0 ? '  \u25BC' + Math.abs(x) : '  \u2014'); };
+
+      const head = (t) => el('p', { class: 'mono',
+        style: 'font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:24px 0 8px' }, t);
+
+      // headline numbers
+      const kpis = el('div', { style: 'display:flex;gap:22px;flex-wrap:wrap;margin-bottom:6px' });
+      for (const [lbl, val, key] of [
+        ['screened', n(m.wi_new), 'wi_new'],
+        ['matched', n(m.wi_matched), 'wi_matched'],
+        ['rejected', n(m.wi_rejected), 'wi_rejected'],
+        ['awaiting you', n(m.wi_awaiting), null],
+        ['matched value', money(m.wi_ticket_value), null],
+        ['emails', n(m.crm_week), 'crm_week'],
+        ['contacts', n(m.contacts_total), 'contacts_total']
+      ]) {
+        kpis.appendChild(el('div', { style: 'min-width:110px' },
+          el('div', { class: 'mono', style: 'font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)' }, lbl),
+          el('div', { style: 'font-size:23px;font-weight:600' }, String(val)),
+          key ? el('div', { class: 'mono', style: 'font-size:11.5px;color:var(--ink-3)' }, mv(key).trim()) : null));
+      }
+      host.append(head('The week'), kpis);
+
+      // screening and why things were thrown out
+      const rej = A(m.wi_reject_reasons);
+      if (rej.length) {
+        host.appendChild(head('Why opportunities were rejected'));
+        const ev = el('div', { class: 'ev' });
+        for (const r of rej) ev.appendChild(el('div', null,
+          el('span', { class: 'k' }, String(n(r.n)).padStart(3, ' ') + '  '), String(r.k)));
+        host.appendChild(ev);
+      }
+
+      const cty = A(m.wi_by_country);
+      if (cty.length) {
+        host.appendChild(head('Where the flow comes from'));
+        const ev = el('div', { class: 'ev' });
+        for (const c of cty.slice(0, 6)) ev.appendChild(el('div', null,
+          el('span', { class: 'k' }, String(n(c.n)).padStart(3, ' ') + '  '),
+          String(c.k) + (['GB', 'CH'].indexOf(String(c.k)) > -1 ? '   (addressable)' : '')));
+        host.appendChild(ev);
+      }
+
+      // who is worth chasing
+      const interest = A(m.taranis_interest).filter(r => n(r.score) > 0);
+      if (interest.length) {
+        host.appendChild(head('Most interested in Taranis'));
+        for (const r of interest.slice(0, 8)) {
+          host.appendChild(entry({
+            tone: n(r.score) >= 75 ? 'good' : n(r.score) >= 55 ? 'signal' : 'quiet',
+            rail: String(n(r.score)),
+            action: r.name,
+            who: [r.company, r.place].filter(Boolean).join('  \u00B7  '),
+            evidence: [
+              ['about ', r.about],
+              ['last  ', r.last_date ? r.last_date + (r.days_since !== null && r.days_since !== undefined
+                  ? '  (' + n(r.days_since) + ' days)' : '') : 'no email on record'],
+              ['aum   ', r.aum_band]
+            ],
+            actions: [{ label: 'View profile', primary: true, run: () => openProfile({ name: r.name, company: r.company }) }]
+          }));
+        }
+      }
+
+      // the mail and the book
+      host.appendChild(head('Activity'));
+      const act = el('div', { class: 'ev' });
+      for (const [k, v] of [
+        ['messages   ', n(m.crm_week) + ' (' + n(m.crm_sent) + ' out, ' + n(m.crm_received) + ' in)'],
+        ['needs reply', n(m.crm_needs_action)],
+        ['engaged    ', n(m.contacts_touched) + ' contacts'],
+        ['linked     ', n(m.crm_linked) + ' of ' + n(m.crm_stored_total) + ' stored']
+      ]) act.appendChild(el('div', null, el('span', { class: 'k' }, k + '  '), String(v)));
+      host.appendChild(act);
+
+      host.appendChild(head('The book'));
+      const bk = el('div', { class: 'ev' });
+      for (const [k, v] of [
+        ['contacts     ', n(m.contacts_total)],
+        ['with email   ', n(m.contacts_with_email)],
+        ['no email     ', n(m.contacts_total) - n(m.contacts_with_email)],
+        ['correspondence', n(m.contacts_with_history)],
+        ['awaiting reply', n(m.awaiting_reply)],
+        ['ever replied ', n(m.ever_replied)],
+        ['quiet 90d+   ', n(m.overdue_90)],
+        ['open steps   ', n(m.open_next_steps)]
+      ]) bk.appendChild(el('div', null, el('span', { class: 'k' }, k + '  '), String(v)));
+      host.appendChild(bk);
+
+      if (!p) {
+        host.appendChild(el('p', { class: 'mono',
+          style: 'color:var(--ink-3);font-size:12px;margin-top:20px' },
+          'First snapshot \u2014 week-on-week movement appears once there are two.'));
+      }
+    }
+    draw();
+  });
+};
+
 RENDER.network = function (body) {
   clear(body);
   const q = el('input', { class: 'search', placeholder: 'Name to look up…' });
@@ -1392,8 +1757,9 @@ RENDER.network = function (body) {
           tags: p.in_contact_book ? [['in the book', 'good']] : [['not in the book', 'quiet']],
           // noopener so LinkedIn cannot reach back into the console tab.
           actions: p.profile_url ? [
-            { label: 'View profile', primary: true,
+            { label: 'View LinkedIn profile', primary: true,
               run: () => window.open(p.profile_url, '_blank', 'noopener,noreferrer') },
+            { label: 'View profile', run: () => openProfile({ name: p.full_name }) },
             { label: 'Copy the link', run: () => copy(p.profile_url) },
             { label: 'History', run: () => askAbout('What do we know about ' + p.full_name
                 + ', and have we ever been in contact?') }
@@ -1786,6 +2152,126 @@ async function localDossier(host, person) {
   }
 }
 
+/* --------------------------------------------------------- one person
+
+   Everything the database holds on somebody, in one panel: the record
+   itself, every email either way, and any notes filed against them. The
+   list views stay short because the detail lives here instead. */
+
+async function openProfile(c) {
+  // Callers hand over whatever they have. The Follow up list only knows a
+  // name and an address; an approval only knows an investor name. Anything
+  // that is not already a full contact record gets resolved against the
+  // book first, by address, then by name, so the panel is the same panel
+  // wherever it was opened from.
+  if (c && c.knows_us === undefined) {
+    try {
+      const addr = String(c.email || c.addr || '').toLowerCase().trim();
+      let sel = 'select=*&limit=1';
+      if (addr) sel += '&email=ilike.' + encodeURIComponent(addr);
+      else sel += ilikeAny(['name'], String(c.name || ''));
+      let hit = await readRows('contacts_app', sel, 'contacts.search', { q: c.name || '', filter: 'all' });
+      if (!hit.length && c.name) {
+        hit = await readRows('contacts_app',
+          'select=*&limit=1' + ilikeAny(['name'], String(c.name)),
+          'contacts.search', { q: c.name, filter: 'all' });
+      }
+      if (hit.length) c = Object.assign({}, c, hit[0]);
+      else c = Object.assign({}, c, { not_in_book: true });
+    } catch (_) { /* show what we were given */ }
+  }
+
+  const host = el('div');
+  sheet(c.name || 'Contact', [host], [
+    el('button', { class: 'btn btn-sm', onclick: () => { closeSheet(); PENDING.draft = c.name; go('email'); } }, 'Draft an email'),
+    el('button', { class: 'btn btn-sm btn-quiet', onclick: () => { closeSheet(); PENDING.meet = c.name; go('meetings'); } }, 'Book a Zoom'),
+    el('button', { class: 'btn btn-sm btn-quiet', onclick: closeSheet }, 'Close')
+  ]);
+
+  const line = (k, v) => {
+    const t = asText(v);
+    return t ? el('div', { class: 'ev' }, el('div', null, el('span', { class: 'k' }, k + '  '), t)) : null;
+  };
+  const head = (t) => el('p', { class: 'mono',
+    style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:18px 0 6px' }, t);
+
+  const dq = daysSince(c.last_contact_at || c.last_interaction);
+  if (c.not_in_book) {
+    host.appendChild(el('div', { class: 'banner' },
+      el('b', null, 'Not in the contact book. '),
+      'Everything below comes from email and notes rather than a contact record.'));
+  }
+  host.append(...[
+    line('role      ', c.role || c.title),
+    line('company   ', c.company),
+    line('where     ', [c.city, c.country].filter(Boolean).join(', ')),
+    line('email     ', c.email),
+    line('phone     ', c.phone || c.contact_phone),
+    line('knows us  ', c.knows_us),
+    line('side      ', c.side),
+    line('category  ', c.category),
+    line('status    ', c.status),
+    line('next step ', c.next_step),
+    line('last spoke', (c.last_contact_at || c.last_interaction)
+        ? fmtDate(c.last_contact_at || c.last_interaction) + (dq !== null ? '  (' + dq + ' days)' : '')
+        : 'never'),
+    line('exchanges ', c.contact_count),
+    line('ticket    ', c.aum_band),
+    line('region    ', c.region),
+    line('terms     ', c.introducer_terms),
+    line('intel     ', c.intelligence_text || c.raw_notes)
+  ].filter(Boolean));
+
+  const loading = el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px;margin-top:16px' }, 'Reading the rest\u2026');
+  host.appendChild(loading);
+
+  const addr = String(c.email || '').toLowerCase().trim();
+  const nameLike = '*' + String(c.name || '').replace(/[,()*]/g, '') + '*';
+
+  const [mail, notes] = await Promise.all([
+    (async () => { try {
+      let sel = 'select=*&order=received_at.desc&limit=25';
+      sel += addr
+        ? '&or=(counterparty_addr.eq.' + encodeURIComponent(addr) + ',counterparty_name.ilike.' + nameLike + ')'
+        : '&counterparty_name.ilike.' + nameLike;
+      return await readRows('crm_emails_app', sel, 'emails.search', { q: c.name, side: 'all' });
+    } catch (_) { return []; } })(),
+    (async () => { try {
+      let sel = 'select=*&order=note_date.desc&limit=25&or=(contact_name.ilike.' + nameLike;
+      if (c.id) sel += ',contact_id.eq.' + encodeURIComponent(c.id);
+      sel += ')';
+      return await supaSelect('notes', sel);
+    } catch (_) { return []; } })()
+  ]);
+
+  loading.remove();
+
+  if (notes.length) {
+    host.appendChild(head(notes.length === 1 ? 'One note' : notes.length + ' notes'));
+    for (const n of notes) {
+      host.appendChild(entry({
+        tone: '', rail: n.note_date ? String(n.note_date).slice(5).replace('-', '/') : '',
+        action: n.title || 'Untitled note',
+        who: [n.place, n.author].filter(Boolean).join('  \u00B7  '),
+        evidence: [['note ', n.body]]
+      }));
+    }
+  }
+
+  host.appendChild(head(mail.length ? (mail.length >= 25 ? '25+ emails' : mail.length + ' emails') : 'No email on record'));
+  for (const m of mail) {
+    const out = String(m.direction || '').toLowerCase().indexOf('out') === 0
+      || String(m.direction || '').toLowerCase() === 'sent';
+    host.appendChild(entry({
+      tone: 'quiet', rail: out ? 'sent' : 'in',
+      action: m.subject || '(no subject)',
+      who: fmtDate(m.received_at),
+      evidence: [['about ', m.summary]],
+      actions: [{ label: 'Read the email', run: () => readEmail(m.id, m.subject) }]
+    }));
+  }
+}
+
 /** Ask, answered from Supabase alone. Renders into the given container. */
 async function answerLocally(host, question) {
   const words = searchTerms(question);
@@ -1794,26 +2280,87 @@ async function answerLocally(host, question) {
   for (const w of words) tries.push(w);
   if (!tries.length) tries.push(String(question || '').trim());
 
-  // People first: a question that names someone is almost always about them.
-  for (const t of tries) {
-    if (!t) continue;
+  // Some questions are about a group, not a person. These are the shapes the
+  // suggestion chips use, and a name search would answer all of them wrongly.
+  const low = String(question || '').toLowerCase();
+  let groupSel = null, groupLabel = '';
+  if (/overdue|follow.?up|chas|quiet|gone cold|owed/.test(low)) {
+    groupSel = 'select=*&or=(has_open_next_step.is.true,days_quiet.gt.60)'
+             + '&order=days_quiet.desc.nullslast&limit=40';
+    groupLabel = 'Overdue a follow-up, longest wait first';
+  } else if (/opportunit|mandate|waiting on me|approve/.test(low)) {
+    const m = await readRows('wi_mandates',
+      'select=id,investor_name,organization_name,investor_country,investor_type,fit_score,fit_reason'
+      + '&qualification=eq.uncertain&published_at=is.null&order=fit_score.desc.nullslast&limit=40',
+      'wi.reviews.pending', {});
+    if (!m.length) { host.appendChild(el('p', null, 'Nothing is waiting on a decision.')); return; }
+    host.appendChild(el('p', { class: 'mono',
+      style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:0 0 6px' },
+      m.length + ' waiting on a decision'));
+    for (const x of m) {
+      host.appendChild(entry({
+        tone: 'signal', rail: x.fit_score !== null && x.fit_score !== undefined ? String(x.fit_score) : '',
+        action: x.investor_name || x.organization_name || ('Mandate #' + x.id),
+        who: [x.organization_name, asText(x.investor_country), asText(x.investor_type)].filter(Boolean).join('  \u00B7  '),
+        evidence: [['why  ', asText(x.fit_reason)]],
+        actions: [{ label: 'Open Approvals', run: () => go('approvals') }]
+      }));
+    }
+    return;
+  }
+
+  // "who knows us" is a filter, not a search term.
+  const wantsKnown = /knows? us|know taranis|knows taranis|heard of us/.test(low);
+
+  // People. A place name has to be matched against city and country too, or
+  // "who in Geneva" only finds firms with Geneva in their name.
+  for (const t of (groupSel ? [null] : tries)) {
     let people = [];
     try {
-      people = await readRows('contacts_app',
-        'select=*&limit=4' + ilikeAny(['name', 'company'], t),
-        'contacts.search', { q: t, filter: 'all' });
+      let sel = groupSel;
+      if (!sel) {
+        if (!t) continue;
+        sel = 'select=*&limit=40&order=last_contact_at.desc.nullslast'
+            + ilikeAny(['name', 'company', 'city', 'country', 'role'], t);
+      }
+      if (wantsKnown) sel += '&knows_us=in.(yes,vaguely)';
+      people = await readRows('contacts_app', sel, 'contacts.search', { q: t || '', filter: 'all' });
     } catch (e) {
       host.appendChild(el('div', { class: 'banner' }, el('b', null, 'Could not read. '), e.message));
       return;
     }
     if (people.length) {
-      if (people.length > 1) {
-        host.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px;margin:0 0 10px' },
-          people.length + ' people match \u201C' + t + '\u201D. Showing each.'));
+      host.appendChild(el('p', { class: 'mono',
+        style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:0 0 8px' },
+        (groupLabel || (people.length + ' match \u201C' + t + '\u201D'))
+        + (wantsKnown ? ', who already know us' : '')));
+
+      // One card each. The full record is behind View profile rather than
+      // printed out for everyone, so a list of thirty stays readable.
+      for (const p of people) {
+        const dq = daysSince(p.last_contact_at || p.last_interaction);
+        host.appendChild(entry({
+          tone: p.knows_us === 'yes' ? 'good' : p.knows_us === 'vaguely' ? 'signal' : '',
+          rail: dq === null ? 'never' : dq + 'd',
+          action: p.name,
+          who: [p.role, p.company, p.city, p.country].filter(Boolean).join('  \u00B7  '),
+          evidence: [
+            ['last spoke ', (p.last_contact_at || p.last_interaction)
+                ? fmtDate(p.last_contact_at || p.last_interaction) : 'never'],
+            ['about      ', p.last_contact_summary || p.last_contact_note],
+            ['next step  ', p.next_step],
+            ['knows us   ', p.knows_us]
+          ],
+          actions: [
+            { label: 'View profile', primary: true, run: () => openProfile(p) },
+            { label: 'Draft an email', run: () => { PENDING.draft = p.name; go('email'); } }
+          ]
+        }));
       }
-      for (const p of people) await localDossier(host, p);
+      if (people.length === 1) await localDossier(host, people[0]);
       return;
     }
+    if (groupSel) break;
   }
 
   // Nobody by that name. Fall back to the words themselves, across the mail
