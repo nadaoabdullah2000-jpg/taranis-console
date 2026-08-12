@@ -201,6 +201,23 @@ async function supaSelect(table, query) {
   return await res.json();
 }
 
+/** Update rows matching a filter. Used to retire the previous current version. */
+async function supaPatch(table, filter, patch) {
+  if (!CFG.supabaseUrl || !session || !session.token) throw new Error('NO_SUPABASE');
+  await ensureToken();
+  const res = await fetch(CFG.supabaseUrl + '/rest/v1/' + table + '?' + filter, {
+    method: 'PATCH',
+    headers: {
+      apikey: CFG.supabaseAnonKey,
+      Authorization: 'Bearer ' + session.token,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal'
+    },
+    body: JSON.stringify(patch)
+  });
+  if (!res.ok) throw new Error(await supaWhy(res, 'updating ' + table));
+}
+
 /** Write one row straight to a table. Returns the stored row. */
 async function supaInsert(table, row) {
   if (!CFG.supabaseUrl || !session || !session.token) throw new Error('NO_SUPABASE');
@@ -592,6 +609,10 @@ async function wiStrip(host) {
 }
 
 RENDER.today = function (body) {
+  // go() leaves a Loading… line in the page body. Every other tab clears it
+  // via fill(); this one repointed body at an inner div first, so the line
+  // was never removed and sat above the strip forever.
+  clear(body);
   const strip = el('div');
   body.appendChild(strip);
   wiStrip(strip);
@@ -617,8 +638,14 @@ RENDER.today = function (body) {
       body.appendChild(entry({
         tone: i.kind === 'review' ? 'signal' : i.kind === 'matched' ? 'good' : 'accent',
         rail: i.source || '',
-        action: i.title,
-        who: i.subtitle,
+        // A row written without a title used to read "Something happened",
+        // which is worse than useless. Fall back through what the row does
+        // carry, and name the workflow that sent it.
+        action: i.title
+          || i.subtitle
+          || ((i.source ? i.source + ' ' : '') + (i.kind || 'update')).trim()
+          || 'Untitled notice',
+        who: i.title ? i.subtitle : (i.title ? '' : 'This notice arrived without a title'),
         evidence: (i.fields || []).map(f => [f.label, f.value]),
         tags: [[i.kind, i.kind === 'review' ? 'signal' : i.kind === 'matched' ? 'good' : 'accent'],
                [fmtDate(i.at), '']],
@@ -667,7 +694,7 @@ RENDER.approvals = function (body) {
         ],
         tags: [['pending', 'signal']],
         actions: [
-          { label: 'View profile', run: () => openProfile({ name: r.contact_name || r.company }) },
+          { label: 'View the mandate', run: () => openMandate(r) },
           { label: 'Approve', primary: true, run: () => act('wi.review.approve', { review_id: r.review_id }, 'Approved') },
           { label: 'Correct a field', run: () => editSheet(r) },
           { label: 'Reject', run: () => act('wi.review.reject', { review_id: r.review_id }, 'Rejected') }
@@ -705,12 +732,14 @@ RENDER.contacts = function (body) {
       // (taranis / external), the cleaned knows_us, and days_quiet.
       let sel = 'select=*&limit=' + shown + '&order=last_contact_at.desc.nullslast';
       if (q) {
-        const t = '*' + q.replace(/[,()*]/g, '') + '*';
+        const t = lk(q);
         sel += '&or=(name.ilike.' + t + ',company.ilike.' + t + ',city.ilike.' + t + ')';
       }
       if (filter === 'knows')   sel += '&knows_us=in.(yes,vaguely)';
-      if (filter === 'due')     sel += '&has_open_next_step=is.true';
-      if (filter === 'quiet')   sel += '&or=(days_quiet.gt.60,last_contact_at.is.null)';
+      // Chasing your own colleagues is not follow-up. Both of these are
+      // about the outside world, so the Taranis side is excluded.
+      if (filter === 'due')     sel += '&has_open_next_step=is.true&side=neq.taranis';
+      if (filter === 'quiet')   sel += '&side=neq.taranis&or=(days_quiet.gt.60,last_contact_at.is.null)';
       if (filter === 'taranis') sel += '&side=eq.taranis';
       if (filter === 'clients') sel += '&side=eq.external';
       return readRows('contacts_app', sel, 'contacts.search', { q, filter });
@@ -898,12 +927,12 @@ RENDER.email = function (body) {
       const q = find.value.trim();
       let sel = 'select=*&limit=120&order=last_contact_at.desc.nullslast';
       if (q) {
-        const t = '*' + q.replace(/[,()*]/g, '') + '*';
+        const t = lk(q);
         sel += '&or=(name.ilike.' + t + ',company.ilike.' + t
              + ',city.ilike.' + t + ',country.ilike.' + t + ')';
       }
       if (side === 'external' || side === 'taranis') sel += '&side=eq.' + side;
-      else if (side === 'quiet') sel += '&or=(days_quiet.gt.60,last_contact_at.is.null)';
+      else if (side === 'quiet') sel += '&side=neq.taranis&or=(days_quiet.gt.60,last_contact_at.is.null)';
       return readRows('contacts_app', sel, 'contacts.search',
         { q: q, filter: side === 'taranis' ? 'taranis' : side === 'external' ? 'clients' : 'all' });
     }, (rows) => {
@@ -1059,7 +1088,7 @@ RENDER.inbox = function (body) {
 
     let sel = 'select=*&order=received_at.desc&limit=' + (people ? 400 : 60);
     if (q) {
-      const t = '*' + q.replace(/[,()*]/g, '') + '*';
+      const t = lk(q);
       sel += '&or=(subject.ilike.' + t + ',summary.ilike.' + t
            + ',counterparty_name.ilike.' + t + ',counterparty_addr.ilike.' + t + ')';
     }
@@ -1178,7 +1207,7 @@ RENDER.opps = function (body) {
         ],
         tags: [[m.qualification, tone]],
         actions: [
-          { label: 'View profile', run: () => openProfile({ name: m.investor_name || m.organization_name }) },
+          { label: 'View the mandate', primary: true, run: () => openMandate(m) },
           { label: 'Fill a gap', run: () => fillSheet(m) },
           m.qualification === 'rejected'
             ? { label: 'Accept anyway', run: () => act('wi.mandate.accept', { id: m.id }, 'Accepted and published') }
@@ -1230,7 +1259,7 @@ RENDER.notes = function (body) {
     clear(sugg);
     if (q.length < 2) return;
     try {
-      const t = '*' + q.replace(/[,()*]/g, '') + '*';
+      const t = lk(q);
       const rows = await readRows('contacts_app',
         'select=id,name,role,company,city,country,email&limit=6'
         + '&or=(name.ilike.' + t + ',company.ilike.' + t + ')',
@@ -1350,7 +1379,7 @@ RENDER.notes = function (body) {
       const q = find.value.trim();
       let sel = 'select=*&order=note_date.desc,created_at.desc&limit=200';
       if (q) {
-        const t = '*' + q.replace(/[,()*]/g, '') + '*';
+        const t = lk(q);
         sel += '&or=(title.ilike.' + t + ',body.ilike.' + t
              + ',place.ilike.' + t + ',contact_name.ilike.' + t + ')';
       }
@@ -1441,7 +1470,7 @@ RENDER.meetings = function (body) {
     clear(mSugg);
     if (q.length < 2) return;
     try {
-      const t = '*' + q.replace(/[,()*]/g, '') + '*';
+      const t = lk(q);
       const rows = await readRows('contacts_app',
         'select=id,name,company,email&limit=6&or=(name.ilike.' + t + ',company.ilike.' + t + ')',
         'contacts.search', { q: q, filter: 'all' });
@@ -1565,8 +1594,16 @@ RENDER.meetings = function (body) {
             m.meet_url ? { label: 'Join the meeting', primary: true,
               run: () => window.open(m.meet_url, '_blank', 'noopener,noreferrer') } : null,
             m.meet_url ? { label: 'Copy the link', run: () => copy(m.meet_url) } : null,
-            st === 'pending' ? { label: 'Approve it in Telegram',
-              run: () => toast('Approving needs the workflow. Press approve on the Telegram preview.', true) } : null
+            st === 'pending' ? { label: 'Approve and issue the Zoom', primary: true,
+              run: async () => {
+                if (!confirm('Issue the Zoom meeting and email the invite to everyone on it?')) return;
+                toast('Creating the Zoom\u2026');
+                try {
+                  await callGateway('meeting.approve', { meeting_id: String(m.id) });
+                  toast('Zoom issued and the invite is on its way.');
+                  run();
+                } catch (e) { toast(e.message, true); }
+              } } : null
           ].filter(Boolean)
         }));
       }
@@ -1657,17 +1694,38 @@ RENDER.docs = function (body) {
       send.textContent = 'Filing…';
       // n8n does the versioning, archiving of the previous one, and the
       // announcement — the same work DOC 01 already does today.
-      await callGateway('docs.upload', {
-        storage_path: path,
-        doc_key: kind.value,
-        title: title.value.trim(),
-        version_label: version.value.trim() || null,
-        period: period.value || null,
-        is_current: current.checked,
-        filename: picked.name,
-        size_bytes: picked.size,
-        mime: picked.type || null
-      });
+      // Filing used to go through the gateway, so a document uploaded fine
+      // and then vanished when n8n was out of executions. It is a single
+      // row; the console writes it itself and only falls back to the
+      // workflow if the table refuses.
+      const pub = CFG.supabaseUrl + '/storage/v1/object/public/documents/' + encodeURI(path);
+      const row = {
+        doc_key:       kind.value,
+        title:         title.value.trim(),
+        version_label: label || null,
+        period_date:   (period.value || new Date().toISOString().slice(0, 7)) + '-01',
+        storage_path:  path,
+        public_url:    pub,
+        is_current:    !!current.checked
+      };
+      try {
+        if (current.checked) {
+          // Only one version of a document can be the current one.
+          await supaPatch('documents', 'doc_key=eq.' + encodeURIComponent(kind.value)
+            + '&is_current=is.true', { is_current: false });
+        }
+        await supaInsert('documents', row);
+      } catch (err) {
+        if (err.message === 'NO_SUPABASE') throw err;
+        await callGateway('docs.upload', {
+          storage_path: path,
+          doc_key: kind.value,
+          title: title.value.trim(),
+          version_label: label || null,
+          period_date: row.period_date,
+          make_current: !!current.checked
+        });
+      }
       toast('Uploaded. The team has been told.');
       go('docs');
     } catch (e) {
@@ -1862,11 +1920,11 @@ RENDER.network = function (body) {
     if (!raw) return;
     clear(out);
     const handle = asHandle(raw);
-    const term = (handle || raw).replace(/[,()*]/g, '');
+    const term = handle || raw;
     // linkedin_mutual gives one row per person with mutual_to as a list
     // of names, resolved from account_id through linkedin_accounts.
     fill(out, () => readRows('linkedin_mutual',
-        'select=*&or=(full_name.ilike.*' + term + '*,profile_url.ilike.*' + term + '*)'
+        'select=*&or=(full_name.ilike.' + lk(term) + ',profile_url.ilike.' + lk(term) + ')'
           + '&order=mutual_count.desc&limit=60',
         'li.mutual', { q: raw }),
       (rows) => {
@@ -2207,8 +2265,18 @@ function searchTerms(q) {
   return words;
 }
 
+/* A pattern safe to drop inside or=(...). PostgREST splits that list on
+   commas and spaces, so a multi-word term has to be double quoted or the
+   whole filter is silently discarded and every row comes back. */
+function lk(term) {
+  return '"*' + String(term == null ? '' : term)
+    .replace(/[\\"(),]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim() + '*"';
+}
+
 function ilikeAny(cols, term) {
-  const t = '*' + String(term).replace(/[,()*]/g, '') + '*';
+  const t = lk(term);
   return '&or=(' + cols.map(c => c + '.ilike.' + t).join(',') + ')';
 }
 
@@ -2220,7 +2288,7 @@ async function localDossier(host, person) {
     let sel = 'select=*&order=received_at.desc&limit=12';
     sel += addr
       ? '&or=(counterparty_addr.eq.' + encodeURIComponent(addr)
-        + ',counterparty_name.ilike.*' + String(person.name).replace(/[,()*]/g, '') + '*)'
+        + ',counterparty_name.ilike.' + lk(person.name) + ')'
       : ilikeAny(['counterparty_name'], person.name);
     mail = await readRows('crm_emails_app', sel, 'emails.search', { q: person.name, side: 'all' });
   } catch (_) { /* the person still shows without their mail */ }
@@ -2287,6 +2355,95 @@ async function localDossier(host, person) {
    Everything the database holds on somebody, in one panel: the record
    itself, every email either way, and any notes filed against them. The
    list views stay short because the detail lives here instead. */
+
+/* A With Intelligence mandate is not a person in the contact book, so it
+   gets its own page. Sending it through openProfile was wrong twice over:
+   it searched the book for an organisation that was never in it, and then
+   showed whatever email the broken filter returned. */
+async function openMandate(m) {
+  closeSheet();
+  if (current !== 'mandate') PROFILE_BACK = current;
+  current = 'mandate';
+  document.querySelectorAll('.navbtn').forEach(b => b.setAttribute('aria-current', 'false'));
+
+  const body = $('pg-body');
+  clear(body);
+  $('pg-title').textContent = m.investor_name || m.organization_name || ('Mandate #' + m.id);
+  $('pg-sub').textContent = 'With Intelligence mandate';
+  const host = el('div');
+  body.appendChild(host);
+
+  // The row in hand may be the trimmed one from a list. Reload it whole.
+  let full = m;
+  try {
+    const rows = await supaSelect('wi_mandates', 'select=*&limit=1&id=eq.' + encodeURIComponent(m.id));
+    if (rows && rows[0]) full = rows[0];
+  } catch (_) { /* show what we were given */ }
+
+  const q = String(full.qualification || '').toLowerCase();
+  host.appendChild(el('div', { class: 'acts', style: 'margin-bottom:20px' },
+    el('button', { class: 'btn btn-sm btn-quiet', onclick: () => go(PROFILE_BACK || 'opps') }, '\u2190 Back'),
+    full.linkedin_url
+      ? el('button', { class: 'btn btn-sm',
+          onclick: () => window.open(full.linkedin_url, '_blank', 'noopener,noreferrer') }, 'Open in LinkedIn')
+      : null,
+    el('button', { class: 'btn btn-sm btn-quiet', onclick: () => fillSheet(full) }, 'Fill a gap')));
+
+  host.appendChild(el('div', { class: 'banner',
+    style: q === 'rejected' ? 'border-color:var(--bad);background:transparent;color:var(--bad)' : '' },
+    el('b', null, q === 'rejected' ? 'Rejected. ' : q === 'matched' ? 'Matched. ' : 'Awaiting a decision. '),
+    asText(full.fit_reason) || 'No reason recorded.'));
+
+  const field = (label, value, big) => {
+    const t = asText(value);
+    if (!t) return null;
+    return el('div', { style: 'margin-bottom:' + (big ? '14px' : '11px') },
+      el('div', { class: 'mono',
+        style: 'font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px' },
+        label),
+      el('div', { style: 'font-size:' + (big ? '16px' : '14.5px')
+        + ';font-weight:' + (big ? '600' : '500') + ';line-height:1.5' }, t));
+  };
+
+  const grid = el('div', { class: 'grid2', style: 'max-width:820px' });
+  const c1 = el('div'), c2 = el('div');
+  grid.append(c1, c2);
+  c1.append(...[
+    field('Organisation', full.organization_name, true),
+    field('Investor', full.investor_name, true),
+    field('Where', [full.investor_city, full.investor_country].filter(Boolean).join(', '), true),
+    field('Type', full.investor_type),
+    field('Strategies', full.strategies)
+  ].filter(Boolean));
+  c2.append(...[
+    field('Minimum ticket', full.ticket_min_usd, true),
+    field('Fit score', full.fit_score, true),
+    field('Qualification', full.qualification),
+    field('Not stated', full.missing_hard_fields),
+    field('Hard failures', full.hard_fail_reasons),
+    field('Published', full.published_at ? fmtDate(full.published_at) : 'not published')
+  ].filter(Boolean));
+  host.appendChild(grid);
+
+  // Anything else the row carries that is not already shown above.
+  const shown = ['id','investor_name','organization_name','investor_city','investor_country',
+    'investor_type','strategies','ticket_min_usd','fit_score','fit_reason','qualification',
+    'missing_hard_fields','hard_fail_reasons','published_at','linkedin_url'];
+  const rest = Object.keys(full).filter(k => shown.indexOf(k) < 0 && asText(full[k]));
+  if (rest.length) {
+    host.appendChild(el('p', { class: 'mono',
+      style: 'font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);'
+           + 'margin:28px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--rule)' },
+      'Everything else on the record'));
+    const ev = el('div', { class: 'ev' });
+    for (const k of rest) {
+      ev.appendChild(el('div', null,
+        el('span', { class: 'k' }, k.replace(/_/g, ' ').padEnd(20, ' ') + '  '),
+        asText(full[k]).slice(0, 400)));
+    }
+    host.appendChild(ev);
+  }
+}
 
 let PROFILE_BACK = null;
 
@@ -2401,7 +2558,7 @@ async function openProfile(c) {
   host.appendChild(loading);
 
   const addr = String(c.email || '').toLowerCase().trim();
-  const nameLike = '*' + String(c.name || '').replace(/[,()*]/g, '') + '*';
+  const nameLike = lk(c.name);
 
   const [mail, notes] = await Promise.all([
     (async () => {
@@ -2429,7 +2586,7 @@ async function openProfile(c) {
           ors.push('contact_id.eq.' + c.id);
         }
         if (addr) {
-          const t = '*' + addr.replace(/[,()*]/g, '') + '*';
+          const t = lk(addr);
           ors.push('from_addr.ilike.' + t, 'to_addr.ilike.' + t, 'cc_addr.ilike.' + t);
         }
         if (ors.length) {
@@ -2530,7 +2687,10 @@ async function answerLocally(host, question) {
         action: x.investor_name || x.organization_name || ('Mandate #' + x.id),
         who: [x.organization_name, asText(x.investor_country), asText(x.investor_type)].filter(Boolean).join('  \u00B7  '),
         evidence: [['why  ', asText(x.fit_reason)]],
-        actions: [{ label: 'Open Approvals', run: () => go('approvals') }]
+        actions: [
+          { label: 'View the mandate', primary: true, run: () => openMandate(x) },
+          { label: 'Open Approvals', run: () => go('approvals') }
+        ]
       }));
     }
     return;
