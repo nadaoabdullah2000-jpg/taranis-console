@@ -13,7 +13,7 @@
    (the HTML, the script, the icons).
    ========================================================================= */
 
-const VERSION = 'taranis-v10';
+const VERSION = 'taranis-v13';
 const SHELL = [
   './',
   './index.html',
@@ -27,10 +27,13 @@ const SHELL = [
   './manifest.webmanifest'
 ];
 
+// The page asks for the new version when the person presses Reload, rather
+// than swapping the code underneath them mid-task.
+self.addEventListener('message', (e) => {
+  if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
 self.addEventListener('install', (e) => {
-  // Take over straight away rather than waiting for every tab to close,
-  // so a deploy reaches people on their next refresh instead of next week.
-  self.skipWaiting();
   e.waitUntil(
     caches.open(VERSION).then((c) => c.addAll(SHELL)).catch(() => {})
   );

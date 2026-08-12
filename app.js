@@ -115,7 +115,12 @@ async function callGateway(action, payload) {
       throw new Error('Your session expired. Sign in again.');
     }
     if (!res.ok) throw new Error('Gateway returned ' + res.status);
-    return await res.json();
+    // n8n sends a zero-length body when a query matched nothing. That is not
+    // an error, it is an empty answer, so do not let JSON.parse turn it into one.
+    const raw = (await res.text()).trim();
+    if (!raw) return { rows: [], items: [] };
+    try { return JSON.parse(raw); }
+    catch (_) { return { rows: [], items: [] }; }
   } catch (e) {
     if (e.name === 'AbortError') throw new Error('That took too long. Try again.');
     throw e;
@@ -295,7 +300,10 @@ function entry(o) {
   const ev = el('div', { class: 'ev' });
   for (const [k, v] of (o.evidence || [])) {
     if (v === null || v === undefined || v === '') continue;
-    ev.appendChild(el('div', null, el('span', { class: 'k' }, k + '  '), String(v)));
+    const hot = /last spoke|starts|on\s/.test(k);
+    ev.appendChild(el('div', null,
+      el('span', { class: 'k' }, k + '  '),
+      hot ? el('span', { class: 'gold' }, String(v)) : document.createTextNode(String(v))));
   }
 
   const main = el('div', { class: 'entry-main' },
@@ -436,7 +444,7 @@ RENDER.contacts = function (body) {
       }
       if (filter === 'knows')   sel += '&knows_us=in.(yes,vaguely)';
       if (filter === 'due')     sel += '&has_open_next_step=is.true';
-      if (filter === 'quiet')   sel += '&days_quiet=gt.60';
+      if (filter === 'quiet')   sel += '&or=(days_quiet.gt.60,last_contact_at.is.null)';
       if (filter === 'taranis') sel += '&side=eq.taranis';
       if (filter === 'clients') sel += '&side=eq.external';
       return readRows('contacts_app', sel, 'contacts.search', { q, filter });
@@ -459,8 +467,10 @@ RENDER.contacts = function (body) {
             ['email      ', c.email]
           ],
           tags: [
-            [c.knows_us === 'yes' ? 'knows us' : c.knows_us === 'vaguely' ? 'vaguely' : 'cold',
-             c.knows_us === 'yes' ? 'good' : c.knows_us === 'vaguely' ? 'signal' : ''],
+            [c.knows_us === 'yes' ? 'knows us'
+              : c.knows_us === 'vaguely' ? 'vaguely'
+              : 'not approached',
+             c.knows_us === 'yes' ? 'good' : c.knows_us === 'vaguely' ? 'signal' : 'quiet'],
             c.side === 'taranis' ? ['taranis', 'accent'] : null,
             c.category ? [c.category, ''] : null
           ].filter(Boolean),
@@ -517,10 +527,13 @@ RENDER.inbox = function (body) {
   clear(body);
   const input = el('input', { class: 'search', type: 'search',
     placeholder: 'Subject, summary, or who it was with\u2026' });
-  let side = 'all';
+  // Default excludes mail with no contact resolved: that is where the
+  // provider notices and other noise end up, and it is not correspondence.
+  let side = 'matched';
   const chips = el('div', { class: 'chips' });
-  for (const [k, lbl] of [['all', 'Everything'], ['client', 'Clients'],
-                          ['internal', 'Taranis side'], ['unknown', 'Not matched to anyone']]) {
+  for (const [k, lbl] of [['matched', 'Correspondence'], ['client', 'Clients'],
+                          ['internal', 'Taranis side'], ['unknown', 'Unmatched'],
+                          ['all', 'Everything']]) {
     chips.appendChild(el('button', { class: 'chip', onclick: () => { side = k; run(); } }, lbl));
   }
   body.append(el('div', { class: 'toolbar' }, input,
@@ -538,7 +551,8 @@ RENDER.inbox = function (body) {
       sel += '&or=(subject.ilike.' + t + ',summary.ilike.' + t
            + ',counterparty_name.ilike.' + t + ',counterparty_addr.ilike.' + t + ')';
     }
-    if (side !== 'all') sel += '&side=eq.' + side;
+    if (side === 'matched') sel += '&side=in.(client,internal)';
+    else if (side !== 'all') sel += '&side=eq.' + side;
 
     fill(out, () => readRows('crm_emails_app', sel, 'emails.search', { q, side }), (rows) => {
       if (!rows.length) {
@@ -555,7 +569,7 @@ RENDER.inbox = function (body) {
           rail: outbound ? 'sent' : 'in',
           action: m.subject || '(no subject)',
           who: (outbound ? 'To ' : 'From ')
-            + (m.counterparty_name || m.counterparty_addr || 'unknown')
+            + (m.counterparty_name || m.counterparty_addr || '')
             + (m.person_company ? '  \u00B7  ' + m.person_company : ''),
           evidence: [
             ['on      ', fmtDate(m.received_at)],

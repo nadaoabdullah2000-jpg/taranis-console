@@ -186,11 +186,12 @@ button,input,textarea,select{font:inherit;color:inherit}
 #app.on{display:grid;grid-template-columns:248px 1fr;grid-template-rows:100%}
 
 nav{
+  scrollbar-width:thin;
   border-right:1px solid var(--rule);
   background:#0E1113 url('./brand-pattern.svg') center bottom / 340% auto no-repeat;
   color:#DCE9EC;
   display:flex;flex-direction:column;overflow-y:auto}
-.brand{padding:14px 6px 12px;border-bottom:1px solid rgba(87,192,214,.18);text-align:center}
+.brand{padding:16px 14px 13px;border-bottom:1px solid rgba(87,192,214,.18);text-align:center}
 .brand .wm{width:100%;margin:0 auto 6px}
 @media (display-mode:standalone){
   nav{padding-top:env(safe-area-inset-top)}
@@ -237,6 +238,7 @@ main{
 .ev{font-family:var(--font-data);font-size:12px;color:var(--ink-2);line-height:1.65;padding-left:14px;border-left:2px solid var(--rule);margin:0}
 .ev div{margin-bottom:1px}
 .ev .k{color:var(--ink-3)}
+.ev .gold{color:var(--signal);font-weight:500}
 .acts{display:flex;gap:6px;margin-top:11px;flex-wrap:wrap}
 .tag{font-family:var(--font-data);font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:3px;background:var(--rule-2);color:var(--ink-2);font-weight:500}
 .tag.good{background:var(--good-soft);color:var(--good)}
@@ -282,6 +284,18 @@ main{
 .ta{width:100%;padding:11px 12px;border:1px solid var(--rule);border-radius:6px;background:var(--paper);resize:vertical;min-height:150px;font-size:14px;line-height:1.6}
 
 /* ---------- Toast ---------- */
+#newver{
+  position:fixed;left:50%;bottom:22px;transform:translateX(-50%);
+  display:flex;align-items:center;gap:14px;z-index:95;
+  background:var(--ink-2);color:#F2F8F9;padding:10px 12px 10px 18px;
+  border-radius:8px;font-size:14px;box-shadow:0 10px 30px -8px rgba(5,42,51,.5);
+  animation:rise .25s ease-out}
+#newver button{
+  background:var(--sky);color:#06232B;border:0;border-radius:6px;
+  padding:6px 14px;font-weight:600;font-size:13.5px;cursor:pointer}
+#newver button:hover{background:var(--sky-2)}
+@keyframes rise{from{opacity:0;transform:translateX(-50%) translateY(10px)}}
+
 #toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(120%);background:var(--ink);color:var(--paper);padding:11px 18px;border-radius:7px;font-size:14px;z-index:90;transition:transform .22s;max-width:90vw}
 #toast.on{transform:translateX(-50%) translateY(0)}
 #toast.bad{background:var(--bad)}
