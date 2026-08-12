@@ -644,13 +644,30 @@ RENDER.meetings = function (body) {
     } catch (e) { toast(e.message, true); }
   }
 
-  load(out, 'zoom.upcoming', {}, (d) => {
-    const rows = d.rows || [];
-    if (!rows.length) return out.appendChild(empty('Nothing booked', 'Meetings you create appear here and on the contact record.'));
-    for (const m of rows) out.appendChild(entry({
-      tone: 'accent', rail: 'zoom', action: m.topic, who: m.contact_name,
-      evidence: [['starts ', fmtDate(m.start_time)], ['join   ', m.join_url]]
-    }));
+  // crm_meetings is the table that already exists, with meet_url on it.
+  fill(out, () => readRows('crm_meetings',
+      'select=id,title,status,start_utc,duration_min,meet_url,to_people'
+      + '&order=start_utc.desc&limit=40', 'zoom.upcoming', {}), (rows) => {
+    if (!rows.length) {
+      return out.appendChild(empty('Nothing booked',
+        'Meetings booked anywhere appear here once they are saved to the database.'));
+    }
+    for (const m of rows) {
+      const who = Array.isArray(m.to_people)
+        ? m.to_people.map(p => (p && (p.name || p.email)) || p).join(', ') : '';
+      const past = m.start_utc && new Date(m.start_utc) < new Date();
+      out.appendChild(entry({
+        tone: past ? 'quiet' : 'good',
+        rail: past ? 'past' : 'next',
+        action: m.title || 'Meeting',
+        who: who,
+        evidence: [['starts   ', fmtDate(m.start_utc)],
+                   ['minutes  ', m.duration_min],
+                   ['join     ', m.meet_url]],
+        tags: m.status ? [[m.status, past ? 'quiet' : 'good']] : [],
+        actions: m.meet_url ? [{ label: 'Copy the link', run: () => copy(m.meet_url) }] : []
+      }));
+    }
   });
 };
 

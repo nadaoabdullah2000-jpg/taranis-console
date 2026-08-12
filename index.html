@@ -143,10 +143,14 @@ button,input,textarea,select{font:inherit;color:inherit}
 /* ---------- Sign in: the brand cover ---------- */
 #gate{
   position:fixed;inset:0;display:grid;place-items:center;z-index:100;padding:24px;
-  background:#101315 url('./brand-pattern.svg') center/cover no-repeat;
+  background:
+    radial-gradient(ellipse 640px 480px at 50% 44%,
+      rgba(14,17,19,.94) 0%, rgba(14,17,19,.72) 46%, rgba(14,17,19,0) 100%),
+    url('./brand-pattern.svg') center / cover no-repeat,
+    #0E1113;
   color:#F2F8F9;
 }
-.gate-card{width:100%;max-width:380px}
+.gate-card{width:100%;max-width:420px}
 #gate .field span{color:#BBD3D9}
 #gate .field input{
   background:rgba(255,255,255,.05);border-color:rgba(87,192,214,.35);color:#F2F8F9;
@@ -158,8 +162,8 @@ button,input,textarea,select{font:inherit;color:inherit}
 #gate .gate-note{color:#93AAB1}
 #gate .linkish{color:var(--sky)}
 #gate :focus-visible{outline-color:var(--sky)}
-.gate-mark{width:196px;margin:0 0 20px}
-.gate-sub{font-family:var(--font-data);font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:#7FA9B4;margin:0 0 34px}
+.gate-mark{width:340px;max-width:82%;margin:0 auto 22px;display:block}
+.gate-sub{font-family:var(--font-data);font-size:10px;letter-spacing:.26em;text-transform:uppercase;color:#7FA9B4;margin:0 0 36px;text-align:center}
 .field{display:block;margin-bottom:12px}
 .field span{display:block;font-size:12px;font-weight:600;margin-bottom:6px;color:var(--ink-2)}
 .field input{width:100%;padding:11px 12px;border:1px solid var(--rule);border-radius:6px;background:var(--card)}
@@ -176,14 +180,14 @@ button,input,textarea,select{font:inherit;color:inherit}
 #app.on{display:grid;grid-template-columns:216px 1fr;grid-template-rows:100%}
 
 nav{border-right:1px solid var(--rule);background:var(--card);display:flex;flex-direction:column;overflow-y:auto}
-.brand{padding:18px 18px 14px;border-bottom:1px solid var(--rule-2);background:#101315;color:#fff;text-align:center}
-.brand .wm{width:96px;margin:0 auto 6px}
+.brand{padding:20px 16px 16px;border-bottom:1px solid var(--rule-2);background:#101315;color:#fff;text-align:center}
+.brand .wm{width:100%;margin:0 auto 8px}
 @media (display-mode:standalone){
   nav{padding-top:env(safe-area-inset-top)}
   .head{padding-top:calc(22px + env(safe-area-inset-top))}
   #ask-bar{padding-bottom:calc(18px + env(safe-area-inset-bottom))}
 }
-.brand p{font-family:var(--font-data);font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:#6F949D;margin:0}
+.brand p{font-family:var(--font-data);font-size:9.5px;letter-spacing:.24em;text-transform:uppercase;color:#6F949D;margin:0}
 .navlist{padding:10px 8px;flex:1}
 .navbtn{display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;border:0;background:none;border-radius:6px;cursor:pointer;text-align:left;font-size:14px;color:var(--ink-2);margin-bottom:1px}
 .navbtn:hover{background:var(--rule-2)}
@@ -288,11 +292,12 @@ main{overflow-y:auto;display:flex;flex-direction:column}
   #app.on{grid-template-columns:1fr;grid-template-rows:auto 1fr}
   nav{flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--rule);align-items:center}
   .brand{border-bottom:0;border-right:1px solid var(--rule-2);padding:12px 14px;flex:none}
-  .brand .wm{width:62px;margin:0} .brand p{display:none}
+  .brand .wm{width:84px;margin:0} .brand p{display:none}
   .navlist{display:flex;padding:8px;flex:none}
   .navbtn{white-space:nowrap;margin:0 1px 0 0}
   .navbtn .ic{display:none}
   .navfoot{display:none}
+  .gate-mark{width:78%}
   .head{padding:16px 18px 12px} .head h2{font-size:24px}
   .body,#ask-log,#ask-bar{padding-left:18px;padding-right:18px}
 }
