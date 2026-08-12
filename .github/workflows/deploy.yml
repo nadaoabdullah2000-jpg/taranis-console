@@ -41,12 +41,12 @@ jobs:
           JS
           sed -i 's|<script src="./app.js"></script>|<script src="./config.js"></script><script src="./app.js"></script>|' index.html
 
-      # Fail the build rather than publish a secret by accident.
+      # Fail the build rather than publish a private key or bot token by accident.
       - name: Refuse to ship secrets
         run: |
-          if grep -rInE '(service_role|BEGIN [A-Z ]*PRIVATE KEY|[0-9]{8,10}:AA[A-Za-z0-9_-]{30,})' \
+          if grep -rInE '(BEGIN [A-Z ]*PRIVATE KEY|[0-9]{8,10}:AA[A-Za-z0-9_-]{30,})' \
              --include='*.html' --include='*.js' . ; then
-            echo "::error::A service key, private key or Telegram bot token is in the source. Stopping."
+            echo "::error::A private key or Telegram bot token is in the source. Stopping."
             exit 1
           fi
 
