@@ -31,15 +31,23 @@ jobs:
           SUPABASE_URL:  ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
+          # The short commit hash is the build stamp. It goes three places:
+          # into config.js so the running page knows which build it is, into
+          # build.txt so the page can ask what the server has, and onto the
+          # script URLs so a browser can never serve yesterday's JavaScript.
+          BUILD="${GITHUB_SHA::7}"
           cat > config.js <<JS
           window.TARANIS_CONFIG = {
             gatewayUrl:      "${GATEWAY_URL}",
             supabaseUrl:     "${SUPABASE_URL}",
             supabaseAnonKey: "${SUPABASE_ANON}",
-            pollSeconds:     45
+            pollSeconds:     45,
+            build:           "${BUILD}"
           };
           JS
-          sed -i 's|<script src="./app.js"></script>|<script src="./config.js"></script><script src="./app.js"></script>|' index.html
+          printf '%s' "${BUILD}" > build.txt
+          sed -i "s|<script src=\"./app.js\"></script>|<script src=\"./config.js?v=${BUILD}\"></script><script src=\"./app.js?v=${BUILD}\"></script>|" index.html
+          echo "Built ${BUILD}"; grep -o 'config.js?v=[a-f0-9]*' index.html
 
       # Fail the build rather than publish a private key or bot token by accident.
       - name: Refuse to ship secrets
