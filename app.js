@@ -230,6 +230,8 @@ const TABS = [
     sub: 'The fundraising book. Who knows Taranis, when you last spoke, and what is owed.' },
   { id: 'email',    icon: '\u2709', label: 'Email',        title: 'Email',
     sub: 'Draft to a contact, read it back, then send. Nothing leaves without you approving it.' },
+  { id: 'inbox',    icon: '\u25A4', label: 'Correspondence', title: 'Correspondence',
+    sub: 'Every email sent and received, split between clients and the Taranis side.' },
   { id: 'opps',     icon: '\u25B2', label: 'Opportunities',title: 'Opportunities',
     sub: 'Mandates from With Intelligence, scored against the Taranis criteria.' },
   { id: 'meetings', icon: '\u25D0', label: 'Meetings',     title: 'Meetings',
@@ -411,7 +413,8 @@ RENDER.contacts = function (body) {
   const input = el('input', { class: 'search', type: 'search', placeholder: 'Name, firm or city…' });
   let filter = 'all';
   const chips = el('div', { class: 'chips' });
-  for (const [k, lbl] of [['all', 'Everyone'], ['knows', 'Knows us'], ['due', 'Due a follow-up'], ['quiet', 'Gone quiet']]) {
+  for (const [k, lbl] of [['all', 'Everyone'], ['clients', 'Clients'], ['taranis', 'Taranis people'],
+                          ['knows', 'Knows us'], ['due', 'Due a follow-up'], ['quiet', 'Gone quiet']]) {
     chips.appendChild(el('button', { class: 'chip', onclick: () => { filter = k; run(); } }, lbl));
   }
   bar.append(input, el('button', { class: 'btn btn-sm btn-quiet', onclick: () => run() }, 'Search'));
@@ -424,33 +427,41 @@ RENDER.contacts = function (body) {
     out.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading…'));
     fill(out, () => {
       const q = input.value.trim();
-      let sel = 'select=*&limit=60&order=last_interaction.desc.nullslast';
+      // contacts_app is the view from migration 3: it carries side
+      // (taranis / external), the cleaned knows_us, and days_quiet.
+      let sel = 'select=*&limit=60&order=last_contact_at.desc.nullslast';
       if (q) {
         const t = '*' + q.replace(/[,()*]/g, '') + '*';
         sel += '&or=(name.ilike.' + t + ',company.ilike.' + t + ',city.ilike.' + t + ')';
       }
-      if (filter === 'knows') sel += '&knows_taranis=not.is.null';
-      if (filter === 'due')   sel += '&next_step=not.is.null';
-      if (filter === 'quiet') sel += '&last_interaction=lt.' + new Date(Date.now() - 60 * 86400000).toISOString();
-      return readRows('contacts', sel, 'contacts.search', { q, filter });
+      if (filter === 'knows')   sel += '&knows_us=in.(yes,vaguely)';
+      if (filter === 'due')     sel += '&has_open_next_step=is.true';
+      if (filter === 'quiet')   sel += '&days_quiet=gt.60';
+      if (filter === 'taranis') sel += '&side=eq.taranis';
+      if (filter === 'clients') sel += '&side=eq.external';
+      return readRows('contacts_app', sel, 'contacts.search', { q, filter });
     }, (rows) => {
       if (!rows.length) return out.appendChild(empty('No one matches', 'Try a surname, or the firm on its own.'));
       for (const c of rows) {
-        const q = daysSince(c.last_interaction);
+        const q = (c.days_quiet !== null && c.days_quiet !== undefined)
+          ? c.days_quiet : daysSince(c.last_interaction || c.last_contact_at);
         out.appendChild(entry({
           tone: c.knows_us === 'yes' ? 'good' : c.knows_us === 'vaguely' ? 'signal' : '',
           rail: q === null ? 'never' : q + 'd',
           action: c.name,
           who: [c.company, c.city, c.country].filter(Boolean).join(' · '),
           evidence: [
-            ['last spoke ', c.last_interaction ? fmtDate(c.last_interaction) + (q !== null ? '  (' + q + ' days)' : '') : 'never'],
-            ['about      ', c.last_contact_note],
+            ['last spoke ', (c.last_contact_at || c.last_interaction)
+                ? fmtDate(c.last_contact_at || c.last_interaction) + (q !== null ? '  (' + q + ' days)' : '')
+                : 'never'],
+            ['about      ', c.last_contact_summary || c.last_contact_note],
             ['next step  ', c.next_step],
             ['email      ', c.email]
           ],
           tags: [
             [c.knows_us === 'yes' ? 'knows us' : c.knows_us === 'vaguely' ? 'vaguely' : 'cold',
              c.knows_us === 'yes' ? 'good' : c.knows_us === 'vaguely' ? 'signal' : ''],
+            c.side === 'taranis' ? ['taranis', 'accent'] : null,
             c.category ? [c.category, ''] : null
           ].filter(Boolean),
           actions: [
@@ -500,6 +511,73 @@ RENDER.email = function (body) {
     } catch (e) { toast(e.message, true); }
     finally { go1.disabled = false; go1.textContent = 'Write a draft'; }
   });
+};
+
+RENDER.inbox = function (body) {
+  clear(body);
+  const input = el('input', { class: 'search', type: 'search',
+    placeholder: 'Subject, summary, or who it was with\u2026' });
+  let side = 'all';
+  const chips = el('div', { class: 'chips' });
+  for (const [k, lbl] of [['all', 'Everything'], ['client', 'Clients'],
+                          ['internal', 'Taranis side'], ['unknown', 'Not matched to anyone']]) {
+    chips.appendChild(el('button', { class: 'chip', onclick: () => { side = k; run(); } }, lbl));
+  }
+  body.append(el('div', { class: 'toolbar' }, input,
+    el('button', { class: 'btn btn-sm btn-quiet', onclick: () => run() }, 'Search')), chips);
+  const out = el('div'); body.appendChild(out);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') run(); });
+
+  function run() {
+    clear(out);
+    out.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading\u2026'));
+    const q = input.value.trim();
+    let sel = 'select=*&order=received_at.desc&limit=60';
+    if (q) {
+      const t = '*' + q.replace(/[,()*]/g, '') + '*';
+      sel += '&or=(subject.ilike.' + t + ',summary.ilike.' + t
+           + ',counterparty_name.ilike.' + t + ',counterparty_addr.ilike.' + t + ')';
+    }
+    if (side !== 'all') sel += '&side=eq.' + side;
+
+    fill(out, () => readRows('crm_emails_app', sel, 'emails.search', { q, side }), (rows) => {
+      if (!rows.length) {
+        return out.appendChild(empty('Nothing here',
+          side === 'unknown'
+            ? 'Good \u2014 every email is matched to a person.'
+            : 'Try a subject line, or the name of whoever it was with.'));
+      }
+      for (const m of rows) {
+        const outbound = String(m.direction || '').toLowerCase().indexOf('out') === 0
+          || String(m.direction || '').toLowerCase() === 'sent';
+        out.appendChild(entry({
+          tone: m.side === 'internal' ? 'accent' : m.side === 'unknown' ? 'quiet' : 'good',
+          rail: outbound ? 'sent' : 'in',
+          action: m.subject || '(no subject)',
+          who: (outbound ? 'To ' : 'From ')
+            + (m.counterparty_name || m.counterparty_addr || 'unknown')
+            + (m.person_company ? '  \u00B7  ' + m.person_company : ''),
+          evidence: [
+            ['on      ', fmtDate(m.received_at)],
+            ['about   ', m.summary],
+            ['intent  ', m.intent]
+          ],
+          tags: [
+            [m.side === 'internal' ? 'taranis side' : m.side === 'unknown' ? 'unmatched' : 'client',
+             m.side === 'internal' ? 'accent' : m.side === 'unknown' ? 'quiet' : 'good'],
+            m.requires_action && !m.replied ? ['needs a reply', 'signal'] : null,
+            m.has_attachments ? ['attachment', ''] : null,
+            m.embedding_ready === false ? ['not searchable yet', 'quiet'] : null
+          ].filter(Boolean),
+          actions: m.counterparty_name ? [
+            { label: 'What else with them', run: () => { input.value = m.counterparty_name; side = 'all'; run(); } },
+            { label: 'Ask about this', run: () => askAbout('What did we last send ' + m.counterparty_name + ', and when?') }
+          ] : []
+        }));
+      }
+    });
+  }
+  run();
 };
 
 RENDER.opps = function (body) {
@@ -700,20 +778,25 @@ RENDER.network = function (body) {
   function run() {
     if (!q.value.trim()) return;
     clear(out);
-    fill(out, () => readRows('linkedin_connections',
-        'select=full_name,slug&full_name=ilike.*' + q.value.trim().replace(/[,()*]/g,'') + '*&limit=25',
-        'li.search', { q: q.value.trim() })
-        .then(rs => rs.map(r => ({ full_name: r.full_name,
-              profile_url: r.profile_url || ('https://www.linkedin.com/in/' + (r.slug || '')),
-              match: (r.full_name||'').toLowerCase() === q.value.trim().toLowerCase() ? 'exact' : 'partial' }))),
+    // linkedin_mutual gives one row per person with mutual_to as a list
+    // of names, resolved from account_id through linkedin_accounts.
+    fill(out, () => readRows('linkedin_mutual',
+        'select=*&full_name=ilike.*' + q.value.trim().replace(/[,()*]/g, '') + '*'
+          + '&order=mutual_count.desc&limit=40',
+        'li.mutual', { q: q.value.trim() }),
       (rows) => {
       if (!rows.length) return out.appendChild(empty('Not a first-degree connection', 'They may still be in the contact book — check Contacts.'));
-      for (const p of rows) out.appendChild(entry({
-        tone: p.match === 'exact' ? 'good' : 'accent',
-        rail: p.match || '',
-        action: p.full_name,
-        evidence: [['profile ', p.profile_url]]
-      }));
+      for (const p of rows) {
+        const who = Array.isArray(p.mutual_to) ? p.mutual_to.join(', ') : (p.mutual_to || '');
+        out.appendChild(entry({
+          tone: p.in_contact_book ? 'good' : 'accent',
+          rail: (p.mutual_count || 1) + '\u00D7',
+          action: p.full_name,
+          who: 'Mutual to ' + (who || 'someone at Taranis'),
+          evidence: [['profile ', p.profile_url], ['synced  ', fmtDate(p.last_synced)]],
+          tags: p.in_contact_book ? [['in the book', 'good']] : [['not in the book', 'quiet']]
+        }));
+      }
     });
   }
 };
@@ -983,6 +1066,27 @@ function demoResponse(action) {
     ] },
     'li.search': { rows: [
       { full_name: 'Miles Kerstein', profile_url: 'https://www.linkedin.com/in/example', match: 'exact' }
+    ] },
+    'emails.search': { rows: [
+      { id: 1, received_at: Date.now() - 9.5e8, subject: 'Re: track record net of fees',
+        summary: 'He asked for the numbers after all charges before taking it further.',
+        intent: 'request', direction: 'inbound', side: 'client', counterparty_name: 'Miles Kerstein',
+        person_company: 'Pictet Wealth Management', requires_action: true, replied: false,
+        has_attachments: false, embedding_ready: true },
+      { id: 2, received_at: Date.now() - 1.1e9, subject: 'July TMS',
+        summary: 'Sent the monthly note and offered a call in the week of the 24th.',
+        intent: 'share', direction: 'outbound', side: 'client', counterparty_name: 'Sophie Ravel',
+        person_company: 'Mirabaud', requires_action: false, replied: true,
+        has_attachments: true, embedding_ready: true },
+      { id: 3, received_at: Date.now() - 2.2e9, subject: 'Desk notes',
+        summary: 'Internal handover before the Geneva trip.', intent: 'internal',
+        direction: 'inbound', side: 'internal', counterparty_name: 'Antoine Megarbane',
+        person_company: 'Taranis', requires_action: false, replied: false,
+        has_attachments: false, embedding_ready: false }
+    ] },
+    'li.mutual': { rows: [
+      { full_name: 'Miles Kerstein', profile_url: 'https://www.linkedin.com/in/example',
+        mutual_to: ['Nada Osama'], mutual_count: 1, in_contact_book: true, last_synced: Date.now() - 8.6e7 }
     ] },
     'zoom.upcoming': { rows: [] },
     'crm.email.draft': { draft_id: 'drf-9931', contact_name: 'Miles Kerstein', to_addr: 'm.kerstein@example.ch',
