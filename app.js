@@ -1,0 +1,853 @@
+/* =========================================================================
+   Taranis Console
+   -------------------------------------------------------------------------
+   Replaces the Telegram bots with a signed-in web console.
+
+   SECURITY MODEL — read before changing anything here.
+
+   1. This file ships to a public CDN. It therefore contains NO secrets.
+      No Telegram bot token, no Postgres password, no n8n API key, no
+      Supabase service_role key. The only key present is the Supabase
+      ANON key, which is safe to publish because Row Level Security
+      decides what it can read.
+
+   2. Every call to n8n carries the signed-in user's Supabase JWT in the
+      Authorization header. The n8n gateway verifies that JWT before it
+      does anything. A caller without a valid token gets 401 — the old
+      "is the Telegram user id 848084617?" check becomes a real one.
+
+   3. Nothing from the database or the assistant is ever written with
+      innerHTML. Text goes in through textContent. See el() and text().
+      A contact name containing a script tag renders as characters.
+
+   4. Config is injected at build time by GitHub Actions from repository
+      secrets (see .github/workflows/deploy.yml). config.js is gitignored.
+   ========================================================================= */
+
+'use strict';
+
+/* ---------------------------------------------------------------- config */
+
+const CFG = Object.assign({
+  gatewayUrl: '',        // https://quantcairo.app.n8n.cloud/webhook/console
+  supabaseUrl: '',       // https://xxxx.supabase.co
+  supabaseAnonKey: '',
+  pollSeconds: 45
+}, window.TARANIS_CONFIG || {});
+
+let DEMO = false;                 // sample-data mode
+let session = null;               // { email, token }
+let pollTimer = null;
+const counts = { today: 0, approvals: 0 };
+const PENDING = { q: null, draft: null, meet: null };   // a question handed from one tab to another
+
+/* ------------------------------------------------------------- DOM utils */
+
+/** Build an element. Children are appended as TEXT unless they are Nodes. */
+function el(tag, attrs, ...kids) {
+  const n = document.createElement(tag);
+  if (attrs) for (const k in attrs) {
+    if (k === 'class') n.className = attrs[k];
+    else if (k === 'onclick') n.addEventListener('click', attrs[k]);
+    else if (k === 'oninput') n.addEventListener('input', attrs[k]);
+    else if (k === 'onkeydown') n.addEventListener('keydown', attrs[k]);
+    else if (attrs[k] !== null && attrs[k] !== undefined) n.setAttribute(k, attrs[k]);
+  }
+  for (const c of kids.flat()) {
+    if (c === null || c === undefined || c === false) continue;
+    n.appendChild(c instanceof Node ? c : document.createTextNode(String(c)));
+  }
+  return n;
+}
+const $ = (id) => document.getElementById(id);
+function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+
+function toast(msg, bad) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'on' + (bad ? ' bad' : '');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { t.className = ''; }, 3600);
+}
+
+function fmtDate(v) {
+  if (!v) return '—';
+  const d = new Date(v);
+  if (isNaN(d)) return String(v);
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+function daysSince(v) {
+  if (!v) return null;
+  const d = new Date(v);
+  if (isNaN(d)) return null;
+  return Math.floor((Date.now() - d.getTime()) / 86400000);
+}
+
+/* --------------------------------------------------------------- gateway */
+
+/**
+ * One door to n8n. Every workflow action goes through this.
+ * The gateway workflow reads { action, payload } and routes to the
+ * matching sub-workflow, exactly as the Telegram command router did.
+ */
+async function callGateway(action, payload) {
+  if (DEMO) return demoResponse(action, payload);
+
+  if (!CFG.gatewayUrl) throw new Error('No gateway configured. Set TARANIS_CONFIG.gatewayUrl.');
+  if (!session || !session.token) throw new Error('Signed out. Sign in again.');
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 60000);
+  try {
+    const res = await fetch(CFG.gatewayUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + session.token
+      },
+      body: JSON.stringify({ action, payload: payload || {} }),
+      signal: ctrl.signal,
+      credentials: 'omit',
+      mode: 'cors'
+    });
+    if (res.status === 401 || res.status === 403) {
+      signOut();
+      throw new Error('Your session expired. Sign in again.');
+    }
+    if (!res.ok) throw new Error('Gateway returned ' + res.status);
+    return await res.json();
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('That took too long. Try again.');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/* ------------------------------------------------------------------ auth */
+
+async function sendMagicLink(email) {
+  const res = await fetch(CFG.supabaseUrl + '/auth/v1/otp', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: CFG.supabaseAnonKey },
+    body: JSON.stringify({ email, create_user: false })
+  });
+  if (!res.ok) throw new Error('Could not send the link. Check the address is on the allow list.');
+}
+
+/** Supabase returns the token in the URL fragment after the link is used. */
+function readTokenFromUrl() {
+  if (!location.hash || location.hash.length < 2) return null;
+  const p = new URLSearchParams(location.hash.slice(1));
+  const token = p.get('access_token');
+  if (!token) return null;
+  history.replaceState(null, '', location.pathname + location.search);
+  let email = '';
+  try {
+    const body = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    email = body.email || '';
+  } catch (_) { /* token still usable; the gateway is the real verifier */ }
+  return { token, email };
+}
+
+function signOut() {
+  session = null;
+  DEMO = false;
+  if (pollTimer) clearInterval(pollTimer);
+  $('app').className = '';
+  $('gate').style.display = 'grid';
+}
+
+/* ------------------------------------------------------------------ tabs */
+
+const TABS = [
+  { id: 'today',    icon: '\u25CF', label: 'Today',        title: 'Today',
+    sub: 'What arrived while you were away, and what is waiting on you.' },
+  { id: 'approvals',icon: '\u25C6', label: 'Approvals',    title: 'Approvals',
+    sub: 'Opportunities the screen could not settle on its own. Approve, correct, or reject.' },
+  { id: 'contacts', icon: '\u25A0', label: 'Contacts',     title: 'Contacts',
+    sub: 'The fundraising book. Who knows Taranis, when you last spoke, and what is owed.' },
+  { id: 'email',    icon: '\u2709', label: 'Email',        title: 'Email',
+    sub: 'Draft to a contact, read it back, then send. Nothing leaves without you approving it.' },
+  { id: 'opps',     icon: '\u25B2', label: 'Opportunities',title: 'Opportunities',
+    sub: 'Mandates from With Intelligence, scored against the Taranis criteria.' },
+  { id: 'meetings', icon: '\u25D0', label: 'Meetings',     title: 'Meetings',
+    sub: 'Schedule a Zoom against a contact and keep it on their record.' },
+  { id: 'docs',     icon: '\u25AC', label: 'Documents',    title: 'Documents',
+    sub: 'Decks, monthly reports and weekly notes, with the link to send.' },
+  { id: 'network',  icon: '\u25CB', label: 'Network',      title: 'LinkedIn network',
+    sub: 'First-degree connections, separate from the contact book.' },
+  { id: 'ask',      icon: '\u25C7', label: 'Ask',          title: 'Ask',
+    sub: 'Anything you used to type into the bot. It queries before it answers.' }
+];
+
+let current = 'today';
+
+function buildNav() {
+  const list = $('navlist');
+  clear(list);
+  for (const t of TABS) {
+    const b = el('button', {
+      class: 'navbtn', type: 'button', 'data-tab': t.id,
+      onclick: () => go(t.id)
+    }, el('span', { class: 'ic' }, t.icon), el('span', null, t.label));
+    list.appendChild(b);
+  }
+  paintCounts();
+}
+
+function paintCounts() {
+  document.querySelectorAll('.navbtn').forEach(b => {
+    const id = b.getAttribute('data-tab');
+    b.querySelectorAll('.ct').forEach(x => x.remove());
+    const n = counts[id];
+    if (n > 0) b.appendChild(el('span', { class: 'ct' }, String(n)));
+  });
+}
+
+function go(id) {
+  current = id;
+  const t = TABS.find(x => x.id === id);
+  document.querySelectorAll('.navbtn').forEach(b =>
+    b.setAttribute('aria-current', b.getAttribute('data-tab') === id ? 'page' : 'false'));
+  $('pg-title').textContent = t.title;
+  $('pg-sub').textContent = t.sub;
+  const body = $('pg-body');
+  clear(body);
+  body.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading…'));
+  RENDER[id](body);
+}
+
+/* ------------------------------------------------------- entry component */
+
+/**
+ * The console's one visual grammar, borrowed from how the assistant is told
+ * to answer: the action first, then the evidence for it, indented.
+ */
+function entry(o) {
+  const rail = el('div', { class: 'entry-rail' },
+    el('span', { class: 'dot ' + (o.tone || '') }),
+    o.rail ? el('span', { class: 'rail-n' }, o.rail) : null);
+
+  const ev = el('div', { class: 'ev' });
+  for (const [k, v] of (o.evidence || [])) {
+    if (v === null || v === undefined || v === '') continue;
+    ev.appendChild(el('div', null, el('span', { class: 'k' }, k + '  '), String(v)));
+  }
+
+  const main = el('div', { class: 'entry-main' },
+    el('p', { class: 'entry-act' }, o.action),
+    o.who ? el('p', { class: 'entry-who' }, o.who) : null,
+    (o.evidence && o.evidence.length) ? ev : null);
+
+  if (o.tags && o.tags.length) {
+    const row = el('div', { class: 'acts' });
+    for (const t of o.tags) row.appendChild(el('span', { class: 'tag ' + (t[1] || '') }, t[0]));
+    main.insertBefore(row, main.firstChild.nextSibling);
+  }
+  if (o.actions && o.actions.length) {
+    const row = el('div', { class: 'acts' });
+    for (const a of o.actions) {
+      row.appendChild(el('button', { class: 'btn btn-sm ' + (a.primary ? '' : 'btn-quiet'), onclick: a.run }, a.label));
+    }
+    main.appendChild(row);
+  }
+  return el('div', { class: 'entry' }, rail, main);
+}
+
+/** Send a question to the Ask tab from anywhere else in the console. */
+function askAbout(q) { PENDING.q = q; go('ask'); }
+
+function empty(headline, note) {
+  return el('div', { class: 'empty' },
+    el('div', { class: 'big' }, headline),
+    el('p', null, note || ''));
+}
+
+async function load(body, action, payload, draw) {
+  try {
+    const data = await callGateway(action, payload);
+    clear(body);
+    draw(data);
+  } catch (e) {
+    clear(body);
+    body.appendChild(el('div', { class: 'banner' },
+      el('b', null, 'Could not load. '), e.message));
+  }
+}
+
+/* --------------------------------------------------------------- renders */
+
+const RENDER = {};
+
+RENDER.today = function (body) {
+  load(body, 'today.feed', {}, (d) => {
+    const items = d.items || [];
+    counts.today = items.filter(i => !i.read).length;
+    paintCounts();
+    if (!items.length) return body.appendChild(empty('Nothing waiting', 'New alerts, reviews and replies land here.'));
+    for (const i of items) {
+      body.appendChild(entry({
+        tone: i.kind === 'review' ? 'signal' : i.kind === 'matched' ? 'good' : 'accent',
+        rail: i.source || '',
+        action: i.title,
+        who: i.subtitle,
+        evidence: (i.fields || []).map(f => [f.label, f.value]),
+        tags: [[i.kind, i.kind === 'review' ? 'signal' : i.kind === 'matched' ? 'good' : 'accent'],
+               [fmtDate(i.at), '']],
+        actions: i.review_id ? [
+          { label: 'Review', primary: true, run: () => go('approvals') }
+        ] : []
+      }));
+    }
+  });
+};
+
+RENDER.approvals = function (body) {
+  load(body, 'wi.reviews.pending', {}, (d) => {
+    const rows = d.rows || [];
+    counts.approvals = rows.length;
+    paintCounts();
+    if (!rows.length) return body.appendChild(empty('Nothing to approve', 'Screened opportunities that need a person appear here.'));
+    for (const r of rows) {
+      body.appendChild(entry({
+        tone: 'signal',
+        rail: r.review_id,
+        action: r.contact_name || 'Unnamed investor',
+        who: r.company || '',
+        evidence: [
+          ['country ', r.investor_country],
+          ['type    ', r.investor_type],
+          ['ticket  ', r.ticket_min_usd],
+          ['score   ', r.fit_score],
+          ['reason  ', r.fit_reason]
+        ],
+        tags: [['pending', 'signal']],
+        actions: [
+          { label: 'Approve', primary: true, run: () => act('wi.review.approve', { review_id: r.review_id }, 'Approved') },
+          { label: 'Correct a field', run: () => editSheet(r) },
+          { label: 'Reject', run: () => act('wi.review.reject', { review_id: r.review_id }, 'Rejected') }
+        ]
+      }));
+    }
+  });
+};
+
+RENDER.contacts = function (body) {
+  const bar = el('div', { class: 'toolbar' });
+  const input = el('input', { class: 'search', type: 'search', placeholder: 'Name, firm or city…' });
+  let filter = 'all';
+  const chips = el('div', { class: 'chips' });
+  for (const [k, lbl] of [['all', 'Everyone'], ['knows', 'Knows us'], ['due', 'Due a follow-up'], ['quiet', 'Gone quiet']]) {
+    chips.appendChild(el('button', { class: 'chip', onclick: () => { filter = k; run(); } }, lbl));
+  }
+  bar.append(input, el('button', { class: 'btn btn-sm btn-quiet', onclick: () => run() }, 'Search'));
+  const out = el('div');
+  clear(body); body.append(bar, chips, out);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
+
+  function run() {
+    clear(out);
+    out.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading…'));
+    load(out, 'contacts.search', { q: input.value.trim(), filter }, (d) => {
+      const rows = d.rows || [];
+      if (!rows.length) return out.appendChild(empty('No one matches', 'Try a surname, or the firm on its own.'));
+      for (const c of rows) {
+        const q = daysSince(c.last_interaction);
+        out.appendChild(entry({
+          tone: c.knows_us === 'yes' ? 'good' : c.knows_us === 'vaguely' ? 'signal' : '',
+          rail: q === null ? 'never' : q + 'd',
+          action: c.name,
+          who: [c.company, c.city, c.country].filter(Boolean).join(' · '),
+          evidence: [
+            ['last spoke ', c.last_interaction ? fmtDate(c.last_interaction) + (q !== null ? '  (' + q + ' days)' : '') : 'never'],
+            ['about      ', c.last_contact_note],
+            ['next step  ', c.next_step],
+            ['email      ', c.email]
+          ],
+          tags: [
+            [c.knows_us === 'yes' ? 'knows us' : c.knows_us === 'vaguely' ? 'vaguely' : 'cold',
+             c.knows_us === 'yes' ? 'good' : c.knows_us === 'vaguely' ? 'signal' : ''],
+            c.category ? [c.category, ''] : null
+          ].filter(Boolean),
+          actions: [
+            { label: 'Draft an email', primary: true, run: () => { PENDING.draft = c.name; go('email'); } },
+            { label: 'Book a Zoom', run: () => { PENDING.meet = c.name; go('meetings'); } },
+            { label: 'History', run: () => askAbout('What did we send ' + c.name + ' and when was our last contact?') }
+          ]
+        }));
+      }
+    });
+  }
+  run();
+};
+
+RENDER.email = function (body) {
+  clear(body);
+  const to = el('input', { class: 'search', placeholder: 'Contact name, e.g. Miles Kerstein' });
+  const brief = el('input', { class: 'search', placeholder: 'What should it say? e.g. share the July TMS and ask for a call' });
+  const go1 = el('button', { class: 'btn btn-sm' }, 'Write a draft');
+  body.append(
+    el('div', { class: 'banner' },
+      el('b', null, 'Two steps, same as the bot. '),
+      'Writing a draft never sends. The address is resolved from the contact book — nothing is invented.'),
+    el('div', { class: 'toolbar' }, to),
+    el('div', { class: 'toolbar' }, brief, go1));
+  const out = el('div'); body.appendChild(out);
+  if (PENDING.draft) { to.value = PENDING.draft; PENDING.draft = null; brief.focus(); }
+
+  go1.addEventListener('click', async () => {
+    if (!to.value.trim()) return toast('Name the contact first.', true);
+    go1.disabled = true; go1.textContent = 'Writing…';
+    try {
+      const d = await callGateway('crm.email.draft', { to: to.value.trim(), brief: brief.value.trim() });
+      clear(out);
+      out.appendChild(entry({
+        tone: 'accent',
+        rail: 'draft',
+        action: d.subject || 'Draft ready',
+        who: 'To ' + (d.contact_name || to.value) + '  <' + (d.to_addr || '?') + '>',
+        evidence: [['draft id ', d.draft_id]],
+        actions: [
+          { label: 'Read it, then send', primary: true, run: () => reviewDraft(d) }
+        ]
+      }));
+      const pre = el('div', { class: 'bub', style: 'margin-top:10px;max-width:78ch' }, d.body || '');
+      out.appendChild(pre);
+    } catch (e) { toast(e.message, true); }
+    finally { go1.disabled = false; go1.textContent = 'Write a draft'; }
+  });
+};
+
+RENDER.opps = function (body) {
+  load(body, 'wi.mandates.list', { limit: 40 }, (d) => {
+    const rows = d.rows || [];
+    if (!rows.length) return body.appendChild(empty('No opportunities yet', 'Screened mandates from With Intelligence land here.'));
+    for (const m of rows) {
+      const tone = m.qualification === 'matched' ? 'good' : m.qualification === 'uncertain' ? 'signal' : 'bad';
+      body.appendChild(entry({
+        tone,
+        rail: '#' + m.id,
+        action: m.investor_name || 'Unnamed',
+        who: [m.organization_name, m.investor_country, m.investor_city].filter(Boolean).join(' · '),
+        evidence: [
+          ['type      ', m.investor_type],
+          ['strategy  ', m.strategies],
+          ['ticket    ', m.ticket_min_usd],
+          ['score     ', m.fit_score],
+          ['reason    ', m.fit_reason],
+          ['not stated', m.missing_hard_fields]
+        ],
+        tags: [[m.qualification, tone]],
+        actions: [
+          { label: 'Fill a gap', run: () => fillSheet(m) },
+          m.qualification === 'rejected'
+            ? { label: 'Accept anyway', run: () => act('wi.mandate.accept', { id: m.id }, 'Accepted and published') }
+            : null,
+          m.linkedin_url ? { label: 'Check the network', run: () => act('li.check', { url: m.linkedin_url }, 'Checking') } : null
+        ].filter(Boolean)
+      }));
+    }
+  });
+};
+
+RENDER.meetings = function (body) {
+  clear(body);
+  body.appendChild(el('div', { class: 'banner' },
+    el('b', null, 'Not yet wired. '),
+    'None of the eighteen workflows book Zoom calls today — this tab is the shape of it, ready for the Zoom workflow to be added behind it.'));
+  const who = el('input', { class: 'search', placeholder: 'Who is it with?' });
+  const when = el('input', { class: 'search', type: 'datetime-local' });
+  const mins = el('input', { class: 'search', type: 'number', value: '30', min: '15', step: '15', style: 'max-width:110px' });
+  body.append(el('div', { class: 'toolbar' }, who),
+              el('div', { class: 'toolbar' }, when, mins,
+                 el('button', { class: 'btn btn-sm', onclick: () => book() }, 'Create the meeting')));
+  const out = el('div'); body.appendChild(out);
+  if (PENDING.meet) { who.value = PENDING.meet; PENDING.meet = null; when.focus(); }
+
+  async function book() {
+    if (!who.value.trim() || !when.value) return toast('Name the person and pick a time.', true);
+    try {
+      const d = await callGateway('zoom.create', {
+        contact: who.value.trim(), start: when.value, minutes: Number(mins.value) || 30
+      });
+      clear(out);
+      out.appendChild(entry({
+        tone: 'good', rail: 'zoom',
+        action: 'Meeting created',
+        who: d.topic || who.value,
+        evidence: [['starts ', fmtDate(d.start_time)], ['join   ', d.join_url]]
+      }));
+      toast('Meeting created and saved to the contact.');
+    } catch (e) { toast(e.message, true); }
+  }
+
+  load(out, 'zoom.upcoming', {}, (d) => {
+    const rows = d.rows || [];
+    if (!rows.length) return out.appendChild(empty('Nothing booked', 'Meetings you create appear here and on the contact record.'));
+    for (const m of rows) out.appendChild(entry({
+      tone: 'accent', rail: 'zoom', action: m.topic, who: m.contact_name,
+      evidence: [['starts ', fmtDate(m.start_time)], ['join   ', m.join_url]]
+    }));
+  });
+};
+
+RENDER.docs = function (body) {
+  load(body, 'docs.list', {}, (d) => {
+    const rows = d.rows || [];
+    if (!rows.length) return body.appendChild(empty('The archive is empty', 'Decks and reports uploaded to the library appear here.'));
+    for (const x of rows) body.appendChild(entry({
+      tone: x.is_current ? 'good' : '',
+      rail: x.version_label || '',
+      action: x.title,
+      who: x.month_label || '',
+      evidence: [['link  ', x.public_url], ['added ', fmtDate(x.added_on)]],
+      tags: x.is_current ? [['current', 'good']] : [],
+      actions: [{ label: 'Copy the link', run: () => copy(x.public_url) }]
+    }));
+  });
+};
+
+RENDER.network = function (body) {
+  clear(body);
+  const q = el('input', { class: 'search', placeholder: 'Name to look up…' });
+  body.appendChild(el('div', { class: 'toolbar' }, q,
+    el('button', { class: 'btn btn-sm', onclick: () => run() }, 'Look up')));
+  const out = el('div'); body.appendChild(out);
+  q.addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
+  function run() {
+    if (!q.value.trim()) return;
+    clear(out);
+    load(out, 'li.search', { q: q.value.trim() }, (d) => {
+      const rows = d.rows || [];
+      if (!rows.length) return out.appendChild(empty('Not a first-degree connection', 'They may still be in the contact book — check Contacts.'));
+      for (const p of rows) out.appendChild(entry({
+        tone: p.match === 'exact' ? 'good' : 'accent',
+        rail: p.match || '',
+        action: p.full_name,
+        evidence: [['profile ', p.profile_url]]
+      }));
+    });
+  }
+};
+
+/* ------------------------------------------------------------------- ask */
+
+RENDER.ask = function (body) {
+  const host = body.parentElement;
+  host.style.padding = '0';
+  clear(body);
+  body.style.padding = '0';
+  body.style.display = 'flex';
+  body.style.flexDirection = 'column';
+  body.style.height = '100%';
+
+  const log = el('div', { id: 'ask-log' });
+  const chips = el('div', { class: 'chips' });
+  for (const s of [
+    'Who in Geneva knows us?',
+    'Who is overdue a follow-up?',
+    'What did we last send Pictet, and when?',
+    'Which opportunities are still waiting on me?'
+  ]) chips.appendChild(el('button', { class: 'chip', onclick: () => { input.value = s; send(); } }, s));
+
+  const input = el('textarea', { id: 'ask-in', rows: '1', placeholder: 'Ask anything you used to type into the bot…' });
+  const btn = el('button', { class: 'btn' }, 'Ask');
+  const bar = el('div', { id: 'ask-bar' }, chips, el('div', { id: 'ask-row' }, input, btn));
+  body.append(log, bar);
+
+  input.addEventListener('input', () => {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 150) + 'px';
+  });
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+  btn.addEventListener('click', send);
+
+  if (!log.childNodes.length) {
+    log.appendChild(el('div', { class: 'msg' },
+      el('div', { class: 'from' }, 'Console'),
+      el('div', { class: 'bub' },
+        'Ask about anyone in the book, what was sent and when, opportunities, documents, or the network. ' +
+        'Every answer is queried fresh — it never answers from what it said earlier.')));
+  }
+
+  // A question handed over from another tab (e.g. the History button on a
+  // contact) is parked on PENDING and picked up once this tab is built.
+  if (PENDING.q) { const q = PENDING.q; PENDING.q = null; input.value = q; setTimeout(send, 40); }
+
+  async function send() {
+    const q = input.value.trim();
+    if (!q) return;
+    input.value = ''; input.style.height = 'auto';
+    log.appendChild(el('div', { class: 'msg me' },
+      el('div', { class: 'from' }, 'You'), el('div', { class: 'bub' }, q)));
+    const wait = el('div', { class: 'msg' },
+      el('div', { class: 'from' }, 'Console'),
+      el('div', { class: 'bub' }, el('span', { class: 'typing' }, el('i'), el('i'), el('i'))));
+    log.appendChild(wait);
+    log.scrollTop = log.scrollHeight;
+    try {
+      const d = await callGateway('assistant.ask', { question: q });
+      wait.remove();
+      const bub = el('div', { class: 'bub' });
+      renderAnswer(bub, d.answer || 'No answer came back.');
+      const m = el('div', { class: 'msg' }, el('div', { class: 'from' }, 'Console'), bub);
+      if (d.sources && d.sources.length) {
+        bub.appendChild(el('div', { class: 'srcs' }, 'queried: ' + d.sources.join(', ')));
+      }
+      log.appendChild(m);
+    } catch (e) {
+      wait.remove();
+      log.appendChild(el('div', { class: 'msg' },
+        el('div', { class: 'from' }, 'Console'),
+        el('div', { class: 'bub', style: 'border-color:var(--bad);color:var(--bad)' }, e.message)));
+    }
+    log.scrollTop = log.scrollHeight;
+  }
+};
+
+/**
+ * The agent answers in Telegram HTML (<b>, <i>, <a href>, <code>).
+ * Parse that allow-list explicitly. Anything else becomes text —
+ * a <script> in an answer renders as characters, never as code.
+ */
+function renderAnswer(host, html) {
+  const ALLOWED = { B: 1, I: 1, U: 1, CODE: 1, PRE: 1, A: 1, BR: 1, STRONG: 1, EM: 1 };
+  const doc = new DOMParser().parseFromString('<div>' + html + '</div>', 'text/html');
+  const src = doc.body.firstChild;
+
+  (function walk(from, to) {
+    for (const n of Array.from(from.childNodes)) {
+      if (n.nodeType === 3) { to.appendChild(document.createTextNode(n.nodeValue)); continue; }
+      if (n.nodeType !== 1) continue;
+      if (!ALLOWED[n.tagName]) { to.appendChild(document.createTextNode(n.textContent)); continue; }
+      const t = document.createElement(n.tagName.toLowerCase());
+      if (n.tagName === 'A') {
+        const href = n.getAttribute('href') || '';
+        if (/^https?:\/\//i.test(href)) {         // no javascript:, no data:
+          t.setAttribute('href', href);
+          t.setAttribute('target', '_blank');
+          t.setAttribute('rel', 'noopener noreferrer');
+        }
+      }
+      to.appendChild(t);
+      walk(n, t);
+    }
+  })(src, host);
+}
+
+/* --------------------------------------------------------------- actions */
+
+async function act(action, payload, okMsg) {
+  try {
+    await callGateway(action, payload);
+    toast(okMsg);
+    go(current);
+  } catch (e) { toast(e.message, true); }
+}
+
+function copy(text) {
+  navigator.clipboard.writeText(text || '').then(
+    () => toast('Link copied'),
+    () => toast('Could not copy', true));
+}
+
+function sheet(title, bodyNodes, footNodes) {
+  $('sheet-title').textContent = title;
+  const b = $('sheet-body'); clear(b); bodyNodes.forEach(n => b.appendChild(n));
+  const f = $('sheet-foot'); clear(f); footNodes.forEach(n => f.appendChild(n));
+  $('sheet').classList.add('on');
+}
+function closeSheet() { $('sheet').classList.remove('on'); }
+$('sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeSheet(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
+
+function editSheet(r) {
+  const sel = el('select', { class: 'search' });
+  for (const f of ['company', 'contact_name', 'subject', 'intelligence_text'])
+    sel.appendChild(el('option', { value: f }, f));
+  const val = el('textarea', { class: 'ta', placeholder: 'The corrected value' });
+  sheet('Correct a field', [
+    el('label', { class: 'field' }, el('span', null, 'Field'), sel),
+    el('label', { class: 'field' }, el('span', null, 'New value'), val)
+  ], [
+    el('button', { class: 'btn btn-quiet', onclick: closeSheet }, 'Cancel'),
+    el('button', {
+      class: 'btn', onclick: async () => {
+        closeSheet();
+        await act('wi.review.edit', { review_id: r.review_id, field: sel.value, value: val.value }, 'Corrected');
+      }
+    }, 'Save the correction')
+  ]);
+}
+
+function fillSheet(m) {
+  const sel = el('select', { class: 'search' });
+  for (const f of ['ticket_min_usd', 'ticket_max_usd', 'aum_usd', 'investor_type', 'investor_country',
+                   'investor_city', 'linkedin_url', 'allocation_timing', 'strategies', 'contact_name'])
+    sel.appendChild(el('option', { value: f }, f));
+  const val = el('input', { class: 'search', placeholder: 'Value' });
+  sheet('Fill a gap on #' + m.id, [
+    el('label', { class: 'field' }, el('span', null, 'Field'), sel),
+    el('label', { class: 'field' }, el('span', null, 'Value'), val)
+  ], [
+    el('button', { class: 'btn btn-quiet', onclick: closeSheet }, 'Cancel'),
+    el('button', {
+      class: 'btn', onclick: async () => {
+        closeSheet();
+        await act('wi.mandate.fill', { id: m.id, field: sel.value, value: val.value }, 'Saved');
+      }
+    }, 'Save')
+  ]);
+}
+
+function reviewDraft(d) {
+  const body = el('textarea', { class: 'ta' });
+  body.value = d.body || '';
+  sheet('Send to ' + (d.contact_name || ''), [
+    el('p', { class: 'mono', style: 'font-size:12px;color:var(--ink-3);margin:0 0 10px' },
+      (d.to_addr || '') + '  ·  ' + (d.subject || '')),
+    body
+  ], [
+    el('button', { class: 'btn btn-quiet', onclick: closeSheet }, 'Not yet'),
+    el('button', {
+      class: 'btn', onclick: async () => {
+        closeSheet();
+        await act('crm.email.send', { draft_id: d.draft_id, body: body.value }, 'Sent, and filed against the contact');
+      }
+    }, 'Send it')
+  ]);
+}
+
+/* ------------------------------------------------------------ background */
+
+async function poll() {
+  try {
+    const d = await callGateway('today.counts', {});
+    counts.today = d.unread || 0;
+    counts.approvals = d.pending_reviews || 0;
+    paintCounts();
+  } catch (_) { /* a failed poll is not worth interrupting anyone */ }
+}
+
+/* ------------------------------------------------------------- demo data */
+
+function demoResponse(action) {
+  const wait = (v) => new Promise(r => setTimeout(() => r(v), 260));
+  const D = {
+    'today.counts': { unread: 3, pending_reviews: 2 },
+    'today.feed': { items: [
+      { kind: 'review', source: 'WI', title: 'Two opportunities need a decision',
+        subtitle: 'Screened overnight, neither clean enough to publish on its own',
+        at: Date.now() - 3.2e6, fields: [{ label: 'highest', value: 'Wealthspire Advisors — 0.71' }], review_id: 'wi-482' },
+      { kind: 'matched', source: 'WI', title: 'Published to the team automatically',
+        subtitle: 'Cheviot Asset Management — UK MFO, equity L/S, open to emerging managers',
+        at: Date.now() - 7.4e6, fields: [{ label: 'score', value: '0.86' }, { label: 'ticket', value: '1,000,000' }] },
+      { kind: 'followup', source: 'CRM', title: 'Four people are waiting on a reply',
+        subtitle: 'Oldest has been sitting eleven days', at: Date.now() - 1.1e7,
+        fields: [{ label: 'oldest', value: 'Miles Kerstein — 11 days' }] }
+    ] },
+    'wi.reviews.pending': { rows: [
+      { review_id: 'wi-482-m1x', contact_name: 'Wealthspire Advisors', company: 'Wealthspire Advisors LLC',
+        investor_country: 'US', investor_type: 'wealth manager', ticket_min_usd: '500000',
+        fit_score: '0.71', fit_reason: 'US wealth manager, eligible strategy, emerging-manager appetite not stated' },
+      { review_id: 'wi-486-k2p', contact_name: 'Al Rajhi family office', company: '—',
+        investor_country: 'GB', investor_type: 'single family office', ticket_min_usd: '',
+        fit_score: '0.63', fit_reason: 'Ticket and AUM not stated in the alert' }
+    ] },
+    'contacts.search': { rows: [
+      { name: 'Miles Kerstein', company: 'Pictet Wealth Management', city: 'Geneva', country: 'CH',
+        email: 'm.kerstein@example.ch', knows_us: 'yes', category: 'wealth manager',
+        last_interaction: Date.now() - 9.5e8, next_step: 'Send the July TMS and ask for 20 minutes',
+        last_contact_note: 'He asked for the track record net of fees' },
+      { name: 'Sophie Ravel', company: 'Mirabaud', city: 'Geneva', country: 'CH',
+        email: 's.ravel@example.ch', knows_us: 'vaguely', category: 'EAM',
+        last_interaction: Date.now() - 1.6e9, next_step: 'Re-introduce via Antoine',
+        last_contact_note: 'Intro forwarded, no reply' },
+      { name: 'Daniel Okafor', company: 'Cheviot', city: 'London', country: 'GB',
+        email: 'd.okafor@example.co.uk', knows_us: 'no', category: 'MFO',
+        last_interaction: null, next_step: 'First approach', last_contact_note: '' }
+    ] },
+    'wi.mandates.list': { rows: [
+      { id: 482, investor_name: 'Wealthspire Advisors', organization_name: 'Wealthspire Advisors LLC',
+        investor_country: 'US', investor_city: 'New York', investor_type: 'wealth manager',
+        strategies: '["equity_long_short"]', ticket_min_usd: '500000', qualification: 'uncertain',
+        fit_score: '0.71', fit_reason: 'Eligible on strategy and domicile; appetite not stated',
+        missing_hard_fields: '["emerging_managers"]', linkedin_url: '' },
+      { id: 479, investor_name: 'Cheviot Asset Management', organization_name: 'Cheviot',
+        investor_country: 'GB', investor_city: 'London', investor_type: 'multi family office',
+        strategies: '["equity_long_short"]', ticket_min_usd: '1000000', qualification: 'matched',
+        fit_score: '0.86', fit_reason: 'UK MFO, equity L/S, open to emerging managers',
+        missing_hard_fields: '[]', linkedin_url: 'https://www.linkedin.com/in/example' },
+      { id: 474, investor_name: 'Northbridge Infrastructure', organization_name: '',
+        investor_country: 'CA', investor_city: '', investor_type: 'infrastructure',
+        strategies: '[]', ticket_min_usd: '', qualification: 'rejected', fit_score: '0.12',
+        fit_reason: 'Outside GB/CH/US and ineligible type', missing_hard_fields: '[]', linkedin_url: '' }
+    ] },
+    'docs.list': { rows: [
+      { doc_key: 'tms', title: 'Taranis Market Sentiment', version_label: 'v14', month_label: 'Jul 2026',
+        public_url: 'https://example.com/tms-jul.pdf', is_current: true, added_on: Date.now() - 1.2e9 },
+      { doc_key: 'gdn', title: 'GDN monthly report', version_label: 'v9', month_label: 'Jun 2026',
+        public_url: 'https://example.com/gdn-jun.pdf', is_current: false, added_on: Date.now() - 4e9 }
+    ] },
+    'li.search': { rows: [
+      { full_name: 'Miles Kerstein', profile_url: 'https://www.linkedin.com/in/example', match: 'exact' }
+    ] },
+    'zoom.upcoming': { rows: [] },
+    'crm.email.draft': { draft_id: 'drf-9931', contact_name: 'Miles Kerstein', to_addr: 'm.kerstein@example.ch',
+      subject: 'July TMS, and twenty minutes if you have them',
+      body: 'Miles,\n\nJuly\u2019s Taranis Market Sentiment is attached. The section on positioning into the\nAugust roll is the part I think answers your question about the track record net\nof fees \u2014 the numbers there are after all charges.\n\nWould twenty minutes in the week of the 24th suit you?\n\nAntoine' },
+    'assistant.ask': { sources: ['contacts', 'crm_emails'], answer:
+      'Three people in Geneva know us, and one of them is worth calling this morning.\n\n' +
+      '\u25CF <b>Miles Kerstein</b> \u2014 Pictet Wealth Management\n' +
+      '     Last spoke 11 days ago. He asked for the track record net of fees and you have not\n' +
+      '     sent it. July\u2019s TMS answers him directly.\n\n' +
+      '\u25CF <b>Sophie Ravel</b> \u2014 Mirabaud\n' +
+      '     Only knows us vaguely. Antoine\u2019s introduction went out in March and never landed.\n\n' +
+      'This is a sample answer. Connect the gateway and it queries the real book.' }
+  };
+  return wait(D[action] || { ok: true, rows: [], items: [] });
+}
+
+/* ---------------------------------------------------------------- launch */
+
+function start() {
+  $('gate').style.display = 'none';
+  $('app').className = 'on';
+  $('who').textContent = DEMO ? 'Sample console' : (session.email || 'Signed in');
+  buildNav();
+  go('today');
+  if (!DEMO) {
+    poll();
+    pollTimer = setInterval(poll, Math.max(20, CFG.pollSeconds) * 1000);
+  } else {
+    counts.today = 3; counts.approvals = 2; paintCounts();
+  }
+}
+
+$('gate-go').addEventListener('click', async () => {
+  const email = $('gate-email').value.trim();
+  if (!email) return toast('Enter your work email.', true);
+  if (!CFG.supabaseUrl) {
+    $('gate-note').textContent =
+      'No Supabase project configured yet. Open the sample console below, or set TARANIS_CONFIG in config.js.';
+    return;
+  }
+  const b = $('gate-go'); b.disabled = true; b.textContent = 'Sending…';
+  try {
+    await sendMagicLink(email);
+    $('gate-note').textContent = 'Check ' + email + '. The link works once and expires in an hour.';
+  } catch (e) {
+    $('gate-note').textContent = e.message;
+  } finally { b.disabled = false; b.textContent = 'Send sign-in link'; }
+});
+
+$('gate-demo').addEventListener('click', () => { DEMO = true; session = { email: 'sample' }; start(); });
+$('signout').addEventListener('click', signOut);
+
+(function boot() {
+  const t = readTokenFromUrl();
+  if (t) { session = t; start(); }
+})();
