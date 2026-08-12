@@ -32,7 +32,8 @@ const CFG = Object.assign({
   gatewayUrl: '',        // https://quantcairo.app.n8n.cloud/webhook/console
   supabaseUrl: '',       // https://xxxx.supabase.co
   supabaseAnonKey: '',
-  pollSeconds: 45
+  pollSeconds: 45,
+  build: ''            // commit hash stamped in by GitHub Actions
 }, window.TARANIS_CONFIG || {});
 
 let DEMO = false;                 // sample-data mode
@@ -305,6 +306,8 @@ const TABS = [
     sub: 'Opportunities the screen could not settle on its own. Approve, correct, or reject.' },
   { id: 'contacts', icon: '\u25A0', label: 'Contacts',     title: 'Contacts',
     sub: 'The fundraising book. Who knows Taranis, when you last spoke, and what is owed.' },
+  { id: 'notes',    icon: '\u25A5', label: 'Notes',        title: 'Notes',
+    sub: 'What was said, where, and with whom. Linked to the contact book when the person is in it.' },
   { id: 'email',    icon: '\u2709', label: 'Email',        title: 'Email',
     sub: 'Draft to a contact, read it back, then send. Nothing leaves without you approving it.' },
   { id: 'inbox',    icon: '\u25A4', label: 'Correspondence', title: 'Correspondence',
@@ -697,6 +700,182 @@ RENDER.opps = function (body) {
       }));
     }
   });
+};
+
+RENDER.notes = function (body) {
+  clear(body);
+
+  /* ---------------------------------------------------------- the form */
+
+  const title = el('input', { class: 'search', placeholder: 'What was it? e.g. Coffee with Marc Dubois' });
+  const date  = el('input', { class: 'search', type: 'date' });
+  date.value  = new Date().toISOString().slice(0, 10);
+  const place = el('input', { class: 'search', placeholder: 'Where? e.g. Zurich, their office, a call' });
+  const text  = el('textarea', { class: 'ta', placeholder: 'What was said, what they are after, what you promised to do next.' });
+
+  // The contact block. Picking someone out of the book stores their id, so the
+  // note follows them if their firm or name is corrected later. Typing the
+  // fields by hand is the fallback for people who are not in the book yet.
+  const look    = el('input', { class: 'search', placeholder: 'Search the contact book by name or firm' });
+  const sugg    = el('div', { class: 'chips' });
+  const pickBar = el('div');
+  let chosen    = null;
+
+  const cName = el('input', { class: 'search', placeholder: 'Name' });
+  const cRole = el('input', { class: 'search', placeholder: 'Role' });
+  const cComp = el('input', { class: 'search', placeholder: 'Company' });
+  const cMail = el('input', { class: 'search', type: 'email', placeholder: 'Email' });
+  const cTel  = el('input', { class: 'search', placeholder: 'Phone' });
+
+  const saveBtn = el('button', { class: 'btn', onclick: () => save() }, 'Save the note');
+
+  let lookTimer = null;
+  look.addEventListener('input', () => {
+    clearTimeout(lookTimer);
+    lookTimer = setTimeout(lookup, 250);
+  });
+
+  async function lookup() {
+    const q = look.value.trim();
+    clear(sugg);
+    if (q.length < 2) return;
+    try {
+      const t = '*' + q.replace(/[,()*]/g, '') + '*';
+      const rows = await readRows('contacts_app',
+        'select=id,name,role,company,city,country,email&limit=6'
+        + '&or=(name.ilike.' + t + ',company.ilike.' + t + ')',
+        'contacts.search', { q: q, filter: 'all' });
+      if (!rows.length) {
+        sugg.appendChild(el('span', { class: 'mono', style: 'font-size:12px;color:var(--ink-3)' },
+          'Nobody by that name. Fill the fields below and the note still saves.'));
+        return;
+      }
+      for (const c of rows) {
+        sugg.appendChild(el('button', { class: 'chip', onclick: () => pick(c) },
+          c.name + (c.company ? '  \u00B7  ' + c.company : '')));
+      }
+    } catch (e) {
+      clear(sugg);
+      sugg.appendChild(el('span', { class: 'mono', style: 'font-size:12px;color:var(--ink-3)' }, e.message));
+    }
+  }
+
+  function pick(c) {
+    chosen = c;
+    cName.value = c.name || '';
+    cRole.value = c.role || '';
+    cComp.value = c.company || '';
+    cMail.value = c.email || '';
+    look.value = '';
+    clear(sugg);
+    drawPicked();
+  }
+
+  function drawPicked() {
+    clear(pickBar);
+    if (!chosen) return;
+    pickBar.appendChild(el('div', { class: 'picked' },
+      el('span', { class: 'nm' }, chosen.name + (chosen.company ? '  \u2014  ' + chosen.company : '')),
+      el('button', { class: 'btn btn-sm btn-quiet', onclick: () => { chosen = null; drawPicked(); } },
+        'Not this person')));
+  }
+
+  function lbl(t, node) {
+    return el('label', { class: 'field' }, el('span', null, t), node);
+  }
+
+  async function save() {
+    if (!title.value.trim() && !text.value.trim()) {
+      return toast('Give the note a title, or something to say.', true);
+    }
+    saveBtn.disabled = true; saveBtn.textContent = 'Saving\u2026';
+    try {
+      await callGateway('notes.save', {
+        title:           title.value.trim(),
+        note_date:       date.value,
+        place:           place.value.trim(),
+        body:            text.value.trim(),
+        contact_id:      chosen ? String(chosen.id) : '',
+        contact_name:    cName.value.trim(),
+        contact_role:    cRole.value.trim(),
+        contact_company: cComp.value.trim(),
+        contact_email:   cMail.value.trim(),
+        contact_phone:   cTel.value.trim()
+      });
+      toast('Note saved.');
+      title.value = ''; place.value = ''; text.value = '';
+      cName.value = ''; cRole.value = ''; cComp.value = ''; cMail.value = ''; cTel.value = '';
+      chosen = null; drawPicked();
+      run();
+    } catch (e) {
+      toast(e.message, true);
+    } finally {
+      saveBtn.disabled = false; saveBtn.textContent = 'Save the note';
+    }
+  }
+
+  const form = el('div', { style: 'max-width:900px;margin-bottom:22px' },
+    el('div', { class: 'grid2' }, lbl('Title', title), lbl('Date', date)),
+    lbl('Place', place),
+    lbl('The note', text),
+    el('div', { style: 'height:8px' }),
+    lbl('Who was it with?', look),
+    sugg, pickBar,
+    el('div', { class: 'grid2' }, lbl('Name', cName), lbl('Role', cRole)),
+    el('div', { class: 'grid2' }, lbl('Company', cComp), lbl('Email', cMail)),
+    lbl('Phone', cTel),
+    saveBtn);
+
+  let open = true;
+  const toggle = el('button', { class: 'btn btn-sm btn-quiet',
+    onclick: () => { open = !open; form.style.display = open ? '' : 'none'; toggle.textContent = open ? 'Hide the form' : 'Write a note'; } },
+    'Hide the form');
+
+  /* ---------------------------------------------------------- the list */
+
+  const find = el('input', { class: 'search', placeholder: 'Search notes by title, text, place or person' });
+  const out  = el('div');
+  let findTimer = null;
+  find.addEventListener('input', () => { clearTimeout(findTimer); findTimer = setTimeout(run, 300); });
+
+  function run() {
+    clear(out);
+    out.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading\u2026'));
+    fill(out, async () => {
+      const d = await callGateway('notes.list', { q: find.value.trim() });
+      return d.rows || [];
+    }, (rows) => {
+      if (!rows.length) {
+        return out.appendChild(empty('No notes yet',
+          'Write the first one above \u2014 anything you would otherwise scribble down after a meeting.'));
+      }
+      for (const n of rows) {
+        out.appendChild(entry({
+          tone: n.in_contact_book ? 'good' : '',
+          rail: n.note_date ? n.note_date.slice(5).replace('-', '/') : '',
+          action: n.title || 'Untitled note',
+          who: [n.contact_name, n.contact_company, n.place].filter(Boolean).join('  \u00B7  '),
+          evidence: [
+            ['on     ', fmtDate(n.note_date)],
+            ['where  ', n.place],
+            ['role   ', n.contact_role],
+            ['email  ', n.contact_email],
+            ['phone  ', n.contact_phone],
+            ['note   ', n.body],
+            ['by     ', n.author]
+          ],
+          tags: [n.in_contact_book ? ['in the book', 'good'] : ['not linked', 'quiet']],
+          actions: n.contact_name ? [
+            { label: 'History', run: () => askAbout('What did we send ' + n.contact_name
+                + ' and when did we last speak?') }
+          ] : []
+        }));
+      }
+    });
+  }
+
+  body.append(el('div', { class: 'toolbar' }, find, toggle), form, out);
+  run();
 };
 
 RENDER.meetings = function (body) {
@@ -1249,6 +1428,47 @@ $('gate-pass').addEventListener('keydown', (e) => { if (e.key === 'Enter') doSig
 
 $('gate-demo').addEventListener('click', () => { DEMO = true; session = { email: 'sample' }; start(); });
 $('signout').addEventListener('click', signOut);
+
+/* ------------------------------------------------------ update watching
+
+   The console is usually opened as an installed window, which has no reload
+   button and caches hard. GitHub Actions stamps the commit hash onto the
+   script URLs, so app.js can never be stale once the page itself is fresh.
+   build.txt is then read with no-store, which no cache is allowed to answer,
+   and a newer deployment is offered rather than forced.
+   --------------------------------------------------------------------- */
+
+async function deployedBuild() {
+  try {
+    const r = await fetch('./build.txt?t=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) return null;
+    return (await r.text()).trim();
+  } catch (_) { return null; }
+}
+
+function offerUpdate() {
+  if ($('updbar')) return;
+  const bar = el('div', {
+    id: 'updbar', class: 'banner',
+    style: 'position:fixed;top:0;left:0;right:0;z-index:99;margin:0;border-radius:0;'
+         + 'display:flex;align-items:center;gap:12px;justify-content:center'
+  },
+    el('b', null, 'A newer version of the console is ready.'),
+    el('button', { class: 'btn btn-sm', onclick: () => location.reload() }, 'Load it'));
+  document.body.insertBefore(bar, document.body.firstChild);
+}
+
+async function watchForUpdates() {
+  if (!CFG.build) return;          // running locally, or before the first stamped deploy
+  const check = async () => {
+    const b = await deployedBuild();
+    if (b && b !== CFG.build) offerUpdate();
+  };
+  await check();
+  setInterval(check, 5 * 60 * 1000);
+}
+
+watchForUpdates();
 
 (async function boot() {
   // A recovery or invite link still arrives with the token in the fragment,
