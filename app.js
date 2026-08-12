@@ -32,7 +32,7 @@ const CFG = Object.assign({
   gatewayUrl: '',        // https://quantcairo.app.n8n.cloud/webhook/console
   supabaseUrl: '',       // https://xxxx.supabase.co
   supabaseAnonKey: '',
-  pollSeconds: 45,
+  pollSeconds: 120,
   build: ''            // commit hash stamped in by GitHub Actions
 }, window.TARANIS_CONFIG || {});
 
@@ -40,7 +40,7 @@ let DEMO = false;                 // sample-data mode
 let session = null;               // { email, token }
 let pollTimer = null;
 const counts = { today: 0, approvals: 0 };
-const PENDING = { q: null, draft: null, meet: null };   // a question handed from one tab to another
+const PENDING = { q: null, qmode: null, draft: null, meet: null };   // a question handed from one tab to another
 
 /* ------------------------------------------------------------- DOM utils */
 
@@ -156,6 +156,28 @@ async function supaSelect(table, query) {
   if (res.status === 401 || res.status === 403) throw new Error('Not permitted. Ask for access to be added.');
   if (!res.ok) throw new Error('Database returned ' + res.status);
   return await res.json();
+}
+
+/** Write one row straight to a table. Returns the stored row. */
+async function supaInsert(table, row) {
+  if (!CFG.supabaseUrl || !session || !session.token) throw new Error('NO_SUPABASE');
+  await ensureToken();
+  const res = await fetch(CFG.supabaseUrl + '/rest/v1/' + table, {
+    method: 'POST',
+    headers: {
+      apikey: CFG.supabaseAnonKey,
+      Authorization: 'Bearer ' + session.token,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation'
+    },
+    body: JSON.stringify(row)
+  });
+  if (res.status === 401 || res.status === 403) {
+    throw new Error('Not permitted to save. The notes table needs an insert policy.');
+  }
+  if (!res.ok) throw new Error('Database returned ' + res.status + ' saving to ' + table);
+  const back = await res.json();
+  return Array.isArray(back) ? back[0] : back;
 }
 
 /** Try Supabase, fall back to the gateway, so a tab works either way. */
@@ -310,12 +332,12 @@ const TABS = [
     sub: 'What was said, where, and with whom. Linked to the contact book when the person is in it.' },
   { id: 'email',    icon: '\u2709', label: 'Email',        title: 'Email',
     sub: 'Draft to a contact, read it back, then send. Nothing leaves without you approving it.' },
-  { id: 'inbox',    icon: '\u25A4', label: 'Correspondence', title: 'Correspondence',
-    sub: 'Every email sent and received, split between clients and the Taranis side.' },
+  { id: 'inbox',    icon: '\u25A4', label: 'Follow up',      title: 'Follow up',
+    sub: 'Who is owed a reply and who has gone quiet, clients first. Every message is still here if you need it.' },
   { id: 'opps',     icon: '\u25B2', label: 'Opportunities',title: 'Opportunities',
     sub: 'Mandates from With Intelligence, scored against the Taranis criteria.' },
-  { id: 'meetings', icon: '\u25D0', label: 'Meetings',     title: 'Meetings',
-    sub: 'Schedule a Zoom against a contact and keep it on their record.' },
+  { id: 'meetings', icon: '\u25D0', label: 'Zoom meetings', title: 'Zoom meetings',
+    sub: 'Scheduled, waiting on approval, or cancelled. The join link and passcode live here.' },
   { id: 'docs',     icon: '\u25AC', label: 'Documents',    title: 'Documents',
     sub: 'Upload a deck or report, and it is versioned, stored and announced to the team.' },
   { id: 'network',  icon: '\u25CB', label: 'Network',      title: 'LinkedIn network',
@@ -375,7 +397,7 @@ function entry(o) {
   const ev = el('div', { class: 'ev' });
   for (const [k, v] of (o.evidence || [])) {
     if (v === null || v === undefined || v === '') continue;
-    const hot = /last spoke|starts|on\s/.test(k);
+    const hot = /last spoke|email|starts|on\s/.test(k);
     ev.appendChild(el('div', null,
       el('span', { class: 'k' }, k + '  '),
       hot ? el('span', { class: 'gold' }, String(v)) : document.createTextNode(String(v))));
@@ -402,7 +424,13 @@ function entry(o) {
 }
 
 /** Send a question to the Ask tab from anywhere else in the console. */
-function askAbout(q) { PENDING.q = q; go('ask'); }
+function askAbout(q, mode) {
+  // History and the other in-app shortcuts default to Ask only, so they
+  // keep working when n8n is out of executions.
+  PENDING.q = q;
+  PENDING.qmode = mode || 'local';
+  go('ask');
+}
 
 function empty(headline, note) {
   return el('div', { class: 'empty' },
@@ -439,7 +467,15 @@ async function load(body, action, payload, draw) {
 const RENDER = {};
 
 RENDER.today = function (body) {
-  load(body, 'today.feed', {}, (d) => {
+  fill(body, async () => {
+    if (DEMO) { const d = await demoResponse('today.feed'); return { items: d.items || [] }; }
+    const rows = await readRows('app_notifications',
+      'select=id,kind,source,title,subtitle,fields,review_id,created_at,read_at'
+      + '&order=created_at.desc&limit=40', 'today.feed', {});
+    return { items: rows.map(r => Object.assign({}, r, {
+      at: r.created_at, read: r.read_at !== null && r.read_at !== undefined
+    })) };
+  }, (d) => {
     const items = d.items || [];
     counts.today = items.filter(i => !i.read).length;
     paintCounts();
@@ -503,16 +539,21 @@ RENDER.contacts = function (body) {
   bar.append(input, el('button', { class: 'btn btn-sm btn-quiet', onclick: () => run() }, 'Search'));
   const out = el('div');
   clear(body); body.append(bar, chips, out);
+
+  // The book is 400+ people. A fixed 60 silently hid most of it with no
+  // sign anything was missing. Page instead: complete, but fast to paint.
+  let shown = 120;
   input.addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
 
-  function run() {
+  function run(keepCount) {
+    if (!keepCount) shown = 120;
     clear(out);
     out.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading…'));
     fill(out, () => {
       const q = input.value.trim();
       // contacts_app is the view from migration 3: it carries side
       // (taranis / external), the cleaned knows_us, and days_quiet.
-      let sel = 'select=*&limit=60&order=last_contact_at.desc.nullslast';
+      let sel = 'select=*&limit=' + shown + '&order=last_contact_at.desc.nullslast';
       if (q) {
         const t = '*' + q.replace(/[,()*]/g, '') + '*';
         sel += '&or=(name.ilike.' + t + ',company.ilike.' + t + ',city.ilike.' + t + ')';
@@ -537,9 +578,13 @@ RENDER.contacts = function (body) {
             ['last spoke ', (c.last_contact_at || c.last_interaction)
                 ? fmtDate(c.last_contact_at || c.last_interaction) + (q !== null ? '  (' + q + ' days)' : '')
                 : 'never'],
+            ['email      ', c.email],
             ['about      ', c.last_contact_summary || c.last_contact_note],
             ['next step  ', c.next_step],
-            ['email      ', c.email]
+            ['ticket     ', c.aum_band],
+            ['region     ', c.region],
+            ['terms      ', c.introducer_terms],
+            ['intel      ', c.intelligence_text || c.raw_notes]
           ],
           tags: [
             [c.knows_us === 'yes' ? 'knows us'
@@ -556,6 +601,16 @@ RENDER.contacts = function (body) {
           ]
         }));
       }
+      // A full page back means there is probably more behind it. Say so,
+      // rather than letting the list just stop with no explanation.
+      const foot = el('p', { class: 'mono',
+        style: 'color:var(--ink-3);font-size:12px;margin-top:18px;display:flex;gap:12px;align-items:center' },
+        el('span', null, 'Showing ' + rows.length));
+      if (rows.length >= shown) {
+        foot.appendChild(el('button', { class: 'btn btn-sm btn-quiet',
+          onclick: () => { shown += 200; run(true); } }, 'Show more'));
+      }
+      out.appendChild(foot);
     });
   }
   run();
@@ -601,41 +656,146 @@ RENDER.email = function (body) {
 RENDER.inbox = function (body) {
   clear(body);
   const input = el('input', { class: 'search', type: 'search',
-    placeholder: 'Subject, summary, or who it was with\u2026' });
-  // Default excludes mail with no contact resolved: that is where the
-  // provider notices and other noise end up, and it is not correspondence.
-  let side = 'matched';
+    placeholder: 'Name, firm, subject or summary\u2026' });
+
+  // Two readings of the same data. The people views answer "who are we
+  // talking to and where did it get to"; the email views answer "what
+  // exactly was said". Clients opens first because that is the book.
+  let view = 'client';
   const chips = el('div', { class: 'chips' });
-  for (const [k, lbl] of [['matched', 'Correspondence'], ['client', 'Clients'],
-                          ['internal', 'Taranis side'], ['unknown', 'Unmatched'],
-                          ['all', 'Everything']]) {
-    chips.appendChild(el('button', { class: 'chip', onclick: () => { side = k; run(); } }, lbl));
+  for (const [k, lbl] of [['client', 'Clients'], ['internal', 'Taranis side'],
+                          ['emails', 'All email'], ['unknown', 'Unmatched']]) {
+    chips.appendChild(el('button', { class: 'chip', onclick: () => { view = k; run(); } }, lbl));
   }
   body.append(el('div', { class: 'toolbar' }, input,
     el('button', { class: 'btn btn-sm btn-quiet', onclick: () => run() }, 'Search')), chips);
   const out = el('div'); body.appendChild(out);
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') run(); });
 
+  /* Country lives on the contact record, not on the email, so it is read
+     once per view and matched back by address, then by name. A person with
+     no contact record still lists \u2014 they simply have no country. */
+  async function contactIndex() {
+    try {
+      const rows = await readRows('contacts_app',
+        'select=name,email,country,company,city&limit=1000',
+        'contacts.search', { q: '', filter: 'all' });
+      const byMail = {}, byName = {};
+      for (const c of rows) {
+        if (c.email) byMail[String(c.email).toLowerCase().trim()] = c;
+        if (c.name)  byName[String(c.name).toLowerCase().trim()]  = c;
+      }
+      return { byMail, byName };
+    } catch (_) { return { byMail: {}, byName: {} }; }
+  }
+
+  /* Rows arrive newest first, so the first sighting of a person is their
+     most recent exchange. That is what "last spoken" and the summary mean. */
+  function foldToPeople(rows, idx) {
+    const seen = new Map();
+    for (const m of rows) {
+      const addr = String(m.counterparty_addr || '').toLowerCase().trim();
+      const name = m.counterparty_name || m.person_name || addr;
+      const key  = addr || String(name || '').toLowerCase().trim();
+      if (!key) continue;
+      const c = idx.byMail[addr] || idx.byName[String(name || '').toLowerCase().trim()] || {};
+      if (!seen.has(key)) {
+        seen.set(key, {
+          name: name || addr,
+          company: m.person_company || c.company || '',
+          // Contact book first; failing that, the national domain on the
+          // address. A .com proves nothing, so it is left blank.
+          country: c.country || countryFromAddress(addr),
+          id: m.id,
+          summary: m.summary || '',
+          subject: m.subject || '',
+          last: m.received_at,
+          outbound: String(m.direction || '').toLowerCase().indexOf('out') === 0
+                 || String(m.direction || '').toLowerCase() === 'sent',
+          owed: !!m.requires_action && !m.replied,
+          addr: addr,
+          n: 1
+        });
+      } else {
+        const p = seen.get(key);
+        p.n += 1;
+        if (!p.summary && m.summary) p.summary = m.summary;
+      }
+    }
+    // The tab is called Follow up, so it has to read like one: anyone owed a
+    // reply comes first, then whoever has waited longest to hear from us.
+    // Nothing is filtered out, only reordered.
+    const list = Array.from(seen.values());
+    list.sort((x, y) => {
+      if (x.owed !== y.owed) return x.owed ? -1 : 1;
+      const dx = daysSince(x.last), dy = daysSince(y.last);
+      return (dy === null ? -1 : dy) - (dx === null ? -1 : dx);
+    });
+    return list;
+  }
+
   function run() {
     clear(out);
     out.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading\u2026'));
     const q = input.value.trim();
-    let sel = 'select=*&order=received_at.desc&limit=60';
+    const people = (view === 'client' || view === 'internal');
+
+    let sel = 'select=*&order=received_at.desc&limit=' + (people ? 400 : 60);
     if (q) {
       const t = '*' + q.replace(/[,()*]/g, '') + '*';
       sel += '&or=(subject.ilike.' + t + ',summary.ilike.' + t
            + ',counterparty_name.ilike.' + t + ',counterparty_addr.ilike.' + t + ')';
     }
-    if (side === 'matched') sel += '&side=in.(client,internal)';
-    else if (side !== 'all') sel += '&side=eq.' + side;
+    if (view === 'client')        sel += '&side=eq.client';
+    else if (view === 'internal') sel += '&side=eq.internal';
+    else if (view === 'unknown')  sel += '&side=eq.unknown';
+    else                          sel += '&side=in.(client,internal)';
 
-    fill(out, () => readRows('crm_emails_app', sel, 'emails.search', { q, side }), (rows) => {
+    fill(out, async () => {
+      const rows = await readRows('crm_emails_app', sel, 'emails.search',
+        { q: q, side: view === 'emails' ? 'all' : view });
+      if (!people) return rows;
+      return foldToPeople(rows, await contactIndex());
+    }, (rows) => {
       if (!rows.length) {
         return out.appendChild(empty('Nothing here',
-          side === 'unknown'
+          view === 'unknown'
             ? 'Good \u2014 every email is matched to a person.'
-            : 'Try a subject line, or the name of whoever it was with.'));
+            : 'Try a surname, a firm, or a subject line.'));
       }
+
+      /* ---- the two people lists: name, country, summary, last spoken ---- */
+      if (people) {
+        for (const p of rows) {
+          const q2 = daysSince(p.last);
+          out.appendChild(entry({
+            tone: p.owed ? 'signal' : (view === 'internal' ? 'accent' : 'good'),
+            rail: q2 === null ? '' : q2 + 'd',
+            action: p.name,
+            who: [p.country, p.company].filter(Boolean).join('  \u00B7  '),
+            evidence: [
+              ['country    ', p.country || 'not on the record'],
+              ['last spoke ', p.last ? fmtDate(p.last) + (q2 !== null ? '  (' + q2 + ' days)' : '') : 'never'],
+              ['about      ', p.summary || p.subject],
+              ['exchanges  ', p.n]
+            ],
+            tags: [
+              [p.outbound ? 'we spoke last' : 'they spoke last', p.outbound ? '' : 'accent'],
+              p.owed ? ['owed a reply', 'signal'] : null
+            ].filter(Boolean),
+            actions: [
+              { label: 'Draft an email', primary: true, run: () => { PENDING.draft = p.name; go('email'); } },
+              { label: 'Read the last email', run: () => readEmail(p.id, p.subject) },
+              { label: 'All their email', run: () => { input.value = p.name; view = 'emails'; run(); } },
+              { label: 'History', run: () => askAbout('What did we send ' + p.name
+                  + ' and when did we last speak?') }
+            ]
+          }));
+        }
+        return;
+      }
+
+      /* ---- the raw email list, unchanged ---- */
       for (const m of rows) {
         const outbound = String(m.direction || '').toLowerCase().indexOf('out') === 0
           || String(m.direction || '').toLowerCase() === 'sent';
@@ -654,21 +814,21 @@ RENDER.inbox = function (body) {
           tags: [
             [m.side === 'internal' ? 'taranis side' : m.side === 'unknown' ? 'unmatched' : 'client',
              m.side === 'internal' ? 'accent' : m.side === 'unknown' ? 'quiet' : 'good'],
-            m.requires_action && !m.replied ? ['needs a reply', 'signal'] : null,
-            m.has_attachments ? ['attachment', ''] : null,
-            m.embedding_ready === false ? ['not searchable yet', 'quiet'] : null
+            m.requires_action && !m.replied ? ['owed a reply', 'signal'] : null,
+            m.has_attachments ? ['attachment', ''] : null
           ].filter(Boolean),
-          actions: m.counterparty_name ? [
-            { label: 'What else with them', run: () => { input.value = m.counterparty_name; side = 'all'; run(); } },
-            { label: 'Ask about this', run: () => askAbout('What did we last send ' + m.counterparty_name + ', and when?') }
-          ] : []
+          actions: [
+            { label: 'Read the email', primary: true, run: () => readEmail(m.id, m.subject) },
+            m.counterparty_name
+              ? { label: 'Draft a reply', run: () => { PENDING.draft = m.counterparty_name; go('email'); } }
+              : null
+          ].filter(Boolean)
         }));
       }
     });
   }
   run();
 };
-
 RENDER.opps = function (body) {
   fill(body, () => readRows('wi_mandates',
         'select=id,investor_name,organization_name,investor_country,investor_city,investor_type,strategies,ticket_min_usd,qualification,fit_score,fit_reason,missing_hard_fields,linkedin_url&order=id.desc&limit=40',
@@ -790,18 +950,33 @@ RENDER.notes = function (body) {
     }
     saveBtn.disabled = true; saveBtn.textContent = 'Saving\u2026';
     try {
-      await callGateway('notes.save', {
-        title:           title.value.trim(),
-        note_date:       date.value,
-        place:           place.value.trim(),
-        body:            text.value.trim(),
-        contact_id:      chosen ? String(chosen.id) : '',
-        contact_name:    cName.value.trim(),
-        contact_role:    cRole.value.trim(),
-        contact_company: cComp.value.trim(),
-        contact_email:   cMail.value.trim(),
-        contact_phone:   cTel.value.trim()
-      });
+      const row = {
+        title:           title.value.trim() || 'Untitled note',
+        note_date:       date.value || new Date().toISOString().slice(0, 10),
+        place:           place.value.trim() || null,
+        body:            text.value.trim() || null,
+        contact_id:      chosen ? chosen.id : null,
+        contact_name:    cName.value.trim() || null,
+        contact_role:    cRole.value.trim() || null,
+        contact_company: cComp.value.trim() || null,
+        contact_email:   cMail.value.trim() || null,
+        contact_phone:   cTel.value.trim() || null,
+        author:          (session && session.email) || 'console'
+      };
+      // Straight to Supabase so notes save with n8n out of executions. The
+      // gateway stays as the fallback for anyone whose key cannot insert.
+      try {
+        await supaInsert('notes', row);
+      } catch (e) {
+        if (e.message === 'NO_SUPABASE') throw e;
+        await callGateway('notes.save', {
+          title: row.title, note_date: row.note_date, place: row.place || '',
+          body: row.body || '', contact_id: row.contact_id ? String(row.contact_id) : '',
+          contact_name: row.contact_name || '', contact_role: row.contact_role || '',
+          contact_company: row.contact_company || '', contact_email: row.contact_email || '',
+          contact_phone: row.contact_phone || ''
+        });
+      }
       toast('Note saved.');
       title.value = ''; place.value = ''; text.value = '';
       cName.value = ''; cRole.value = ''; cComp.value = ''; cMail.value = ''; cTel.value = '';
@@ -842,8 +1017,21 @@ RENDER.notes = function (body) {
     clear(out);
     out.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading\u2026'));
     fill(out, async () => {
-      const d = await callGateway('notes.list', { q: find.value.trim() });
-      return d.rows || [];
+      const q = find.value.trim();
+      let sel = 'select=*&order=note_date.desc,created_at.desc&limit=200';
+      if (q) {
+        const t = '*' + q.replace(/[,()*]/g, '') + '*';
+        sel += '&or=(title.ilike.' + t + ',body.ilike.' + t
+             + ',place.ilike.' + t + ',contact_name.ilike.' + t + ')';
+      }
+      try {
+        const rows = await supaSelect('notes', sel);
+        return rows.map(n => Object.assign({ in_contact_book: n.contact_id !== null }, n));
+      } catch (e) {
+        if (e.message === 'NO_SUPABASE') throw e;
+        const d = await callGateway('notes.list', { q: q });
+        return d.rows || [];
+      }
     }, (rows) => {
       if (!rows.length) {
         return out.appendChild(empty('No notes yet',
@@ -880,62 +1068,182 @@ RENDER.notes = function (body) {
 
 RENDER.meetings = function (body) {
   clear(body);
-  body.appendChild(el('div', { class: 'banner' },
-    el('b', null, 'Not yet wired. '),
-    'None of the eighteen workflows book Zoom calls today — this tab is the shape of it, ready for the Zoom workflow to be added behind it.'));
-  const who = el('input', { class: 'search', placeholder: 'Who is it with?' });
-  const when = el('input', { class: 'search', type: 'datetime-local' });
-  const mins = el('input', { class: 'search', type: 'number', value: '30', min: '15', step: '15', style: 'max-width:110px' });
-  body.append(el('div', { class: 'toolbar' }, who),
-              el('div', { class: 'toolbar' }, when, mins,
-                 el('button', { class: 'btn btn-sm', onclick: () => book() }, 'Create the meeting')));
-  const out = el('div'); body.appendChild(out);
-  if (PENDING.meet) { who.value = PENDING.meet; PENDING.meet = null; when.focus(); }
 
-  async function book() {
-    if (!who.value.trim() || !when.value) return toast('Name the person and pick a time.', true);
+  /* crm_meetings is written by the meeting branch of CRM 02+03. A row starts
+     as 'pending' when the request is parsed, and becomes 'scheduled' only
+     once Zoom has actually issued a meeting, at which point meet_url and
+     passcode are filled in. The app reads the table directly, so this list
+     is accurate whether the request came from Telegram or from here. */
+
+  let filter = 'live';
+  const chips = el('div', { class: 'chips' });
+  for (const [k, lbl] of [['live', 'Upcoming'], ['scheduled', 'Scheduled'],
+                          ['pending', 'Waiting on approval'], ['cancelled', 'Cancelled'],
+                          ['all', 'Everything']]) {
+    chips.appendChild(el('button', { class: 'chip', onclick: () => { filter = k; run(); } }, lbl));
+  }
+  body.appendChild(chips);
+
+  /* ---------------------------------------------------------- book one
+
+     Written straight to Supabase as 'pending', which is the same state the
+     Telegram path produces after it parses a request. Zoom is not called
+     from the browser: issuing the meeting, the calendar event and the invite
+     all belong to the workflow. So this fills the diary now, and the link
+     appears against the row once the workflow turns it into a real meeting. */
+
+  const mTitle = el('input', { class: 'search', placeholder: 'What is the meeting? e.g. TMS review with Pictet' });
+  const mWhen  = el('input', { class: 'search', type: 'datetime-local' });
+  const mMins  = el('input', { class: 'search', type: 'number', value: '30', min: '15', step: '15' });
+  const mTz    = el('input', { class: 'search', value: 'Africa/Cairo' });
+  const mLook  = el('input', { class: 'search', placeholder: 'Search the contact book to add someone' });
+  const mSugg  = el('div', { class: 'chips' });
+  const mList  = el('div');
+  let invited  = [];
+
+  let lt = null;
+  mLook.addEventListener('input', () => { clearTimeout(lt); lt = setTimeout(lookup, 250); });
+
+  async function lookup() {
+    const q = mLook.value.trim();
+    clear(mSugg);
+    if (q.length < 2) return;
     try {
-      const d = await callGateway('zoom.create', {
-        contact: who.value.trim(), start: when.value, minutes: Number(mins.value) || 30
-      });
-      clear(out);
-      out.appendChild(entry({
-        tone: 'good', rail: 'zoom',
-        action: 'Meeting created',
-        who: d.topic || who.value,
-        evidence: [['starts ', fmtDate(d.start_time)], ['join   ', d.join_url]]
-      }));
-      toast('Meeting created and saved to the contact.');
-    } catch (e) { toast(e.message, true); }
+      const t = '*' + q.replace(/[,()*]/g, '') + '*';
+      const rows = await readRows('contacts_app',
+        'select=id,name,company,email&limit=6&or=(name.ilike.' + t + ',company.ilike.' + t + ')',
+        'contacts.search', { q: q, filter: 'all' });
+      if (!rows.length) {
+        return mSugg.appendChild(el('span', { class: 'mono', style: 'font-size:12px;color:var(--ink-3)' },
+          'Nobody by that name. Type a full email address instead and press Add.'));
+      }
+      for (const c of rows) {
+        if (!c.email) continue;
+        mSugg.appendChild(el('button', { class: 'chip', onclick: () => add(c) },
+          c.name + (c.company ? '  \u00B7  ' + c.company : '')));
+      }
+    } catch (e) {
+      mSugg.appendChild(el('span', { class: 'mono', style: 'font-size:12px;color:var(--ink-3)' }, e.message));
+    }
   }
 
-  // crm_meetings is the table that already exists, with meet_url on it.
-  fill(out, () => readRows('crm_meetings',
-      'select=id,title,status,start_utc,duration_min,meet_url,to_people'
-      + '&order=start_utc.desc&limit=40', 'zoom.upcoming', {}), (rows) => {
-    if (!rows.length) {
-      return out.appendChild(empty('Nothing booked',
-        'Meetings booked anywhere appear here once they are saved to the database.'));
-    }
-    for (const m of rows) {
-      const who = Array.isArray(m.to_people)
-        ? m.to_people.map(p => (p && (p.name || p.email)) || p).join(', ') : '';
-      const past = m.start_utc && new Date(m.start_utc) < new Date();
-      out.appendChild(entry({
-        tone: past ? 'quiet' : 'good',
-        rail: past ? 'past' : 'next',
-        action: m.title || 'Meeting',
-        who: who,
-        evidence: [['starts   ', fmtDate(m.start_utc)],
-                   ['minutes  ', m.duration_min],
-                   ['join     ', m.meet_url]],
-        tags: m.status ? [[m.status, past ? 'quiet' : 'good']] : [],
-        actions: m.meet_url ? [{ label: 'Copy the link', run: () => copy(m.meet_url) }] : []
-      }));
-    }
-  });
-};
+  function add(c) {
+    const mail = String(c.email || '').toLowerCase().trim();
+    if (!mail || invited.some(x => x.email === mail)) return;
+    invited.push({ contact_id: c.id || null, name: c.name || mail, email: mail });
+    mLook.value = ''; clear(mSugg); drawInvited();
+  }
 
+  function drawInvited() {
+    clear(mList);
+    for (const p of invited) {
+      mList.appendChild(el('div', { class: 'picked' },
+        el('span', { class: 'nm' }, p.name + '  \u00B7  ' + p.email),
+        el('button', { class: 'btn btn-sm btn-quiet', style: 'flex:none',
+          onclick: () => { invited = invited.filter(x => x !== p); drawInvited(); } }, 'Remove')));
+    }
+  }
+
+  const addTyped = el('button', { class: 'btn btn-sm btn-quiet', onclick: () => {
+    const v = mLook.value.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) return toast('That is not an email address.', true);
+    add({ id: null, name: v, email: v });
+  } }, 'Add');
+
+  const bookBtn = el('button', { class: 'btn', onclick: () => book() }, 'Put it in the diary');
+
+  async function book() {
+    if (!mTitle.value.trim()) return toast('Give the meeting a title.', true);
+    if (!mWhen.value) return toast('Pick a date and time.', true);
+    if (!invited.length) return toast('Add at least one person.', true);
+    bookBtn.disabled = true; bookBtn.textContent = 'Saving\u2026';
+    try {
+      await supaInsert('crm_meetings', {
+        title:        mTitle.value.trim(),
+        start_utc:    new Date(mWhen.value).toISOString(),
+        duration_min: Number(mMins.value) || 30,
+        tz:           mTz.value.trim() || 'Africa/Cairo',
+        to_people:    invited,
+        status:       'pending'
+      });
+      toast('Saved as pending. Approve it to issue the Zoom link.');
+      mTitle.value = ''; mWhen.value = ''; invited = []; drawInvited();
+      run();
+    } catch (e) {
+      toast(e.message, true);
+    } finally {
+      bookBtn.disabled = false; bookBtn.textContent = 'Put it in the diary';
+    }
+  }
+
+  const lbl = (t, n) => el('label', { class: 'field' }, el('span', null, t), n);
+  body.appendChild(el('div', { style: 'max-width:900px;margin:0 0 24px' },
+    el('div', { class: 'grid2' }, lbl('Title', mTitle), lbl('When', mWhen)),
+    el('div', { class: 'grid2' }, lbl('Minutes', mMins), lbl('Timezone', mTz)),
+    lbl('Who is coming?', el('div', { class: 'toolbar' }, mLook, addTyped)),
+    mSugg, mList, bookBtn));
+
+  const out = el('div');
+  body.appendChild(out);
+
+  function people(m) {
+    let p = m.to_people;
+    if (typeof p === 'string') { try { p = JSON.parse(p); } catch (_) { p = []; } }
+    if (!Array.isArray(p)) return '';
+    return p.map(x => (x && (x.name || x.email)) || x).filter(Boolean).join(', ');
+  }
+
+  function run() {
+    clear(out);
+    out.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading\u2026'));
+
+    let sel = 'select=*&order=start_utc.desc&limit=200';
+    if (filter === 'live')          sel += '&status=eq.scheduled&start_utc=gte.' + new Date(Date.now() - 36e5).toISOString();
+    else if (filter !== 'all')      sel += '&status=eq.' + filter;
+
+    fill(out, () => readRows('crm_meetings', sel, 'zoom.upcoming', {}), (rows) => {
+      if (!rows.length) {
+        return out.appendChild(empty(
+          filter === 'pending' ? 'Nothing waiting' : 'Nothing booked',
+          filter === 'live'
+            ? 'Meetings already scheduled and still ahead of you appear here.'
+            : 'Meetings booked from Telegram or from here land in this list.'));
+      }
+      for (const m of rows) {
+        const past = m.start_utc && new Date(m.start_utc) < new Date();
+        const st = String(m.status || '').toLowerCase();
+        out.appendChild(entry({
+          tone: st === 'cancelled' ? 'quiet' : st === 'pending' ? 'signal' : past ? 'quiet' : 'good',
+          rail: st === 'pending' ? 'wait' : past ? 'past' : 'next',
+          action: m.title || 'Meeting',
+          who: people(m),
+          evidence: [
+            ['starts   ', m.start_utc ? fmtDate(m.start_utc) : null],
+            ['minutes  ', m.duration_min],
+            ['zone     ', m.tz],
+            ['join     ', m.meet_url],
+            ['passcode ', m.passcode]
+          ],
+          tags: [
+            [st || 'unknown',
+             st === 'scheduled' ? 'good' : st === 'pending' ? 'signal' : 'quiet'],
+            past && st === 'scheduled' ? ['already happened', 'quiet'] : null
+          ].filter(Boolean),
+          actions: [
+            m.meet_url ? { label: 'Join the meeting', primary: true,
+              run: () => window.open(m.meet_url, '_blank', 'noopener,noreferrer') } : null,
+            m.meet_url ? { label: 'Copy the link', run: () => copy(m.meet_url) } : null,
+            st === 'pending' ? { label: 'Approve it in Telegram',
+              run: () => toast('Approving needs the workflow. Press approve on the Telegram preview.', true) } : null
+          ].filter(Boolean)
+        }));
+      }
+      out.appendChild(el('p', { class: 'mono',
+        style: 'color:var(--ink-3);font-size:12px;margin-top:18px' }, 'Showing ' + rows.length));
+    });
+  }
+  run();
+};
 RENDER.docs = function (body) {
   clear(body);
 
@@ -1045,7 +1353,12 @@ RENDER.docs = function (body) {
       who: x.month_label || (x.period_date ? fmtDate(x.period_date) : ''),
       evidence: [['link  ', x.public_url], ['added ', fmtDate(x.added_on || x.uploaded_at)]],
       tags: [x.is_current ? ['current', 'good'] : ['superseded', 'quiet']],
-      actions: x.public_url ? [{ label: 'Copy the link', run: () => copy(x.public_url) }] : []
+      // noopener so the opened tab cannot reach back into the console.
+      actions: x.public_url ? [
+        { label: 'View the report', primary: true,
+          run: () => window.open(x.public_url, '_blank', 'noopener,noreferrer') },
+        { label: 'Copy the link', run: () => copy(x.public_url) }
+      ] : []
     }));
   });
 };
@@ -1076,7 +1389,15 @@ RENDER.network = function (body) {
           action: p.full_name,
           who: 'Mutual to ' + (who || 'someone at Taranis'),
           evidence: [['profile ', p.profile_url], ['synced  ', fmtDate(p.last_synced)]],
-          tags: p.in_contact_book ? [['in the book', 'good']] : [['not in the book', 'quiet']]
+          tags: p.in_contact_book ? [['in the book', 'good']] : [['not in the book', 'quiet']],
+          // noopener so LinkedIn cannot reach back into the console tab.
+          actions: p.profile_url ? [
+            { label: 'View profile', primary: true,
+              run: () => window.open(p.profile_url, '_blank', 'noopener,noreferrer') },
+            { label: 'Copy the link', run: () => copy(p.profile_url) },
+            { label: 'History', run: () => askAbout('What do we know about ' + p.full_name
+                + ', and have we ever been in contact?') }
+          ] : []
         }));
       }
     });
@@ -1095,6 +1416,31 @@ RENDER.ask = function (body) {
   body.style.height = '100%';
 
   const log = el('div', { id: 'ask-log' });
+
+  // Ask only is the default because it always works: it reads Supabase
+  // directly and never spends an n8n execution. Ask agent is the model.
+  let mode = 'local';
+  const modeRow = el('div', { class: 'chips', style: 'margin-bottom:4px' });
+  const modeBtns = {};
+  for (const [k, lbl] of [['local', 'Ask only'], ['agent', 'Ask agent']]) {
+    modeBtns[k] = el('button', { class: 'chip', onclick: () => setMode(k) }, lbl);
+    modeRow.appendChild(modeBtns[k]);
+  }
+  const modeNote = el('span', { class: 'mono', style: 'font-size:11.5px;color:var(--ink-3);align-self:center' });
+  modeRow.appendChild(modeNote);
+
+  function setMode(k) {
+    mode = k;
+    for (const id in modeBtns) {
+      modeBtns[id].style.borderColor = (id === k) ? 'var(--accent)' : '';
+      modeBtns[id].style.color       = (id === k) ? 'var(--accent)' : '';
+      modeBtns[id].style.fontWeight  = (id === k) ? '600' : '';
+    }
+    modeNote.textContent = (k === 'local')
+      ? 'reads the database directly — always available'
+      : 'runs the workflow and the model — needs n8n executions';
+  }
+
   const chips = el('div', { class: 'chips' });
   for (const s of [
     'Who in Geneva knows us?',
@@ -1105,7 +1451,8 @@ RENDER.ask = function (body) {
 
   const input = el('textarea', { id: 'ask-in', rows: '1', placeholder: 'Ask anything you used to type into the bot…' });
   const btn = el('button', { class: 'btn' }, 'Ask');
-  const bar = el('div', { id: 'ask-bar' }, chips, el('div', { id: 'ask-row' }, input, btn));
+  const bar = el('div', { id: 'ask-bar' }, modeRow, chips, el('div', { id: 'ask-row' }, input, btn));
+  setMode('local');
   body.append(log, bar);
 
   input.addEventListener('input', () => {
@@ -1121,13 +1468,20 @@ RENDER.ask = function (body) {
     log.appendChild(el('div', { class: 'msg' },
       el('div', { class: 'from' }, 'Taranis'),
       el('div', { class: 'bub' },
-        'Ask about anyone in the book, what was sent and when, opportunities, documents, or the network. ' +
-        'Every answer is queried fresh — it never answers from what it said earlier.')));
+        'Ask about anyone in the book, what was sent and when, opportunities, or the network. ' +
+        'Ask only reads the database and shows you the records themselves. ' +
+        'Ask agent sends the question to the model, which can weigh things up and answer in your language — ' +
+        'that one needs n8n executions available.')));
   }
 
   // A question handed over from another tab (e.g. the History button on a
   // contact) is parked on PENDING and picked up once this tab is built.
-  if (PENDING.q) { const q = PENDING.q; PENDING.q = null; input.value = q; setTimeout(send, 40); }
+  if (PENDING.q) {
+    const q = PENDING.q; PENDING.q = null;
+    if (PENDING.qmode) { setMode(PENDING.qmode); PENDING.qmode = null; }
+    input.value = q;
+    setTimeout(send, 40);
+  }
 
   async function send() {
     const q = input.value.trim();
@@ -1140,6 +1494,19 @@ RENDER.ask = function (body) {
       el('div', { class: 'bub' }, el('span', { class: 'typing' }, el('i'), el('i'), el('i'))));
     log.appendChild(wait);
     log.scrollTop = log.scrollHeight;
+
+    if (mode === 'local') {
+      wait.remove();
+      const bub = el('div', { class: 'bub' });
+      const m = el('div', { class: 'msg' }, el('div', { class: 'from' }, 'Taranis'), bub);
+      log.appendChild(m);
+      await answerLocally(bub, q);
+      bub.appendChild(el('div', { class: 'srcs' },
+        'read directly from the database — no model, nothing invented'));
+      log.scrollTop = log.scrollHeight;
+      return;
+    }
+
     try {
       const d = await callGateway('assistant.ask', { question: q });
       wait.remove();
@@ -1152,9 +1519,14 @@ RENDER.ask = function (body) {
       log.appendChild(m);
     } catch (e) {
       wait.remove();
+      const bad = el('div', { class: 'bub', style: 'border-color:var(--bad);color:var(--bad)' },
+        el('div', null, e.message),
+        el('div', { class: 'acts', style: 'margin-top:10px' },
+          el('button', { class: 'btn btn-sm btn-quiet',
+            onclick: () => { setMode('local'); input.value = q; send(); } },
+            'Answer it from the database instead')));
       log.appendChild(el('div', { class: 'msg' },
-        el('div', { class: 'from' }, 'Taranis'),
-        el('div', { class: 'bub', style: 'border-color:var(--bad);color:var(--bad)' }, e.message)));
+        el('div', { class: 'from' }, 'Taranis'), bad));
     }
     log.scrollTop = log.scrollHeight;
   }
@@ -1212,6 +1584,293 @@ function sheet(title, bodyNodes, footNodes) {
   const f = $('sheet-foot'); clear(f); footNodes.forEach(n => f.appendChild(n));
   $('sheet').classList.add('on');
 }
+/* --------------------------------------------------- reading one email
+
+   The list carries the summary; the whole message is fetched only when
+   asked for, so a page of sixty rows never drags sixty email bodies with
+   it. The body goes in through textContent, never innerHTML. */
+
+async function readEmail(id, subject) {
+  if (!id) return toast('That row has no message stored against it.', true);
+  try {
+    const rows = await supaSelect('crm_emails',
+      'select=subject,from_addr,to_addr,cc_addr,received_at,body,summary,has_attachments,attachments'
+      + '&id=eq.' + encodeURIComponent(id) + '&limit=1');
+    const m = rows && rows[0];
+    if (!m) return toast('That email is no longer stored.', true);
+
+    const line = (k, v) => v
+      ? el('div', { class: 'ev' }, el('div', null,
+          el('span', { class: 'k' }, k + '  '), String(v)))
+      : null;
+
+    sheet(m.subject || subject || '(no subject)', [
+      line('from    ', m.from_addr),
+      line('to      ', m.to_addr),
+      line('cc      ', m.cc_addr),
+      line('on      ', fmtDate(m.received_at)),
+      line('about   ', m.summary),
+      attachmentBlock(m),
+      el('pre', {
+        style: 'white-space:pre-wrap;word-break:break-word;margin-top:16px;'
+             + 'font-family:inherit;font-size:13.5px;line-height:1.65;'
+             + 'max-height:52vh;overflow:auto;border-top:1px solid var(--rule-2);padding-top:14px'
+      }, m.body || 'No body was stored for this message.')
+    ].filter(Boolean), [
+      el('button', { class: 'btn btn-sm btn-quiet', onclick: closeSheet }, 'Close')
+    ]);
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+/** Files recovered from the original message, linked to Storage. */
+function attachmentBlock(m) {
+  let list = m.attachments;
+  if (typeof list === 'string') { try { list = JSON.parse(list); } catch (_) { list = []; } }
+  if (!Array.isArray(list) || !list.length) {
+    return m.has_attachments
+      ? el('div', { class: 'ev' }, el('div', null,
+          el('span', { class: 'k' }, 'files     '),
+          'This message had attachments, but the files were never stored.'))
+      : null;
+  }
+  const wrap = el('div', { style: 'margin-top:12px' },
+    el('p', { class: 'mono',
+      style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:0 0 6px' },
+      list.length === 1 ? 'One attachment' : list.length + ' attachments'));
+  for (const f of list) {
+    const kb = f.bytes ? (f.bytes > 1048576
+      ? (f.bytes / 1048576).toFixed(1) + ' MB'
+      : Math.max(1, Math.round(f.bytes / 1024)) + ' KB') : '';
+    wrap.appendChild(el('div', { class: 'picked' },
+      el('span', { class: 'nm' }, f.name || 'attachment'),
+      kb ? el('span', { class: 'sz' }, kb) : null,
+      el('button', { class: 'btn btn-sm', style: 'flex:none',
+        onclick: () => window.open(f.url, '_blank', 'noopener,noreferrer') }, 'Open')));
+  }
+  return wrap;
+}
+
+/* Country when the contact book does not carry one. A national domain is
+   evidence; a .com is not, so anything unrecognised stays blank rather
+   than being guessed at. */
+const TLD_COUNTRY = {
+  uk: 'United Kingdom', gb: 'United Kingdom', ch: 'Switzerland', swiss: 'Switzerland',
+  fr: 'France', de: 'Germany', it: 'Italy', es: 'Spain', pt: 'Portugal',
+  nl: 'Netherlands', be: 'Belgium', lu: 'Luxembourg', ie: 'Ireland', dk: 'Denmark',
+  se: 'Sweden', no: 'Norway', fi: 'Finland', at: 'Austria', pl: 'Poland',
+  gr: 'Greece', cz: 'Czechia', li: 'Liechtenstein', mc: 'Monaco', mt: 'Malta',
+  ae: 'United Arab Emirates', sa: 'Saudi Arabia', qa: 'Qatar', kw: 'Kuwait',
+  bh: 'Bahrain', om: 'Oman', eg: 'Egypt', lb: 'Lebanon', jo: 'Jordan',
+  il: 'Israel', tr: 'Turkey', za: 'South Africa', ng: 'Nigeria', ke: 'Kenya',
+  ma: 'Morocco', tn: 'Tunisia', us: 'United States', ca: 'Canada', mx: 'Mexico',
+  br: 'Brazil', ar: 'Argentina', cl: 'Chile', au: 'Australia', nz: 'New Zealand',
+  sg: 'Singapore', hk: 'Hong Kong', jp: 'Japan', cn: 'China', in: 'India',
+  kr: 'South Korea', my: 'Malaysia', th: 'Thailand', id: 'Indonesia',
+  ky: 'Cayman Islands', bm: 'Bermuda', je: 'Jersey', gg: 'Guernsey', im: 'Isle of Man'
+};
+
+function countryFromAddress(addr) {
+  const m = String(addr || '').toLowerCase().match(/@([a-z0-9.-]+)$/);
+  if (!m) return '';
+  const bits = m[1].split('.');
+  return TLD_COUNTRY[bits[bits.length - 1]] || '';
+}
+
+/* ------------------------------------------------- answering without n8n
+
+   Ask has two modes.
+
+   ASK AGENT goes through the gateway to the model, which can reason across
+   the book and phrase a reply. It costs an n8n execution and stops working
+   the moment that quota runs out.
+
+   ASK ONLY never leaves Supabase. It pulls the same records the agent would
+   have queried and lays them out, unedited and unsummarised by any model.
+   It cannot phrase a judgement, but it cannot be unavailable either, and it
+   cannot invent anything: what you read is the row. The History button uses
+   this mode, so a contact's record is always one click away.
+   -------------------------------------------------------------------- */
+
+const STOPWORDS = new Set(('what when where who whom which why how did do does done was were is are am '
+  + 'we our us i me my you your he she they them their it its the a an of to for from with about '
+  + 'and or but if then than that this these those on in at by as be been being have has had '
+  + 'last latest recent recently send sent sending say said tell told know knows contact contacted '
+  + 'email emails mail spoke speak spoken talk talked reply replied answer time times ago please '
+  + 'give show find all any some more most any anything everything details detail info information'
+  ).split(' '));
+
+/** Pull the searchable part out of a sentence. Names survive, grammar does not. */
+function searchTerms(q) {
+  const words = String(q || '')
+    .replace(/[^\p{L}\p{N}@.\- ]/gu, ' ')
+    .split(/\s+/)
+    .map(w => w.trim())
+    .filter(w => w.length > 1 && !STOPWORDS.has(w.toLowerCase()));
+  return words;
+}
+
+function ilikeAny(cols, term) {
+  const t = '*' + String(term).replace(/[,()*]/g, '') + '*';
+  return '&or=(' + cols.map(c => c + '.ilike.' + t).join(',') + ')';
+}
+
+/** Everything the app can say about one person, straight from the tables. */
+async function localDossier(host, person) {
+  const addr = String(person.email || '').toLowerCase().trim();
+  let mail = [];
+  try {
+    let sel = 'select=*&order=received_at.desc&limit=12';
+    sel += addr
+      ? '&or=(counterparty_addr.eq.' + encodeURIComponent(addr)
+        + ',counterparty_name.ilike.*' + String(person.name).replace(/[,()*]/g, '') + '*)'
+      : ilikeAny(['counterparty_name'], person.name);
+    mail = await readRows('crm_emails_app', sel, 'emails.search', { q: person.name, side: 'all' });
+  } catch (_) { /* the person still shows without their mail */ }
+
+  const q = daysSince(person.last_contact_at || person.last_interaction);
+  host.appendChild(entry({
+    tone: person.knows_us === 'yes' ? 'good' : person.knows_us === 'vaguely' ? 'signal' : '',
+    rail: q === null ? 'never' : q + 'd',
+    action: person.name,
+    who: [person.role, person.company, person.city, person.country].filter(Boolean).join('  \u00B7  '),
+    evidence: [
+      ['last spoke ', (person.last_contact_at || person.last_interaction)
+          ? fmtDate(person.last_contact_at || person.last_interaction)
+            + (q !== null ? '  (' + q + ' days)' : '') : 'never'],
+      ['email      ', person.email],
+      ['about      ', person.last_contact_summary || person.last_contact_note],
+      ['next step  ', person.next_step],
+      ['status     ', person.status],
+      ['ticket     ', person.aum_band],
+      ['region     ', person.region],
+      ['terms      ', person.introducer_terms],
+      ['knows us   ', person.knows_us],
+      ['exchanges  ', mail.length ? (mail.length >= 12 ? '12+' : mail.length) : null],
+      ['intel      ', person.intelligence_text || person.raw_notes]
+    ],
+    tags: [
+      person.side === 'taranis' ? ['taranis', 'accent'] : null,
+      person.category ? [person.category, ''] : null
+    ].filter(Boolean),
+    actions: [
+      { label: 'Draft an email', primary: true, run: () => { PENDING.draft = person.name; go('email'); } },
+      { label: 'Book a Zoom', run: () => { PENDING.meet = person.name; go('meetings'); } }
+    ]
+  }));
+
+  if (!mail.length) {
+    host.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px;margin:6px 0 0' },
+      'No email stored against this person yet.'));
+    return;
+  }
+
+  host.appendChild(el('p', { class: 'mono',
+    style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:16px 0 6px' },
+    'Every exchange on record'));
+
+  for (const m of mail) {
+    const outbound = String(m.direction || '').toLowerCase().indexOf('out') === 0
+      || String(m.direction || '').toLowerCase() === 'sent';
+    host.appendChild(entry({
+      tone: 'quiet',
+      rail: outbound ? 'sent' : 'in',
+      action: m.subject || '(no subject)',
+      who: fmtDate(m.received_at),
+      // The summary is shown, but the whole message is one click away, so
+      // nothing is lost by summarising here.
+      evidence: [['about   ', m.summary], ['intent  ', m.intent]],
+      actions: [{ label: 'Read the email', run: () => readEmail(m.id, m.subject) }]
+    }));
+  }
+}
+
+/** Ask, answered from Supabase alone. Renders into the given container. */
+async function answerLocally(host, question) {
+  const words = searchTerms(question);
+  const tries = [];
+  if (words.length > 1) tries.push(words.slice(0, 3).join(' '));
+  for (const w of words) tries.push(w);
+  if (!tries.length) tries.push(String(question || '').trim());
+
+  // People first: a question that names someone is almost always about them.
+  for (const t of tries) {
+    if (!t) continue;
+    let people = [];
+    try {
+      people = await readRows('contacts_app',
+        'select=*&limit=4' + ilikeAny(['name', 'company'], t),
+        'contacts.search', { q: t, filter: 'all' });
+    } catch (e) {
+      host.appendChild(el('div', { class: 'banner' }, el('b', null, 'Could not read. '), e.message));
+      return;
+    }
+    if (people.length) {
+      if (people.length > 1) {
+        host.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px;margin:0 0 10px' },
+          people.length + ' people match \u201C' + t + '\u201D. Showing each.'));
+      }
+      for (const p of people) await localDossier(host, p);
+      return;
+    }
+  }
+
+  // Nobody by that name. Fall back to the words themselves, across the mail
+  // and the mandate list, so the question still returns something real.
+  const t = tries[0];
+  let mail = [], mandates = [];
+  try {
+    mail = await readRows('crm_emails_app',
+      'select=*&order=received_at.desc&limit=15'
+      + ilikeAny(['subject', 'summary', 'counterparty_name', 'counterparty_addr'], t),
+      'emails.search', { q: t, side: 'all' });
+  } catch (_) {}
+  try {
+    mandates = await readRows('wi_mandates',
+      'select=id,investor_name,organization_name,investor_country,investor_type,fit_score,fit_reason'
+      + '&order=id.desc&limit=8'
+      + ilikeAny(['investor_name', 'organization_name', 'investor_country', 'fit_reason'], t),
+      'wi.mandates.list', {});
+  } catch (_) {}
+
+  if (!mail.length && !mandates.length) {
+    host.appendChild(el('p', null,
+      'Nothing in the contact book, the email history or the mandate list matches \u201C'
+      + t + '\u201D. Ask agent can reason about a vaguer question \u2014 this mode only finds what is written down.'));
+    return;
+  }
+
+  if (mail.length) {
+    host.appendChild(el('p', { class: 'mono',
+      style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:0 0 6px' },
+      'Email mentioning that'));
+    for (const m of mail) {
+      host.appendChild(entry({
+        tone: 'quiet', rail: fmtDate(m.received_at),
+        action: m.subject || '(no subject)',
+        who: m.counterparty_name || m.counterparty_addr || '',
+        evidence: [['about   ', m.summary]],
+        actions: [{ label: 'Read the email', run: () => readEmail(m.id, m.subject) }]
+      }));
+    }
+  }
+
+  if (mandates.length) {
+    host.appendChild(el('p', { class: 'mono',
+      style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:16px 0 6px' },
+      'Opportunities'));
+    for (const m of mandates) {
+      host.appendChild(entry({
+        tone: 'accent', rail: m.fit_score !== null && m.fit_score !== undefined ? String(m.fit_score) : '',
+        action: m.investor_name || m.organization_name,
+        who: [m.organization_name, m.investor_country, m.investor_type].filter(Boolean).join('  \u00B7  '),
+        evidence: [['why  ', m.fit_reason]]
+      }));
+    }
+  }
+}
+
 function closeSheet() { $('sheet').classList.remove('on'); }
 $('sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeSheet(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
@@ -1275,11 +1934,22 @@ function reviewDraft(d) {
 
 /* ------------------------------------------------------------ background */
 
+/* The badges used to call the gateway every 45 seconds. One tab left open
+   overnight spent roughly two thousand n8n executions on refreshing two
+   numbers, which is what exhausted the plan. Both counts come from tables
+   the console can already read, so this now costs nothing at all.
+   n8n is spent only on things that actually do something: sending an
+   email, issuing a Zoom link. */
+
 async function poll() {
+  if (document.hidden) return;          // a background tab counts nothing
   try {
-    const d = await callGateway('today.counts', {});
-    counts.today = d.unread || 0;
-    counts.approvals = d.pending_reviews || 0;
+    const [n, m] = await Promise.all([
+      supaSelect('app_notifications', 'select=id&read_at=is.null&limit=200'),
+      supaSelect('wi_mandates', 'select=id&qualification=eq.uncertain&published_at=is.null&limit=200')
+    ]);
+    counts.today = n.length;
+    counts.approvals = m.length;
     paintCounts();
   } catch (_) { /* a failed poll is not worth interrupting anyone */ }
 }
@@ -1396,7 +2066,10 @@ function start() {
   go('today');
   if (!DEMO) {
     poll();
-    pollTimer = setInterval(poll, Math.max(20, CFG.pollSeconds) * 1000);
+    pollTimer = setInterval(poll, Math.max(60, CFG.pollSeconds) * 1000);
+    // Coming back to the tab is worth one immediate refresh; sitting on
+    // another tab is not worth any.
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
   } else {
     counts.today = 3; counts.approvals = 2; paintCounts();
   }
