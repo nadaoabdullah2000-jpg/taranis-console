@@ -13,7 +13,7 @@
    (the HTML, the script, the icons).
    ========================================================================= */
 
-const VERSION = 'taranis-v13';
+const VERSION = 'taranis-v14';
 const SHELL = [
   './',
   './index.html',

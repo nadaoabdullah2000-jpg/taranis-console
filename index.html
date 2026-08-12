@@ -144,13 +144,13 @@ button,input,textarea,select{font:inherit;color:inherit}
 #gate{
   position:fixed;inset:0;display:grid;place-items:center;z-index:100;padding:24px;
   background:
-    radial-gradient(ellipse 760px 520px at 50% 44%,
+    radial-gradient(ellipse 560px 440px at 50% 44%,
       rgba(14,17,19,.94) 0%, rgba(14,17,19,.72) 46%, rgba(14,17,19,0) 100%),
-    url('./brand-pattern.svg') center / cover no-repeat,
+    url('./brand-pattern.svg') center center / 1500px auto no-repeat,
     #0E1113;
   color:#F2F8F9;
 }
-.gate-card{width:100%;max-width:560px}
+.gate-card{width:100%;max-width:400px;text-align:center}
 #gate .field span{color:#BBD3D9}
 #gate .field input{
   background:rgba(255,255,255,.05);border-color:rgba(87,192,214,.35);color:#F2F8F9;
@@ -164,10 +164,10 @@ button,input,textarea,select{font:inherit;color:inherit}
 #gate :focus-visible{outline-color:var(--sky)}
 /* The mark spans the full card; the form stays a comfortable reading
    width underneath it, centred. */
-.gate-mark{width:100%;margin:0 auto 24px;display:block}
+.gate-mark{width:300px;max-width:76%;margin:0 auto 26px;display:block}
 #gate .field,
 #gate .btn,
-#gate .gate-note{max-width:400px;margin-left:auto;margin-right:auto}
+#gate .gate-note{max-width:340px;margin-left:auto;margin-right:auto;text-align:left}
 #gate .field{display:block}
 .gate-sub{font-family:var(--font-data);font-size:10px;letter-spacing:.26em;text-transform:uppercase;color:#7FA9B4;margin:0 0 36px;text-align:center}
 .field{display:block;margin-bottom:12px}
@@ -188,10 +188,10 @@ button,input,textarea,select{font:inherit;color:inherit}
 nav{
   scrollbar-width:thin;
   border-right:1px solid var(--rule);
-  background:#0E1113 url('./brand-pattern.svg') center bottom / 340% auto no-repeat;
+  background:#0E1113 url('./brand-pattern.svg') center bottom / 620px auto no-repeat;
   color:#DCE9EC;
   display:flex;flex-direction:column;overflow-y:auto}
-.brand{padding:16px 14px 13px;border-bottom:1px solid rgba(87,192,214,.18);text-align:center}
+.brand{padding:18px 26px 14px;border-bottom:1px solid rgba(87,192,214,.18);text-align:center}
 .brand .wm{width:100%;margin:0 auto 6px}
 @media (display-mode:standalone){
   nav{padding-top:env(safe-area-inset-top)}
