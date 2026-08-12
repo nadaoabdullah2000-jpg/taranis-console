@@ -74,6 +74,20 @@ function toast(msg, bad) {
 /* PostgREST hands jsonb back as real objects and arrays, not strings. The
    gateway used to cast them with ::text, so the app never saw one. Rendered
    raw they come out as [object Object], or as nothing at all when empty. */
+/* Ticket sizes are the numbers people actually read on these screens, and
+   100000 against 1000000 is genuinely hard to tell apart at a glance. */
+function money(v) {
+  if (v === null || v === undefined || v === '') return '';
+  const n = Number(String(v).replace(/[^0-9.-]/g, ''));
+  if (!isFinite(n) || n === 0) return String(v);
+  const grouped = Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const short = n >= 1e9 ? (n / 1e9).toFixed(n % 1e9 ? 1 : 0) + 'bn'
+              : n >= 1e6 ? (n / 1e6).toFixed(n % 1e6 ? 1 : 0) + 'm'
+              : n >= 1e3 ? Math.round(n / 1e3) + 'k'
+              : '';
+  return 'USD ' + grouped + (short ? '   (' + short + ')' : '');
+}
+
 function asText(v) {
   if (v === null || v === undefined || v === '') return '';
   if (Array.isArray(v)) {
@@ -688,7 +702,7 @@ RENDER.approvals = function (body) {
         evidence: [
           ['country ', asText(r.investor_country)],
           ['type    ', asText(r.investor_type)],
-          ['ticket  ', r.ticket_min_usd],
+          ['ticket  ', money(r.ticket_min_usd)],
           ['score   ', r.fit_score],
           ['reason  ', asText(r.fit_reason)]
         ],
@@ -1196,7 +1210,7 @@ RENDER.opps = function (body) {
         evidence: [
           ['type      ', asText(m.investor_type)],
           ['strategy  ', asText(m.strategies)],
-          ['ticket    ', m.ticket_min_usd],
+          ['ticket    ', money(m.ticket_min_usd)],
           ['score     ', m.fit_score],
           ['reason    ', asText(m.fit_reason)],
           ['not stated', asText(m.missing_hard_fields)],
@@ -1781,7 +1795,7 @@ RENDER.reports = function (body) {
     const J = (v) => { if (typeof v === 'string') { try { return JSON.parse(v); } catch (_) { return {}; } } return v || {}; };
     const A = (v) => { const x = J(v); return Array.isArray(x) ? x : []; };
     const n = (v) => Number(v || 0);
-    const money = (v) => { const x = n(v); return x >= 1e6 ? '$' + (x / 1e6).toFixed(1) + 'm'
+    const shortMoney = (v) => { const x = n(v); return x >= 1e6 ? '$' + (x / 1e6).toFixed(1) + 'm'
                                     : x >= 1e3 ? '$' + Math.round(x / 1e3) + 'k' : '$' + x; };
 
     let at = 0;
@@ -1810,7 +1824,7 @@ RENDER.reports = function (body) {
         ['matched', n(m.wi_matched), 'wi_matched'],
         ['rejected', n(m.wi_rejected), 'wi_rejected'],
         ['awaiting you', n(m.wi_awaiting), null],
-        ['matched value', money(m.wi_ticket_value), null],
+        ['matched value', shortMoney(m.wi_ticket_value), null],
         ['emails', n(m.crm_week), 'crm_week'],
         ['contacts', n(m.contacts_total), 'contacts_total']
       ]) {
@@ -2383,9 +2397,23 @@ async function openMandate(m) {
   const q = String(full.qualification || '').toLowerCase();
   host.appendChild(el('div', { class: 'acts', style: 'margin-bottom:20px' },
     el('button', { class: 'btn btn-sm btn-quiet', onclick: () => go(PROFILE_BACK || 'opps') }, '\u2190 Back'),
-    full.linkedin_url
+    // With Intelligence's own pages. Deterministic Extraction pulls these out
+    // of the alert email and they were stored all along, just never shown.
+    full.view_article_url
       ? el('button', { class: 'btn btn-sm',
-          onclick: () => window.open(full.linkedin_url, '_blank', 'noopener,noreferrer') }, 'Open in LinkedIn')
+          onclick: () => window.open(full.view_article_url, '_blank', 'noopener,noreferrer') }, 'View article')
+      : null,
+    full.view_intention_url
+      ? el('button', { class: 'btn btn-sm btn-quiet',
+          onclick: () => window.open(full.view_intention_url, '_blank', 'noopener,noreferrer') }, 'View intention')
+      : null,
+    full.view_investor_url
+      ? el('button', { class: 'btn btn-sm btn-quiet',
+          onclick: () => window.open(full.view_investor_url, '_blank', 'noopener,noreferrer') }, 'Investor page')
+      : null,
+    full.linkedin_url
+      ? el('button', { class: 'btn btn-sm btn-quiet',
+          onclick: () => window.open(full.linkedin_url, '_blank', 'noopener,noreferrer') }, 'LinkedIn')
       : null,
     el('button', { class: 'btn btn-sm btn-quiet', onclick: () => fillSheet(full) }, 'Fill a gap')));
 
@@ -2416,7 +2444,7 @@ async function openMandate(m) {
     field('Strategies', full.strategies)
   ].filter(Boolean));
   c2.append(...[
-    field('Minimum ticket', full.ticket_min_usd, true),
+    field('Minimum ticket', money(full.ticket_min_usd), true),
     field('Fit score', full.fit_score, true),
     field('Qualification', full.qualification),
     field('Not stated', full.missing_hard_fields),
@@ -2428,7 +2456,8 @@ async function openMandate(m) {
   // Anything else the row carries that is not already shown above.
   const shown = ['id','investor_name','organization_name','investor_city','investor_country',
     'investor_type','strategies','ticket_min_usd','fit_score','fit_reason','qualification',
-    'missing_hard_fields','hard_fail_reasons','published_at','linkedin_url'];
+    'missing_hard_fields','hard_fail_reasons','published_at','linkedin_url',
+    'view_article_url','view_intention_url','view_investor_url'];
   const rest = Object.keys(full).filter(k => shown.indexOf(k) < 0 && asText(full[k]));
   if (rest.length) {
     host.appendChild(el('p', { class: 'mono',
