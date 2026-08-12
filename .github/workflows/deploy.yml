@@ -1,0 +1,57 @@
+name: Deploy console
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Config is written at build time from repository secrets, so no
+      # URL or key is ever committed to the repository itself.
+      - name: Write config
+        env:
+          GATEWAY_URL:   ${{ secrets.GATEWAY_URL }}
+          SUPABASE_URL:  ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          cat > config.js <<JS
+          window.TARANIS_CONFIG = {
+            gatewayUrl:      "${GATEWAY_URL}",
+            supabaseUrl:     "${SUPABASE_URL}",
+            supabaseAnonKey: "${SUPABASE_ANON}",
+            pollSeconds:     45
+          };
+          JS
+          sed -i 's|<script src="./app.js"></script>|<script src="./config.js"></script><script src="./app.js"></script>|' index.html
+
+      # Fail the build rather than publish a secret by accident.
+      - name: Refuse to ship secrets
+        run: |
+          if grep -rInE '(service_role|BEGIN [A-Z ]*PRIVATE KEY|[0-9]{8,10}:AA[A-Za-z0-9_-]{30,})' \
+             --include='*.html' --include='*.js' . ; then
+            echo "::error::A service key, private key or Telegram bot token is in the source. Stopping."
+            exit 1
+          fi
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: '.' }
+      - id: deploy
+        uses: actions/deploy-pages@v4
