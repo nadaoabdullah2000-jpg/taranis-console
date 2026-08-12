@@ -2725,6 +2725,59 @@ async function answerLocally(host, question) {
     return;
   }
 
+  // Documents were never searched here, so "what is the latest pitch deck"
+  // came back empty however it was spelled. Deck, presentation, factsheet
+  // and report are the words people actually use for these.
+  if (/deck|pitch|presentation|slide|factsheet|fact sheet|report|document|newsletter|weekly note|one pager|onepager|tms|gdn/.test(low)) {
+    let docs = [];
+    try {
+      docs = await readRows('documents',
+        'select=doc_key,title,version_label,period_date,public_url,is_current,uploaded_at'
+        + '&order=uploaded_at.desc&limit=25', 'docs.list', {});
+    } catch (_) { /* fall through to the ordinary search */ }
+
+    if (docs.length) {
+      // "Latest" means the one marked current, not merely the newest upload.
+      const wantsLatest = /latest|newest|current|most recent|last/.test(low);
+      const term = (searchTerms(question)[0] || '').toLowerCase();
+      let show = docs;
+      if (term && term.length > 2) {
+        const hits = docs.filter(d =>
+          String(d.title || '').toLowerCase().indexOf(term) > -1 ||
+          String(d.doc_key || '').toLowerCase().indexOf(term) > -1);
+        if (hits.length) show = hits;
+      }
+      if (wantsLatest) {
+        const cur = show.filter(d => d.is_current);
+        if (cur.length) show = cur;
+      }
+
+      host.appendChild(el('p', { class: 'mono',
+        style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:0 0 8px' },
+        show.length === 1 ? 'One document' : show.length + ' documents'));
+
+      for (const d of show.slice(0, 10)) {
+        host.appendChild(entry({
+          tone: d.is_current ? 'good' : 'quiet',
+          rail: d.period_date ? String(d.period_date).slice(0, 7) : '',
+          action: d.title || d.doc_key,
+          who: [d.version_label, d.period_date ? fmtDate(d.period_date) : null].filter(Boolean).join('  \u00B7  '),
+          evidence: [
+            ['kind   ', String(d.doc_key || '').replace(/_/g, ' ')],
+            ['added  ', fmtDate(d.uploaded_at)]
+          ],
+          tags: [d.is_current ? ['current version', 'good'] : ['superseded', 'quiet']],
+          actions: d.public_url ? [
+            { label: 'View the report', primary: true,
+              run: () => window.open(d.public_url, '_blank', 'noopener,noreferrer') },
+            { label: 'Copy the link', run: () => copy(d.public_url) }
+          ] : []
+        }));
+      }
+      return;
+    }
+  }
+
   // "who knows us" is a filter, not a search term.
   const wantsKnown = /knows? us|know taranis|knows taranis|heard of us/.test(low);
 
