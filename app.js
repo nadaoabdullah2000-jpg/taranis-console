@@ -432,7 +432,9 @@ const TABS = [
   { id: 'inbox',    icon: '\u25A4', label: 'Follow up',      title: 'Follow up',
     sub: 'Who is owed a reply and who has gone quiet, clients first. Every message is still here if you need it.' },
   { id: 'opps',     icon: '\u25B2', label: 'Opportunities',title: 'Opportunities',
-    sub: 'Mandates from With Intelligence, scored against the Taranis criteria.' },
+    sub: 'Mandates worth a decision — matched outright, or missing on one point.' },
+  { id: 'rejected', icon: '\u25BD', label: 'Rejected',     title: 'Rejected mandates',
+    sub: 'Screened out on two or more criteria. Kept so you can see what was turned away, and why.' },
   { id: 'meetings', icon: '\u25D0', label: 'Zoom meetings', title: 'Zoom meetings',
     sub: 'Scheduled, waiting on approval, or cancelled. The join link and passcode live here.' },
   { id: 'docs',     icon: '\u25AC', label: 'Documents',    title: 'Documents',
@@ -663,9 +665,19 @@ RENDER.today = function (body) {
         evidence: (i.fields || []).map(f => [f.label, f.value]),
         tags: [[i.kind, i.kind === 'review' ? 'signal' : i.kind === 'matched' ? 'good' : 'accent'],
                [fmtDate(i.at), '']],
-        actions: i.review_id ? [
+        actions: (i.review_id ? [
           { label: 'Review', primary: true, run: () => go('approvals') }
-        ] : []
+        ] : []).concat(i.read ? [] : [
+          // Anything you cannot clear stops being read. app_notifications
+          // already carries read_at and has an update policy for the console.
+          { label: 'Mark as read', run: async () => {
+              try {
+                await supaPatch('app_notifications', 'id=eq.' + encodeURIComponent(i.id),
+                  { read_at: new Date().toISOString() });
+                go('today');
+              } catch (e) { toast(e.message, true); }
+            } }
+        ])
       }));
     }
   });
@@ -1305,7 +1317,7 @@ RENDER.inbox = function (body) {
 };
 RENDER.opps = function (body) {
   fill(body, () => readRows('wi_mandates',
-        'select=id,investor_name,organization_name,investor_country,investor_city,investor_type,strategies,ticket_min_usd,qualification,fit_score,fit_reason,missing_hard_fields,linkedin_url&order=id.desc&limit=40',
+        'select=*&qualification=neq.rejected&order=id.desc&limit=200',
         'wi.mandates.list', { limit: 40 }), (rows) => {
     if (!rows.length) return body.appendChild(empty('No opportunities yet', 'Screened mandates from With Intelligence land here.'));
     for (const m of rows) {
@@ -1546,6 +1558,59 @@ RENDER.notes = function (body) {
   }
 
   body.append(el('div', { class: 'toolbar' }, find, toggle), form, out);
+  run();
+};
+
+RENDER.rejected = function (body) {
+  clear(body);
+  const out = el('div');
+  const find = el('input', { class: 'search', type: 'search',
+    placeholder: 'Name, firm, country or reason\u2026' });
+  let t = null;
+  find.addEventListener('input', () => { clearTimeout(t); t = setTimeout(run, 300); });
+  body.append(el('div', { class: 'toolbar' }, find), out);
+
+  function run() {
+    clear(out);
+    fill(out, () => {
+      const q = find.value.trim();
+      let sel = 'select=*&qualification=eq.rejected&order=id.desc&limit=200';
+      if (q) sel += ilikeAny(['investor_name', 'organization_name', 'investor_country', 'fit_reason'], q);
+      return readRows('wi_mandates', sel, 'wi.mandates.list', {});
+    }, (rows) => {
+      if (!rows.length) return out.appendChild(empty('Nothing rejected', 'Everything screened is still in play.'));
+      for (const m of rows) {
+        let why = m.hard_fail_reasons;
+        if (typeof why === 'string') { try { why = JSON.parse(why); } catch (_) { why = []; } }
+        out.appendChild(entry({
+          tone: 'quiet',
+          rail: '#' + m.id,
+          action: m.investor_name || m.organization_name || ('Mandate #' + m.id),
+          who: [m.organization_name, asText(m.investor_country), asText(m.investor_type)].filter(Boolean).join('  \u00B7  '),
+          evidence: [
+            ['turned away', Array.isArray(why) ? why.join('   \u00B7   ') : asText(why)],
+            ['strategy   ', asText(m.strategies)],
+            ['ticket     ', money(m.ticket_min_usd)]
+          ],
+          tags: [['rejected', 'quiet']],
+          actions: [
+            { label: 'View the mandate', primary: true, run: () => openMandate(m) },
+            { label: 'Reconsider', run: async () => {
+                if (!confirm('Move this back to Opportunities for a decision?')) return;
+                try {
+                  await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id),
+                    { qualification: 'uncertain' });
+                  toast('Moved to Opportunities.');
+                  run();
+                } catch (e) { toast(e.message, true); }
+              } }
+          ]
+        }));
+      }
+      out.appendChild(el('p', { class: 'mono',
+        style: 'color:var(--ink-3);font-size:12px;margin-top:18px' }, 'Showing ' + rows.length));
+    });
+  }
   run();
 };
 
@@ -2585,6 +2650,80 @@ async function openMandate(m) {
 let PROFILE_BACK = null;
 
 /** A person as a page of their own, not a panel over the top of a list. */
+/* Correcting a record from inside the app. The book came out of a
+   spreadsheet and an email harvest, so a great many fields are stale or
+   half-right, and every wrong one makes the follow-up lists and the Ask
+   answers wronger. Writes go to contacts, not contacts_app, because a view
+   is not updatable. */
+async function editProfile(c) {
+  const F = {};
+  const mk = (key, label, node) => {
+    F[key] = node;
+    return el('label', { class: 'field' }, el('span', null, label), node);
+  };
+  const txt = (v) => el('input', { class: 'search', value: v == null ? '' : String(v) });
+  const sel = (v, opts) => {
+    const s = el('select', { class: 'search' });
+    for (const [val, lbl] of opts) {
+      const o = el('option', { value: val }, lbl);
+      if (String(v || '') === val) o.selected = true;
+      s.appendChild(o);
+    }
+    return s;
+  };
+
+  const form = el('div', { style: 'max-width:900px' },
+    el('div', { class: 'grid2' },
+      mk('name', 'Name', txt(c.name)),
+      mk('email', 'Email', txt(c.email))),
+    el('div', { class: 'grid2' },
+      mk('phone', 'Phone', txt(c.phone)),
+      mk('company', 'Company', txt(c.company))),
+    el('div', { class: 'grid2' },
+      mk('role', 'Role', txt(c.role || c.title)),
+      mk('category', 'Category', txt(c.category))),
+    el('div', { class: 'grid2' },
+      mk('city', 'City', txt(c.city)),
+      mk('country', 'Country', txt(c.country))),
+    el('div', { class: 'grid2' },
+      mk('knows_taranis', 'Knows Taranis', sel(c.knows_us,
+        [['', 'not known'], ['yes', 'Yes'], ['vaguely', 'Vaguely'], ['no', 'No']])),
+      mk('aum_band', 'Ticket band', txt(c.aum_band))),
+    el('div', { class: 'grid2' },
+      mk('status', 'Status', txt(c.status)),
+      mk('region', 'Region', txt(c.region))),
+    mk('next_step', 'Next step', txt(c.next_step)),
+    mk('introducer_terms', 'Introducer terms', txt(c.introducer_terms)),
+    mk('intelligence_text', 'What we know',
+      el('textarea', { class: 'ta', style: 'min-height:120px' },
+        asText(c.intelligence_text || c.raw_notes))));
+
+  const save = el('button', { class: 'btn btn-sm' }, 'Save the changes');
+  save.addEventListener('click', async () => {
+    save.disabled = true; save.textContent = 'Saving\u2026';
+    try {
+      const patch = {};
+      for (const k in F) {
+        const v = String(F[k].value == null ? '' : F[k].value).trim();
+        patch[k] = v === '' ? null : v;
+      }
+      if (!patch.name) throw new Error('A contact needs a name.');
+      await supaPatch('contacts', 'id=eq.' + encodeURIComponent(c.id), patch);
+      toast('Saved.');
+      closeSheet();
+      openProfile({ id: c.id, name: patch.name, email: patch.email });
+    } catch (e) {
+      toast(e.message, true);
+      save.disabled = false; save.textContent = 'Save the changes';
+    }
+  });
+
+  sheet('Edit ' + (c.name || 'contact'), [form], [
+    save,
+    el('button', { class: 'btn btn-sm btn-quiet', onclick: closeSheet }, 'Cancel')
+  ]);
+}
+
 async function openProfile(c) {
   closeSheet();
   if (current !== 'profile') PROFILE_BACK = current;
@@ -2627,6 +2766,7 @@ async function openProfile(c) {
   const back = el('div', { class: 'acts', style: 'margin-bottom:20px' },
     el('button', { class: 'btn btn-sm btn-quiet',
       onclick: () => go(PROFILE_BACK || 'contacts') }, '\u2190 Back'),
+    c.not_in_book ? null : el('button', { class: 'btn btn-sm', onclick: () => editProfile(c) }, 'Edit'),
     el('button', { class: 'btn btn-sm',
       onclick: () => { PENDING.draft = c.name; go('email'); } }, 'Draft an email'),
     el('button', { class: 'btn btn-sm btn-quiet',

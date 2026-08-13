@@ -1,0 +1,14 @@
+{
+  "name": "Taranis CRM",
+  "short_name": "Taranis",
+  "description": "The Taranis fundraising book, correspondence and opportunities.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0E1113",
+  "theme_color": "#0E1113",
+  "icons": [
+    { "src": "./taranis-logo.png", "sizes": "467x240", "type": "image/png", "purpose": "any" }
+  ]
+}
