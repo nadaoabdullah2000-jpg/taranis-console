@@ -1626,7 +1626,7 @@ RENDER.rejected = function (body) {
     ['asset',     'Asset class'],
     ['type',      'Investor type'],
     ['country',   'Outside GB/CH/US'],
-    ['ticket',    'Ticket below USD 500k'],
+    ['ticket',    'Ticket below USD 500k'],   // by value, not by reason
     ['emerging',  'No emerging managers'],
     ['parse',     'Failed parse']
   ];
@@ -1637,10 +1637,20 @@ RENDER.rejected = function (body) {
     chips.appendChild(btns[k]);
   }
   function paintChips() {
-    for (const k in btns) {
-      btns[k].style.borderColor = (k === tone) ? 'var(--bad)' : '';
-      btns[k].style.color       = (k === tone) ? 'var(--bad)' : '';
-      btns[k].style.fontWeight  = (k === tone) ? '600' : '';
+    for (const [k, lbl] of CHIPS) {
+      const b = btns[k];
+      b.style.borderColor = (k === tone) ? 'var(--bad)' : '';
+      b.style.color       = (k === tone) ? 'var(--bad)' : '';
+      b.style.fontWeight  = (k === tone) ? '600' : '';
+      // The counts will not add up to the total, and should not: a mandate
+      // that missed on three criteria is counted under all three.
+      if (all) {
+        const n = k === 'all' ? all.length : all.filter(m => passes(m, k)).length;
+        b.textContent = lbl + '  ' + n;
+        b.style.opacity = n ? '' : '.45';
+      } else {
+        b.textContent = lbl;
+      }
     }
   }
 
@@ -1653,15 +1663,52 @@ RENDER.rejected = function (body) {
     return Array.isArray(w) ? w : [];
   };
 
-  const MATCH = {
-    strategy: /eligible strategy/i,
-    asset:    /asset class/i,
-    type:     /ineligible type/i,
-    country:  /outside gb/i,
-    ticket:   /ticket/i,
-    emerging: /emerging managers/i,
-    parse:    /failed parse/i
+  /* Each filter asks two questions: did WI 01 record this as a reason, and
+     does the record itself show it? Either is enough. A mandate that failed
+     on three counts appears under all three -- these are not buckets, they
+     are lenses over the same pile. */
+  const num = (v) => (v === null || v === undefined || v === '') ? null : Number(v);
+  const strOf = (v) => asText(v).toLowerCase();
+
+  const TESTS = {
+    one: (m, why) => why.length === 1,
+
+    strategy: (m, why) => /eligible strategy/i.test(why.join(' '))
+      || (strOf(m.strategies) !== '' &&
+          !/equity|equities|long short|market neutral|quant|systematic|cta|managed future|macro|multi.?strategy|alternative/i
+            .test(strOf(m.strategies))),
+
+    asset: (m, why) => /asset class/i.test(why.join(' '))
+      || (strOf(m.asset_classes) !== '' &&
+          !/hedge|alternative|absolute return|liquid alts/i.test(strOf(m.asset_classes))),
+
+    type: (m, why) => /ineligible type/i.test(why.join(' '))
+      || /private equity|venture|\bvc\b|service provider|placement agent|law firm|real estate|infrastructure/i
+           .test(strOf(m.investor_type)),
+
+    country: (m, why) => /outside gb/i.test(why.join(' '))
+      || (String(m.investor_country || '').trim() !== '' &&
+          ['GB','UK','CH','US'].indexOf(String(m.investor_country).toUpperCase().slice(0, 2)) < 0),
+
+    emerging: (m, why) => /emerging managers/i.test(why.join(' '))
+      || m.open_to_emerging_managers === false,
+
+    // Asks about the figure, not the reason. A mandate turned away on strategy
+    // still has a ticket, and that is what the label promises.
+    ticket: (m) => {
+      const hi = num(m.ticket_max_usd), lo = num(m.ticket_min_usd);
+      if (hi !== null && hi > 0) return hi < 500000;
+      if (lo !== null && lo > 0) return lo < 500000;
+      return false;
+    },
+
+    parse: (m, why) => /failed parse/i.test(why.join(' '))
+      || (!String(m.investor_country || '').trim()
+          && !String(m.investor_type || '').trim()
+          && strOf(m.asset_classes) === '')
   };
+
+  const passes = (m, k) => k === 'all' || (TESTS[k] ? TESTS[k](m, reasons(m)) : true);
 
   function paint() {
     clear(out);
@@ -1669,8 +1716,7 @@ RENDER.rejected = function (body) {
     const q = find.value.trim().toLowerCase();
     let rows = all;
 
-    if (tone === 'one')       rows = rows.filter(m => reasons(m).length === 1);
-    else if (MATCH[tone])     rows = rows.filter(m => reasons(m).some(r => MATCH[tone].test(r)));
+    rows = rows.filter(m => passes(m, tone));
 
     if (q) {
       rows = rows.filter(m => [m.investor_name, m.organization_name, m.investor_country,
@@ -1680,8 +1726,9 @@ RENDER.rejected = function (body) {
 
     if (!rows.length) {
       return out.appendChild(empty('Nothing here',
-        tone === 'one' ? 'No mandate was turned away on a single criterion.'
-                       : 'Nothing rejected matches that.'));
+        tone === 'one'    ? 'No mandate was turned away on a single criterion.'
+        : tone === 'ticket' ? 'No rejected mandate has a ticket under USD 500,000.'
+        : 'No mandate was turned away for that reason.'));
     }
 
     for (const m of rows) {
@@ -1707,7 +1754,8 @@ RENDER.rejected = function (body) {
     }
     out.appendChild(el('p', { class: 'mono',
       style: 'color:var(--ink-3);font-size:12px;margin-top:18px' },
-      'Showing ' + rows.length + ' of ' + all.length + ' rejected'));
+      'Showing ' + rows.length + ' of ' + all.length + ' rejected'
+      + (tone === 'all' ? '. The counts on the filters overlap \u2014 a mandate that missed on three criteria is counted under all three.' : '')));
   }
 
   function load() {
@@ -1716,6 +1764,7 @@ RENDER.rejected = function (body) {
       'select=*&qualification=eq.rejected&order=id.desc&limit=500',
       'wi.mandates.list', {}), (rows) => {
       all = rows;
+      paintChips();
       if (!rows.length) {
         return out.appendChild(empty('Nothing rejected', 'Everything screened is still in play.'));
       }
@@ -2744,7 +2793,19 @@ async function openMandate(m) {
     'investor_type','strategies','ticket_min_usd','fit_score','fit_reason','qualification',
     'missing_hard_fields','hard_fail_reasons','published_at','linkedin_url',
     'view_article_url','view_intention_url','view_investor_url'];
-  const rest = Object.keys(full).filter(k => shown.indexOf(k) < 0 && asText(full[k]));
+  const prov = fillProvenance(full);
+  if (prov.length) {
+    host.appendChild(el('p', { class: 'mono',
+      style: 'font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);'
+           + 'margin:28px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--rule)' },
+      'Filled in by hand'));
+    const ev = el('div', { class: 'ev' });
+    for (const line of prov) ev.appendChild(el('div', null, line));
+    host.appendChild(ev);
+  }
+
+  const rest = Object.keys(full).filter(k =>
+    shown.indexOf(k) < 0 && k !== 'field_sources' && asText(full[k]));
   if (rest.length) {
     host.appendChild(el('p', { class: 'mono',
       style: 'font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);'
@@ -3372,24 +3433,129 @@ function editSheet(r) {
   ]);
 }
 
+/* Filling in what the alert email did not say.
+
+   The old version offered ten hardcoded field names one at a time and sent
+   the value to a workflow, so nothing could be corrected while n8n was out
+   of executions. This shows every field worth filling at once, marks which
+   are empty, writes straight to Supabase, and records who filled each one
+   and from where -- so a hand-entered figure is never mistaken for something
+   With Intelligence actually said. */
+
+const FILLABLE = [
+  ['investor_name',     'Investor name',        'text'],
+  ['organization_name', 'Organisation',         'text'],
+  ['investor_type',     'Investor type',        'text'],
+  ['investor_country',  'Country',              'text'],
+  ['investor_city',     'City',                 'text'],
+  ['ticket_min_usd',    'Minimum ticket (USD)', 'number'],
+  ['ticket_max_usd',    'Maximum ticket (USD)', 'number'],
+  ['aum_usd',           'AUM (USD)',            'number'],
+  ['strategies',        'Strategies',           'list'],
+  ['asset_classes',     'Asset classes',        'list'],
+  ['allocation_timing', 'Allocation timing',    'text'],
+  ['contact_name',      'Contact name',         'text'],
+  ['contact_email',     'Contact email',        'text'],
+  ['linkedin_url',      'LinkedIn URL',         'text'],
+  ['view_article_url',  'Article URL',          'text'],
+  ['view_intention_url','Intention URL',        'text'],
+  ['view_investor_url', 'Investor page URL',    'text'],
+  ['notes',             'Notes',                'text']
+];
+
 function fillSheet(m) {
-  const sel = el('select', { class: 'search' });
-  for (const f of ['ticket_min_usd', 'ticket_max_usd', 'aum_usd', 'investor_type', 'investor_country',
-                   'investor_city', 'linkedin_url', 'allocation_timing', 'strategies', 'contact_name'])
-    sel.appendChild(el('option', { value: f }, f));
-  const val = el('input', { class: 'search', placeholder: 'Value' });
-  sheet('Fill a gap on #' + m.id, [
-    el('label', { class: 'field' }, el('span', null, 'Field'), sel),
-    el('label', { class: 'field' }, el('span', null, 'Value'), val)
-  ], [
-    el('button', { class: 'btn btn-quiet', onclick: closeSheet }, 'Cancel'),
-    el('button', {
-      class: 'btn', onclick: async () => {
-        closeSheet();
-        await act('wi.mandate.fill', { id: m.id, field: sel.value, value: val.value }, 'Saved');
+  const who = (session && session.email) || 'console';
+  const F = {}, was = {};
+  const rows = [];
+  let emptyCount = 0;
+
+  for (const [key, label, kind] of FILLABLE) {
+    if (!(key in m)) continue;                 // the column does not exist here
+    const cur = m[key];
+    const shown = kind === 'list' ? asText(cur) : (cur == null ? '' : String(cur));
+    const empty = shown === '';
+    if (empty) emptyCount++;
+    was[key] = shown;
+
+    const input = el('input', {
+      class: 'search',
+      type: kind === 'number' ? 'number' : 'text',
+      value: shown,
+      placeholder: kind === 'list' ? 'comma separated' : (empty ? 'not stated in the alert' : '')
+    });
+    F[key] = { input, kind };
+
+    rows.push(el('label', { class: 'field' },
+      el('span', null, label + (empty ? '' : '   \u2713')), input));
+  }
+
+  const grid = el('div', { style: 'min-width:min(720px,74vw)' });
+  for (let i = 0; i < rows.length; i += 2) {
+    grid.appendChild(el('div', { class: 'grid2' }, rows[i], rows[i + 1] || el('div')));
+  }
+
+  const head = el('p', { class: 'mono', style: 'font-size:12px;color:var(--ink-3);margin:0 0 14px' },
+    emptyCount === 0
+      ? 'Every field on this mandate is already filled. Anything you change here is recorded as a correction.'
+      : emptyCount + ' of ' + rows.length + ' fields were never stated in the alert. A tick marks the ones that were.');
+
+  const save = el('button', { class: 'btn btn-sm' }, 'Save what I filled in');
+  save.addEventListener('click', async () => {
+    const patch = {}, filled = [];
+    for (const key in F) {
+      const { input, kind } = F[key];
+      const v = String(input.value == null ? '' : input.value).trim();
+      if (v === was[key]) continue;            // untouched
+      if (kind === 'number') {
+        patch[key] = v === '' ? null : Number(v.replace(/[^0-9.-]/g, ''));
+      } else if (kind === 'list') {
+        patch[key] = v === '' ? null : v.split(',').map(s => s.trim()).filter(Boolean);
+      } else {
+        patch[key] = v === '' ? null : v;
       }
-    }, 'Save')
+      filled.push(key);
+    }
+    if (!filled.length) { closeSheet(); return toast('Nothing changed.'); }
+
+    // Provenance, so a hand-typed figure never passes as something WI said.
+    let src = m.field_sources;
+    if (typeof src === 'string') { try { src = JSON.parse(src); } catch (_) { src = {}; } }
+    if (!src || typeof src !== 'object') src = {};
+    const at = new Date().toISOString();
+    for (const k of filled) src[k] = { by: who, via: 'console', at: at };
+    patch.field_sources = src;
+
+    save.disabled = true; save.textContent = 'Saving\u2026';
+    try {
+      await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), patch);
+      Object.assign(m, patch);
+      toast(filled.length === 1 ? 'One field saved.' : filled.length + ' fields saved.');
+      closeSheet();
+      if (current === 'mandate') openMandate(m); else go(current);
+    } catch (e) {
+      toast(e.message, true);
+      save.disabled = false; save.textContent = 'Save what I filled in';
+    }
+  });
+
+  sheet('Fill the gaps on #' + m.id, [head, grid], [
+    save, el('button', { class: 'btn btn-sm btn-quiet', onclick: closeSheet }, 'Cancel')
   ]);
+}
+
+/** Who filled a field by hand, and from where. Blank for anything WI stated. */
+function fillProvenance(m) {
+  let src = m.field_sources;
+  if (typeof src === 'string') { try { src = JSON.parse(src); } catch (_) { src = {}; } }
+  if (!src || typeof src !== 'object') return [];
+  const out = [];
+  for (const k in src) {
+    const s = src[k] || {};
+    const label = (FILLABLE.find(f => f[0] === k) || [k, k])[1];
+    out.push(label + ' \u2014 filled from ' + (s.via === 'telegram' ? 'Telegram' : s.via || 'the console')
+      + (s.by ? ' by ' + s.by : '') + (s.at ? ' on ' + fmtDate(s.at) : ''));
+  }
+  return out;
 }
 
 function reviewDraft(d) {
