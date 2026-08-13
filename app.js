@@ -1349,7 +1349,9 @@ RENDER.opps = function (body) {
           { label: 'View the mandate', primary: true, run: () => openMandate(m) },
           { label: 'Fill a gap', run: () => fillSheet(m) },
           m.linkedin_url ? { label: 'Check the network', run: () => act('li.check', { url: m.linkedin_url }, 'Checking') } : null
-        ].filter(Boolean).concat(verdictActions(m, () => go('opps')))
+        ].filter(Boolean).concat(verdictActions(m, (to) => {
+          go(to === 'rejected' ? 'rejected' : 'opps');
+        }))
       }));
     }
     body.appendChild(el('p', { class: 'mono',
@@ -1574,14 +1576,14 @@ async function setQualification(m, to, said, after) {
   const ask = to === 'rejected'
     ? 'Reject this mandate? It moves to the Rejected list and you can still change your mind.'
     : to === 'matched'
-      ? 'Mark this as matched? It stops asking for a decision.'
-      : 'Move this back for a decision?';
+      ? 'Mark this as matched? It moves to Opportunities and stops asking for a decision.'
+      : 'Move this back to Opportunities for a decision?';
   if (!confirm(ask)) return;
   try {
     await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), { qualification: to });
     m.qualification = to;
     toast(said);
-    if (typeof after === 'function') after();
+    if (typeof after === 'function') after(to);
   } catch (e) {
     toast(e.message, true);
   }
@@ -1622,6 +1624,7 @@ RENDER.rejected = function (body) {
   const CHIPS = [
     ['all',       'Everything'],
     ['one',       'Missed by one'],
+    ['none',      'No reason recorded'],
     ['strategy',  'Strategy'],
     ['asset',     'Asset class'],
     ['type',      'Investor type'],
@@ -1657,11 +1660,34 @@ RENDER.rejected = function (body) {
   body.append(el('div', { class: 'toolbar' }, find), chips, out);
   paintChips();
 
+  /* hard_fail_reasons can arrive as a jsonb array, as a string holding one,
+     or double encoded. Duplicates matter too: "Ineligible type: Private
+     Equity" and "Ineligible type: private equity" are the same miss recorded
+     twice, and counting both would overstate how badly a mandate failed. */
   const reasons = (m) => {
     let w = m.hard_fail_reasons;
-    if (typeof w === 'string') { try { w = JSON.parse(w); } catch (_) { w = []; } }
-    return Array.isArray(w) ? w : [];
+    for (let i = 0; i < 2 && typeof w === 'string'; i++) {
+      try { w = JSON.parse(w); } catch (_) { w = []; }
+    }
+    if (!Array.isArray(w)) return [];
+    const out = [], seen = {};
+    for (const r of w) {
+      const s = String(r == null ? '' : r).trim();
+      if (!s) continue;
+      const k = s.toLowerCase().replace(/\s+/g, ' ');
+      if (seen[k]) continue;
+      seen[k] = true;
+      out.push(s);
+    }
+    return out;
   };
+
+  const missCount = (n) =>
+    n === 0 ? 'no reason was recorded'
+    : n === 1 ? 'one criterion only'
+    : n === 2 ? 'two criteria missed'
+    : n === 3 ? 'three criteria missed'
+    : n + ' criteria missed';
 
   /* Each filter asks two questions: did WI 01 record this as a reason, and
      does the record itself show it? Either is enough. A mandate that failed
@@ -1671,7 +1697,8 @@ RENDER.rejected = function (body) {
   const strOf = (v) => asText(v).toLowerCase();
 
   const TESTS = {
-    one: (m, why) => why.length === 1,
+    one:  (m, why) => why.length === 1,
+    none: (m, why) => why.length === 0,
 
     strategy: (m, why) => /eligible strategy/i.test(why.join(' '))
       || (strOf(m.strategies) !== '' &&
@@ -1727,6 +1754,7 @@ RENDER.rejected = function (body) {
     if (!rows.length) {
       return out.appendChild(empty('Nothing here',
         tone === 'one'    ? 'No mandate was turned away on a single criterion.'
+        : tone === 'none' ? 'Every rejected mandate has at least one reason recorded against it.'
         : tone === 'ticket' ? 'No rejected mandate has a ticket under USD 500,000.'
         : 'No mandate was turned away for that reason.'));
     }
@@ -1740,16 +1768,23 @@ RENDER.rejected = function (body) {
         who: [m.organization_name, asText(m.investor_country), asText(m.investor_type)]
           .filter(Boolean).join('  \u00B7  '),
         evidence: [
-          ['turned away', why.join('   \u00B7   ')],
-          ['failures  ', why.length > 1 ? why.length + ' criteria missed' : 'one criterion only'],
+          ['turned away', why.length ? why.join('   \u00B7   ')
+              : 'Rejected before any reason was recorded \u2014 worth a look'],
+          ['failures  ', missCount(why.length)],
           ['strategy  ', asText(m.strategies)],
           ['ticket    ', money(m.ticket_min_usd)]
         ],
         tags: [['rejected', 'bad'],
-               why.length === 1 ? ['one miss', 'signal'] : null].filter(Boolean),
+               why.length === 0 ? ['no reason recorded', 'signal']
+               : why.length === 1 ? ['one miss', 'signal']
+               : [why.length + ' misses', 'quiet']].filter(Boolean),
         actions: [
           { label: 'View the mandate', primary: true, run: () => openMandate(m) }
-        ].concat(verdictActions(m, () => { all = null; load(); }))
+        ].concat(verdictActions(m, (to) => {
+          // Follow it. A mandate that silently disappears from this list
+          // leaves you wondering whether the click did anything.
+          if (to === 'rejected') { all = null; load(); } else { go('opps'); }
+        }))
       }));
     }
     out.appendChild(el('p', { class: 'mono',
