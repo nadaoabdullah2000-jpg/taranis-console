@@ -521,7 +521,10 @@ function entry(o) {
     }
     main.appendChild(row);
   }
-  return el('div', { class: 'entry' }, rail, main);
+  // The tone lands on the wrapper too, so a whole entry can be coloured --
+  // a rejected mandate should read as rejected at a glance, not just carry
+  // a small red dot.
+  return el('div', { class: 'entry' + (o.tone ? ' ' + o.tone : '') }, rail, main);
 }
 
 /** Send a question to the Ask tab from anywhere else in the console. */
@@ -1343,11 +1346,8 @@ RENDER.opps = function (body) {
         actions: [
           { label: 'View the mandate', primary: true, run: () => openMandate(m) },
           { label: 'Fill a gap', run: () => fillSheet(m) },
-          m.qualification === 'rejected'
-            ? { label: 'Accept anyway', run: () => act('wi.mandate.accept', { id: m.id }, 'Accepted and published') }
-            : null,
           m.linkedin_url ? { label: 'Check the network', run: () => act('li.check', { url: m.linkedin_url }, 'Checking') } : null
-        ].filter(Boolean)
+        ].filter(Boolean).concat(verdictActions(m, () => go('opps')))
       }));
     }
     body.appendChild(el('p', { class: 'mono',
@@ -1561,6 +1561,47 @@ RENDER.notes = function (body) {
   run();
 };
 
+/* Moving a mandate between review states, straight to Supabase. The old
+   route went through the gateway to a workflow, so a decision could not be
+   recorded while n8n was out of executions -- which is most of the time at
+   the moment. Publishing still belongs to WI 01; this only changes where a
+   mandate sits in your queue. */
+async function setQualification(m, to, said, after) {
+  const from = String(m.qualification || '').toLowerCase();
+  if (from === to) return toast('It is already there.');
+  const ask = to === 'rejected'
+    ? 'Reject this mandate? It moves to the Rejected list and you can still change your mind.'
+    : to === 'matched'
+      ? 'Mark this as matched? It stops asking for a decision.'
+      : 'Move this back for a decision?';
+  if (!confirm(ask)) return;
+  try {
+    await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), { qualification: to });
+    m.qualification = to;
+    toast(said);
+    if (typeof after === 'function') after();
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+/** The same three choices wherever a mandate appears. */
+function verdictActions(m, after) {
+  const q = String(m.qualification || '').toLowerCase();
+  const acts = [];
+  if (q !== 'matched') {
+    acts.push({ label: 'Matched', run: () => setQualification(m, 'matched', 'Marked as matched.', after) });
+  }
+  if (q !== 'uncertain') {
+    acts.push({ label: q === 'rejected' ? 'Reconsider' : 'Send to review',
+      run: () => setQualification(m, 'uncertain', 'Moved to Opportunities.', after) });
+  }
+  if (q !== 'rejected') {
+    acts.push({ label: 'Reject', run: () => setQualification(m, 'rejected', 'Moved to Rejected.', after) });
+  }
+  return acts;
+}
+
 RENDER.rejected = function (body) {
   clear(body);
   const out = el('div');
@@ -1583,28 +1624,21 @@ RENDER.rejected = function (body) {
         let why = m.hard_fail_reasons;
         if (typeof why === 'string') { try { why = JSON.parse(why); } catch (_) { why = []; } }
         out.appendChild(entry({
-          tone: 'quiet',
+          tone: 'bad',
           rail: '#' + m.id,
           action: m.investor_name || m.organization_name || ('Mandate #' + m.id),
           who: [m.organization_name, asText(m.investor_country), asText(m.investor_type)].filter(Boolean).join('  \u00B7  '),
           evidence: [
             ['turned away', Array.isArray(why) ? why.join('   \u00B7   ') : asText(why)],
+            ['failures  ', Array.isArray(why) && why.length > 1
+                ? why.length + ' criteria missed' : null],
             ['strategy   ', asText(m.strategies)],
             ['ticket     ', money(m.ticket_min_usd)]
           ],
-          tags: [['rejected', 'quiet']],
+          tags: [['rejected', 'bad']],
           actions: [
-            { label: 'View the mandate', primary: true, run: () => openMandate(m) },
-            { label: 'Reconsider', run: async () => {
-                if (!confirm('Move this back to Opportunities for a decision?')) return;
-                try {
-                  await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id),
-                    { qualification: 'uncertain' });
-                  toast('Moved to Opportunities.');
-                  run();
-                } catch (e) { toast(e.message, true); }
-              } }
-          ]
+            { label: 'View the mandate', primary: true, run: () => openMandate(m) }
+          ].concat(verdictActions(m, run))
         }));
       }
       out.appendChild(el('p', { class: 'mono',
@@ -2588,7 +2622,9 @@ async function openMandate(m) {
       ? el('button', { class: 'btn btn-sm btn-quiet',
           onclick: () => window.open(full.linkedin_url, '_blank', 'noopener,noreferrer') }, 'LinkedIn')
       : null,
-    el('button', { class: 'btn btn-sm btn-quiet', onclick: () => fillSheet(full) }, 'Fill a gap')));
+    el('button', { class: 'btn btn-sm btn-quiet', onclick: () => fillSheet(full) }, 'Fill a gap'),
+    ...verdictActions(full, () => openMandate(full)).map(v =>
+      el('button', { class: 'btn btn-sm btn-quiet', onclick: v.run }, v.label))));
 
   host.appendChild(el('div', { class: 'banner',
     style: q === 'rejected' ? 'border-color:var(--bad);background:transparent;color:var(--bad)' : '' },
