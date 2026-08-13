@@ -742,7 +742,9 @@ RENDER.contacts = function (body) {
                           ['knows', 'Knows us'], ['due', 'Due a follow-up'], ['quiet', 'Gone quiet']]) {
     chips.appendChild(el('button', { class: 'chip', onclick: () => { filter = k; run(); } }, lbl));
   }
-  bar.append(input, el('button', { class: 'btn btn-sm btn-quiet', onclick: () => run() }, 'Search'));
+  bar.append(input,
+    el('button', { class: 'btn btn-sm btn-quiet', onclick: () => run() }, 'Search'),
+    el('button', { class: 'btn btn-sm', onclick: () => addContactSheet(() => run()) }, '+ Add a person'));
   const out = el('div');
   clear(body); body.append(bar, chips, out);
 
@@ -1624,7 +1626,7 @@ RENDER.rejected = function (body) {
     ['asset',     'Asset class'],
     ['type',      'Investor type'],
     ['country',   'Outside GB/CH/US'],
-    ['ticket',    'Ticket too small'],
+    ['ticket',    'Ticket below USD 500k'],
     ['emerging',  'No emerging managers'],
     ['parse',     'Failed parse']
   ];
@@ -2766,6 +2768,68 @@ let PROFILE_BACK = null;
    half-right, and every wrong one makes the follow-up lists and the Ask
    answers wronger. Writes go to contacts, not contacts_app, because a view
    is not updatable. */
+/* Adding somebody to the book, from wherever you happen to be. The Email tab
+   has its own inline version for when you are about to write to them; this is
+   the same write, in a panel, for when you simply want them recorded. */
+function addContactSheet(after) {
+  const F = {};
+  const mk = (key, label, node) => { F[key] = node;
+    return el('label', { class: 'field' }, el('span', null, label), node); };
+  const txt = (ph, type) => el('input', { class: 'search', type: type || 'text', placeholder: ph || '' });
+  const opt = (pairs) => {
+    const s = el('select', { class: 'search' });
+    for (const [v, l] of pairs) s.appendChild(el('option', { value: v }, l));
+    return s;
+  };
+
+  const form = el('div', { style: 'min-width:min(680px,72vw)' },
+    el('div', { class: 'grid2' },
+      mk('name', 'Name', txt('Full name')),
+      mk('email', 'Email', txt('name@firm.com', 'email'))),
+    el('div', { class: 'grid2' },
+      mk('phone', 'Phone', txt('')),
+      mk('company', 'Company', txt(''))),
+    el('div', { class: 'grid2' },
+      mk('role', 'Role', txt('')),
+      mk('category', 'Taranis or client', opt([['client', 'Client'], ['taranis', 'Taranis']]))),
+    el('div', { class: 'grid2' },
+      mk('city', 'City', txt('')),
+      mk('country', 'Country', txt(''))),
+    el('div', { class: 'grid2' },
+      mk('knows_taranis', 'Do they know Taranis?',
+        opt([['', 'Not known'], ['yes', 'Yes'], ['vaguely', 'Vaguely'], ['no', 'No']])),
+      mk('aum_band', 'Ticket band', txt('e.g. 1-5m'))),
+    mk('next_step', 'Next step', txt('')),
+    mk('intelligence_text', 'Anything else',
+      el('textarea', { class: 'ta', style: 'min-height:100px',
+        placeholder: 'Where you met, what they are after, who introduced you.' })));
+
+  const save = el('button', { class: 'btn btn-sm' }, 'Add them to the book');
+  save.addEventListener('click', async () => {
+    const row = { source: 'console' };
+    for (const k in F) {
+      const v = String(F[k].value == null ? '' : F[k].value).trim();
+      row[k] = v === '' ? null : v;
+    }
+    if (!row.name) return toast('A name is the one thing required.', true);
+    save.disabled = true; save.textContent = 'Saving\u2026';
+    try {
+      const saved = await supaInsert('contacts', row);
+      toast(row.name + ' added to the book.');
+      closeSheet();
+      if (typeof after === 'function') after();
+      if (saved && saved.id) openProfile(Object.assign({ knows_us: row.knows_taranis || 'unknown' }, saved));
+    } catch (e) {
+      toast(e.message, true);
+      save.disabled = false; save.textContent = 'Add them to the book';
+    }
+  });
+
+  sheet('Add a person', [form], [
+    save, el('button', { class: 'btn btn-sm btn-quiet', onclick: closeSheet }, 'Cancel')
+  ]);
+}
+
 async function editProfile(c) {
   const F = {};
   const mk = (key, label, node) => {
