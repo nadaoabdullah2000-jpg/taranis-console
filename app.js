@@ -1604,48 +1604,123 @@ function verdictActions(m, after) {
 
 RENDER.rejected = function (body) {
   clear(body);
+
+  /* The whole rejected pile is small enough to hold in the browser, so the
+     filtering happens here rather than in the query. That makes "missed on
+     one criterion only" possible, which PostgREST cannot express against a
+     jsonb array -- and that is the filter that matters most, because a
+     single miss is usually a screening error rather than a real decline. */
+
+  let all = null, tone = 'all';
   const out = el('div');
   const find = el('input', { class: 'search', type: 'search',
     placeholder: 'Name, firm, country or reason\u2026' });
-  let t = null;
-  find.addEventListener('input', () => { clearTimeout(t); t = setTimeout(run, 300); });
-  body.append(el('div', { class: 'toolbar' }, find), out);
+  find.addEventListener('input', () => { clearTimeout(find._t); find._t = setTimeout(paint, 250); });
 
-  function run() {
+  const CHIPS = [
+    ['all',       'Everything'],
+    ['one',       'Missed by one'],
+    ['strategy',  'Strategy'],
+    ['asset',     'Asset class'],
+    ['type',      'Investor type'],
+    ['country',   'Outside GB/CH/US'],
+    ['ticket',    'Ticket too small'],
+    ['emerging',  'No emerging managers'],
+    ['parse',     'Failed parse']
+  ];
+  const chips = el('div', { class: 'chips' });
+  const btns = {};
+  for (const [k, lbl] of CHIPS) {
+    btns[k] = el('button', { class: 'chip', onclick: () => { tone = k; paintChips(); paint(); } }, lbl);
+    chips.appendChild(btns[k]);
+  }
+  function paintChips() {
+    for (const k in btns) {
+      btns[k].style.borderColor = (k === tone) ? 'var(--bad)' : '';
+      btns[k].style.color       = (k === tone) ? 'var(--bad)' : '';
+      btns[k].style.fontWeight  = (k === tone) ? '600' : '';
+    }
+  }
+
+  body.append(el('div', { class: 'toolbar' }, find), chips, out);
+  paintChips();
+
+  const reasons = (m) => {
+    let w = m.hard_fail_reasons;
+    if (typeof w === 'string') { try { w = JSON.parse(w); } catch (_) { w = []; } }
+    return Array.isArray(w) ? w : [];
+  };
+
+  const MATCH = {
+    strategy: /eligible strategy/i,
+    asset:    /asset class/i,
+    type:     /ineligible type/i,
+    country:  /outside gb/i,
+    ticket:   /ticket/i,
+    emerging: /emerging managers/i,
+    parse:    /failed parse/i
+  };
+
+  function paint() {
     clear(out);
-    fill(out, () => {
-      const q = find.value.trim();
-      let sel = 'select=*&qualification=eq.rejected&order=id.desc&limit=200';
-      if (q) sel += ilikeAny(['investor_name', 'organization_name', 'investor_country', 'fit_reason'], q);
-      return readRows('wi_mandates', sel, 'wi.mandates.list', {});
-    }, (rows) => {
-      if (!rows.length) return out.appendChild(empty('Nothing rejected', 'Everything screened is still in play.'));
-      for (const m of rows) {
-        let why = m.hard_fail_reasons;
-        if (typeof why === 'string') { try { why = JSON.parse(why); } catch (_) { why = []; } }
-        out.appendChild(entry({
-          tone: 'bad',
-          rail: '#' + m.id,
-          action: m.investor_name || m.organization_name || ('Mandate #' + m.id),
-          who: [m.organization_name, asText(m.investor_country), asText(m.investor_type)].filter(Boolean).join('  \u00B7  '),
-          evidence: [
-            ['turned away', Array.isArray(why) ? why.join('   \u00B7   ') : asText(why)],
-            ['failures  ', Array.isArray(why) && why.length > 1
-                ? why.length + ' criteria missed' : null],
-            ['strategy   ', asText(m.strategies)],
-            ['ticket     ', money(m.ticket_min_usd)]
-          ],
-          tags: [['rejected', 'bad']],
-          actions: [
-            { label: 'View the mandate', primary: true, run: () => openMandate(m) }
-          ].concat(verdictActions(m, run))
-        }));
+    if (!all) return;
+    const q = find.value.trim().toLowerCase();
+    let rows = all;
+
+    if (tone === 'one')       rows = rows.filter(m => reasons(m).length === 1);
+    else if (MATCH[tone])     rows = rows.filter(m => reasons(m).some(r => MATCH[tone].test(r)));
+
+    if (q) {
+      rows = rows.filter(m => [m.investor_name, m.organization_name, m.investor_country,
+        m.investor_type, reasons(m).join(' '), asText(m.strategies)]
+        .filter(Boolean).join(' ').toLowerCase().indexOf(q) > -1);
+    }
+
+    if (!rows.length) {
+      return out.appendChild(empty('Nothing here',
+        tone === 'one' ? 'No mandate was turned away on a single criterion.'
+                       : 'Nothing rejected matches that.'));
+    }
+
+    for (const m of rows) {
+      const why = reasons(m);
+      out.appendChild(entry({
+        tone: 'bad',
+        rail: '#' + m.id,
+        action: m.investor_name || m.organization_name || ('Mandate #' + m.id),
+        who: [m.organization_name, asText(m.investor_country), asText(m.investor_type)]
+          .filter(Boolean).join('  \u00B7  '),
+        evidence: [
+          ['turned away', why.join('   \u00B7   ')],
+          ['failures  ', why.length > 1 ? why.length + ' criteria missed' : 'one criterion only'],
+          ['strategy  ', asText(m.strategies)],
+          ['ticket    ', money(m.ticket_min_usd)]
+        ],
+        tags: [['rejected', 'bad'],
+               why.length === 1 ? ['one miss', 'signal'] : null].filter(Boolean),
+        actions: [
+          { label: 'View the mandate', primary: true, run: () => openMandate(m) }
+        ].concat(verdictActions(m, () => { all = null; load(); }))
+      }));
+    }
+    out.appendChild(el('p', { class: 'mono',
+      style: 'color:var(--ink-3);font-size:12px;margin-top:18px' },
+      'Showing ' + rows.length + ' of ' + all.length + ' rejected'));
+  }
+
+  function load() {
+    clear(out);
+    fill(out, () => readRows('wi_mandates',
+      'select=*&qualification=eq.rejected&order=id.desc&limit=500',
+      'wi.mandates.list', {}), (rows) => {
+      all = rows;
+      if (!rows.length) {
+        return out.appendChild(empty('Nothing rejected', 'Everything screened is still in play.'));
       }
-      out.appendChild(el('p', { class: 'mono',
-        style: 'color:var(--ink-3);font-size:12px;margin-top:18px' }, 'Showing ' + rows.length));
+      paint();
     });
   }
-  run();
+  load();
 };
 
 RENDER.meetings = function (body) {
