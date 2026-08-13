@@ -2262,19 +2262,75 @@ RENDER.network = function (body) {
     return m ? decodeURIComponent(m[1]).toLowerCase() : null;
   }
 
+  /* Two sources feed this tab now. linkedin_mutual is the synced first-degree
+     list. A LinkedIn URL typed onto a mandate in Fill the gaps is not in that
+     list -- nobody has synced it -- but it is still a profile you care about,
+     so it appears here too, and is checked against the connection list to see
+     whether anyone at Taranis already knows them. */
+
+  let mutualIndex = null;
+
+  async function buildIndex() {
+    if (mutualIndex) return mutualIndex;
+    mutualIndex = {};
+    try {
+      const rows = await readRows('linkedin_mutual',
+        'select=full_name,profile_url,mutual_to,mutual_count&limit=2000', 'li.mutual', { q: '' });
+      for (const r of rows) {
+        const h = asHandle(r.profile_url);
+        if (h) mutualIndex[h] = r;
+      }
+    } catch (_) { /* the tab still works on names alone */ }
+    return mutualIndex;
+  }
+
   function run() {
     const raw = q.value.trim();
     if (!raw) return;
     clear(out);
     const handle = asHandle(raw);
     const term = handle || raw;
-    // linkedin_mutual gives one row per person with mutual_to as a list
-    // of names, resolved from account_id through linkedin_accounts.
-    fill(out, () => readRows('linkedin_mutual',
+
+    fill(out, async () => {
+      const idx = await buildIndex();
+
+      const conns = await readRows('linkedin_mutual',
         'select=*&or=(full_name.ilike.' + lk(term) + ',profile_url.ilike.' + lk(term) + ')'
-          + '&order=mutual_count.desc&limit=60',
-        'li.mutual', { q: raw }),
-      (rows) => {
+        + '&order=mutual_count.desc&limit=60',
+        'li.mutual', { q: raw });
+
+      // Mandates carrying a LinkedIn URL, matched on the name or the handle.
+      let mand = [];
+      try {
+        mand = await readRows('wi_mandates',
+          'select=id,investor_name,organization_name,linkedin_url,qualification,investor_country'
+          + '&linkedin_url=not.is.null&limit=400', 'wi.mandates.list', {});
+      } catch (_) {}
+
+      const seen = {};
+      for (const c of conns) { const h = asHandle(c.profile_url); if (h) seen[h] = true; }
+
+      const extra = mand.filter(m => {
+        const h = asHandle(m.linkedin_url);
+        if (h && seen[h]) return false;                 // already in the synced list
+        const hay = [m.investor_name, m.organization_name, h].filter(Boolean).join(' ').toLowerCase();
+        return hay.indexOf(String(term).toLowerCase()) > -1;
+      }).map(m => {
+        const h = asHandle(m.linkedin_url);
+        const known = h ? idx[h] : null;
+        return {
+          from_mandate: true,
+          mandate: m,
+          full_name: m.investor_name || m.organization_name || h,
+          profile_url: m.linkedin_url,
+          mutual_to: known ? known.mutual_to : null,
+          mutual_count: known ? known.mutual_count : 0,
+          in_contact_book: false
+        };
+      });
+
+      return conns.concat(extra);
+    }, (rows) => {
       if (!rows.length) {
         return out.appendChild(empty('Not a first-degree connection',
           asHandle(q.value)
@@ -2283,18 +2339,28 @@ RENDER.network = function (body) {
       }
       for (const p of rows) {
         const who = Array.isArray(p.mutual_to) ? p.mutual_to.join(', ') : (p.mutual_to || '');
+        const fromMandate = !!p.from_mandate;
         out.appendChild(entry({
-          tone: p.in_contact_book ? 'good' : 'accent',
-          rail: (p.mutual_count || 1) + '\u00D7',
+          tone: fromMandate ? (who ? 'good' : 'signal') : (p.in_contact_book ? 'good' : 'accent'),
+          rail: fromMandate ? 'wi' : ((p.mutual_count || 1) + '\u00D7'),
           action: p.full_name,
-          who: 'Mutual to ' + (who || 'someone at Taranis'),
+          who: who
+            ? 'Mutual to ' + who
+            : (fromMandate
+                ? 'From a mandate \u2014 nobody at Taranis is connected to them'
+                : 'Mutual to someone at Taranis'),
           evidence: [['profile ', p.profile_url], ['synced  ', fmtDate(p.last_synced)]],
-          tags: p.in_contact_book ? [['in the book', 'good']] : [['not in the book', 'quiet']],
+          tags: (fromMandate
+            ? [['from a mandate', 'signal'],
+               who ? ['already connected', 'good'] : ['no connection yet', 'quiet']]
+            : (p.in_contact_book ? [['in the book', 'good']] : [['not in the book', 'quiet']])),
           // noopener so LinkedIn cannot reach back into the console tab.
           actions: p.profile_url ? [
             { label: 'View LinkedIn profile', primary: true,
               run: () => window.open(p.profile_url, '_blank', 'noopener,noreferrer') },
-            { label: 'View profile', run: () => openProfile({ name: p.full_name }) },
+            fromMandate
+              ? { label: 'View the mandate', run: () => openMandate(p.mandate) }
+              : { label: 'View profile', run: () => openProfile({ name: p.full_name }) },
             { label: 'Copy the link', run: () => copy(p.profile_url) },
             { label: 'History', run: () => askAbout('What do we know about ' + p.full_name
                 + ', and have we ever been in contact?') }
