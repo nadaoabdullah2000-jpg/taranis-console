@@ -815,12 +815,6 @@ RENDER.email = function (body) {
   const to = el('input', { class: 'search', placeholder: 'Contact name, e.g. Miles Kerstein' });
   const brief = el('input', { class: 'search', placeholder: 'What should it say? e.g. share the July TMS and ask for a call' });
   const go1 = el('button', { class: 'btn btn-sm' }, 'Write a draft');
-  body.append(
-    el('div', { class: 'banner' },
-      el('b', null, 'Two steps, same as the bot. '),
-      'Writing a draft never sends. The address is resolved from the contact book — nothing is invented.'),
-    el('div', { class: 'toolbar' }, to),
-    el('div', { class: 'toolbar' }, brief, go1));
   const out = el('div'); body.appendChild(out);
   if (PENDING.draft) { to.value = PENDING.draft; PENDING.draft = null; brief.focus(); }
 
@@ -851,6 +845,120 @@ RENDER.email = function (body) {
       sideBtns[k].style.fontWeight  = (k === side) ? '600' : '';
     }
   }
+
+  /* --------------------------------------------------- write it yourself
+
+     The AI drafting chain still lives in CRM 02+03 behind a Telegram
+     trigger. This does not need it: you write the email, it is saved as a
+     pending draft, and approving it hands the id to CRM 11 which sends over
+     SMTP and files a copy. Nothing leaves without the second click. */
+
+  const cSubj = el('input', { class: 'search', placeholder: 'Subject' });
+  const cBody = el('textarea', { class: 'ta', style: 'min-height:200px',
+    placeholder: 'Write the email. It is saved as a draft \u2014 nothing sends until you approve it.' });
+  const cSave = el('button', { class: 'btn', onclick: () => saveDraft() }, 'Save as a draft');
+
+  async function saveDraft() {
+    const who = to.value.trim();
+    if (!who) return toast('Say who it goes to first.', true);
+    if (!cSubj.value.trim()) return toast('Give it a subject.', true);
+    if (!cBody.value.trim()) return toast('The email is empty.', true);
+    cSave.disabled = true; cSave.textContent = 'Saving\u2026';
+    try {
+      // Resolve the name to an address here, so a draft can never be saved
+      // against somebody the book does not know.
+      const hit = await readRows('contacts_app',
+        'select=id,name,email&limit=2' + ilikeAny(['name', 'email'], who),
+        'contacts.search', { q: who, filter: 'all' });
+      const found = hit.filter(x => x.email);
+      if (!found.length) throw new Error('Nobody in the book called "' + who + '" has an email address.');
+      if (found.length > 1) throw new Error('That matches ' + found.length + ' people. Use a fuller name.');
+      const c = found[0];
+
+      const id = 'app-' + Date.now().toString(36) + '-'
+        + Math.random().toString(36).slice(2, 8);
+      await supaInsert('outbound_email_drafts', {
+        draft_id:   id,
+        contact_id: c.id,
+        to_addr:    c.email,
+        subject:    cSubj.value.trim(),
+        body_text:  cBody.value.trim(),
+        status:     'pending_approval'
+      });
+      toast('Draft saved for ' + c.name + '. Approve it below to send.');
+      cSubj.value = ''; cBody.value = '';
+      runDrafts();
+    } catch (e) {
+      toast(e.message, true);
+    } finally {
+      cSave.disabled = false; cSave.textContent = 'Save as a draft';
+    }
+  }
+
+  const composeForm = el('div', { style: 'max-width:900px;display:none;margin:6px 0 18px' },
+    el('label', { class: 'field' }, el('span', null, 'Subject'), cSubj),
+    el('label', { class: 'field' }, el('span', null, 'The email'), cBody),
+    cSave);
+
+  let composeOpen = false;
+  const composeToggle = el('button', { class: 'btn btn-sm btn-quiet', onclick: () => {
+    composeOpen = !composeOpen;
+    composeForm.style.display = composeOpen ? 'block' : 'none';
+    composeToggle.textContent = composeOpen ? 'Never mind' : 'Write it yourself';
+    if (composeOpen) cSubj.focus();
+  } }, 'Write it yourself');
+
+  /* ------------------------------------------------------ waiting to send */
+
+  const drafts = el('div');
+
+  function runDrafts() {
+    clear(drafts);
+    fill(drafts, () => supaSelect('outbound_email_drafts',
+      'select=draft_id,to_addr,subject,body_text,status,created_at'
+      + '&status=eq.pending_approval&order=created_at.desc&limit=25'), (rows) => {
+      if (!rows.length) return;
+      drafts.appendChild(el('p', { class: 'mono',
+        style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:22px 0 8px' },
+        rows.length === 1 ? 'One draft waiting' : rows.length + ' drafts waiting'));
+      for (const d of rows) {
+        drafts.appendChild(entry({
+          tone: 'signal', rail: 'draft',
+          action: d.subject || '(no subject)',
+          who: 'To ' + d.to_addr,
+          evidence: [['written', fmtDate(d.created_at)], ['says   ', d.body_text]],
+          actions: [
+            { label: 'Send it', primary: true, run: async () => {
+                if (!confirm('Send this to ' + d.to_addr + '? It goes immediately.')) return;
+                toast('Sending\u2026');
+                try {
+                  await callGateway('email.send', { draft_id: d.draft_id });
+                  toast('Sent.');
+                  runDrafts();
+                } catch (e) { toast(e.message, true); }
+              } },
+            { label: 'Discard', run: async () => {
+                if (!confirm('Throw this draft away?')) return;
+                try {
+                  await supaPatch('outbound_email_drafts',
+                    'draft_id=eq.' + encodeURIComponent(d.draft_id), { status: 'rejected' });
+                  runDrafts();
+                } catch (e) { toast(e.message, true); }
+              } }
+          ]
+        }));
+      }
+    });
+  }
+
+  body.append(
+    el('div', { class: 'banner' },
+      el('b', null, 'Two steps, same as the bot. '),
+      'Writing a draft never sends. The address is resolved from the contact book — nothing is invented.'),
+    el('div', { class: 'toolbar' }, to),
+    el('div', { class: 'toolbar' }, brief, go1, composeToggle));
+  body.append(composeForm, drafts);
+  runDrafts();
 
   /* ------------------------------------------------------ add somebody
 
@@ -2739,22 +2847,55 @@ async function answerLocally(host, question) {
     if (docs.length) {
       // "Latest" means the one marked current, not merely the newest upload.
       const wantsLatest = /latest|newest|current|most recent|last/.test(low);
-      const term = (searchTerms(question)[0] || '').toLowerCase();
+
+      /* Nobody types the doc_key. They say pitch deck, pitchdesk, slides,
+         factsheet, weekly note. Match the words people use against the kind
+         of document rather than hoping the spelling lines up. 'desk' is in
+         there on purpose: it is how deck gets mistyped. */
+      const KINDS = [
+        { re: /pitch|deck|desk|slide|presentation|prez/,        keys: ['deck', 'presentation', 'pitch'] },
+        { re: /fact\s?sheet/,                                    keys: ['factsheet', 'fact_sheet', 'fact sheet'] },
+        { re: /weekly|newsletter|weekly note/,                   keys: ['weekly', 'newsletter', 'note'] },
+        { re: /month|monthly report|gdn/,                        keys: ['month', 'gdn', 'report'] },
+        { re: /one\s?pager/,                                     keys: ['one_pager', 'onepager', 'pager'] },
+        { re: /\btms\b/,                                         keys: ['tms'] }
+      ];
+      const wanted = [];
+      for (const k of KINDS) if (k.re.test(low)) wanted.push.apply(wanted, k.keys);
+
+      const matches = (d, needle) =>
+        String(d.doc_key || '').toLowerCase().indexOf(needle) > -1 ||
+        String(d.title || '').toLowerCase().indexOf(needle) > -1;
+
       let show = docs;
-      if (term && term.length > 2) {
-        const hits = docs.filter(d =>
-          String(d.title || '').toLowerCase().indexOf(term) > -1 ||
-          String(d.doc_key || '').toLowerCase().indexOf(term) > -1);
+      if (wanted.length) {
+        const hits = docs.filter(d => wanted.some(w => matches(d, w)));
         if (hits.length) show = hits;
+      } else {
+        const term = (searchTerms(question)[0] || '').toLowerCase();
+        if (term.length > 2) {
+          const hits = docs.filter(d => matches(d, term));
+          if (hits.length) show = hits;
+        }
       }
-      if (wantsLatest) {
+
+      // A question asking for "the latest" wants one answer, not a list. Prefer
+      // the current version, then the most recently added, and say plainly how
+      // many others are stored rather than burying the answer among them.
+      const total = show.length;
+      if (wantsLatest && show.length > 1) {
         const cur = show.filter(d => d.is_current);
         if (cur.length) show = cur;
+        show = show.slice().sort((x, y) =>
+          String(y.uploaded_at || '').localeCompare(String(x.uploaded_at || '')));
+        show = [show[0]];
       }
 
       host.appendChild(el('p', { class: 'mono',
         style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:0 0 8px' },
-        show.length === 1 ? 'One document' : show.length + ' documents'));
+        show.length === 1
+          ? (wantsLatest && total > 1 ? 'The latest one' : 'One document')
+          : show.length + ' documents'));
 
       for (const d of show.slice(0, 10)) {
         host.appendChild(entry({
@@ -2773,6 +2914,12 @@ async function answerLocally(host, question) {
             { label: 'Copy the link', run: () => copy(d.public_url) }
           ] : []
         }));
+      }
+      if (wantsLatest && total > 1) {
+        host.appendChild(el('p', { class: 'mono',
+          style: 'color:var(--ink-3);font-size:12px;margin-top:12px' },
+          (total - 1) + ' other ' + (total - 1 === 1 ? 'version is' : 'versions are')
+          + ' stored. Open Documents to see them.'));
       }
       return;
     }
