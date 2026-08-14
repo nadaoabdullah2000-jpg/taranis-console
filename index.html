@@ -246,6 +246,17 @@ main{
 .ev div{margin-bottom:1px}
 .ev .k{color:var(--ink-3)}
 .ev .gold{color:var(--signal);font-weight:700}
+.callout{display:flex;gap:10px;align-items:baseline;margin:9px 0 4px;padding:9px 13px;
+  border:1px solid var(--rule);border-left-width:3px;border-radius:5px;background:var(--card)}
+.callout-k{font-family:var(--font-data);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-3);white-space:nowrap}
+.callout-v{font-size:14.5px;font-weight:600;line-height:1.45}
+.callout.signal{border-left-color:var(--signal);background:var(--signal-soft)}
+.callout.signal .callout-k{color:var(--signal);opacity:.85}
+.callout.signal .callout-v{color:var(--signal)}
+.callout.bad{border-left-color:var(--bad);background:var(--bad-soft)}
+.callout.bad .callout-v{color:var(--bad)}
+.callout.good{border-left-color:var(--good);background:var(--good-soft)}
 .entry.bad .ev .k{color:var(--bad);opacity:.8}
 .entry.bad .ev{border-left-color:var(--bad)}
 .acts{display:flex;gap:6px;margin-top:11px;flex-wrap:wrap}

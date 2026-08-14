@@ -521,9 +521,18 @@ function entry(o) {
       hot ? el('span', { class: 'gold' }, String(v)) : document.createTextNode(String(v))));
   }
 
+  /* A callout: the one thing about this row you are meant to read before
+     anything else. Sits above the evidence, in its own box. */
+  const call = o.callout
+    ? el('div', { class: 'callout ' + (o.calloutTone || '') },
+        o.calloutLabel ? el('span', { class: 'callout-k' }, o.calloutLabel) : null,
+        el('span', { class: 'callout-v' }, o.callout))
+    : null;
+
   const main = el('div', { class: 'entry-main' },
     el('p', { class: 'entry-act' }, o.action),
     o.who ? el('p', { class: 'entry-who' }, o.who) : null,
+    call,
     (o.evidence && o.evidence.length) ? ev : null);
 
   if (o.tags && o.tags.length) {
@@ -1821,6 +1830,18 @@ RENDER.rejected = function (body) {
         .filter(Boolean).join(' ').toLowerCase().indexOf(q) > -1);
     }
 
+    /* Fewest misses first, whichever filter you are looking through. A
+       mandate that failed on one count is the one worth reopening; one that
+       failed on four is not. Among equals, the larger ticket leads. */
+    rows = rows.slice().sort((x, y) => {
+      const dx = reasons(x).length, dy = reasons(y).length;
+      if (dx !== dy) return dx - dy;
+      const tx = Number(x.ticket_max_usd || x.ticket_min_usd || 0);
+      const ty = Number(y.ticket_max_usd || y.ticket_min_usd || 0);
+      if (tx !== ty) return ty - tx;
+      return Number(y.id || 0) - Number(x.id || 0);
+    });
+
     if (!rows.length) {
       return out.appendChild(empty('Nothing here',
         tone === 'one'    ? 'No mandate was turned away on a single criterion.'
@@ -1837,9 +1858,12 @@ RENDER.rejected = function (body) {
         action: m.investor_name || m.organization_name || ('Mandate #' + m.id),
         who: [m.organization_name, asText(m.investor_country), asText(m.investor_type)]
           .filter(Boolean).join('  \u00B7  '),
+        callout: why.length === 1 ? why[0]
+          : why.length === 0 ? 'Rejected before any reason was recorded' : null,
+        calloutLabel: why.length === 1 ? 'Missed only on' : 'No reason recorded',
+        calloutTone: 'signal',
         evidence: [
-          ['turned away', why.length ? why.join('   \u00B7   ')
-              : 'Rejected before any reason was recorded \u2014 worth a look'],
+          ['turned away', why.length > 1 ? why.join('   \u00B7   ') : null],
           ['failures  ', missCount(why.length)],
           ['strategy  ', asText(m.strategies)],
           ['ticket    ', money(m.ticket_min_usd)]
