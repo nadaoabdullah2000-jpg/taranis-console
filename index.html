@@ -392,6 +392,22 @@ main{
   .gate-mark{width:100%}
   .head{padding:16px 18px 12px} .head h2{font-size:24px}
   .body,#ask-log,#ask-bar{padding-left:18px;padding-right:18px}
+
+  /* A stored link is one long unbreakable word. Without this it pushes the
+     card wider than the screen, everything else is squeezed, and the page
+     scrolls sideways -- which is what made Documents look blown up on a
+     phone while Search, which has no links in it, looked right. */
+  .ev, .ev>div, .entry-act, .entry-who, .callout-v{
+    overflow-wrap:anywhere; word-break:break-word}
+  .ev{font-size:12.5px;line-height:1.55}
+  .entry-act{font-size:15px}
+  .entry-who{font-size:12.5px}
+  .entry-main{min-width:0}
+  .entry{max-width:100%}
+  .callout{padding:8px 11px;gap:7px;flex-wrap:wrap}
+  .callout-v{font-size:13.5px}
+  .btn{padding:9px 13px;font-size:13.5px}
+  .btn-sm{padding:6px 10px;font-size:12.5px}
 }
 </style>
 </head>

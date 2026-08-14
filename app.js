@@ -176,6 +176,27 @@ function asText(v) {
   return cleanText(v);
 }
 
+/* What to say when a contact has no last-contact date.
+
+   "Never" was wrong. That field is only ever set by matching an email
+   address in crm_emails against contacts.email, so an empty one means no
+   email is LINKED to this record -- not that nobody has ever spoken to
+   them. A person with no address on file can never get a date however much
+   you have corresponded. Say what is actually true. */
+function lastSpoken(c, days) {
+  const at = c && (c.last_contact_at || c.last_interaction || c.last);
+  if (at) return fmtDate(at) + (days !== null && days !== undefined ? '   (' + days + ' days)' : '');
+  const addr = c && (c.email || c.addr || c.contact_email);
+  return String(addr || '').trim()
+    ? 'no email on record'
+    : 'no email address on file';
+}
+
+/** The short form for the rail, where there is no room to explain. */
+function lastSpokenRail(days) {
+  return (days === null || days === undefined) ? '\u2014' : days + 'd';
+}
+
 function fmtDate(v) {
   if (!v) return '—';
   const d = new Date(v);
@@ -915,13 +936,11 @@ RENDER.contacts = function (body) {
           ? c.days_quiet : daysSince(c.last_interaction || c.last_contact_at);
         out.appendChild(entry({
           tone: c.knows_us === 'yes' ? 'good' : c.knows_us === 'vaguely' ? 'signal' : '',
-          rail: q === null ? 'never' : q + 'd',
+          rail: lastSpokenRail(q),
           action: c.name,
           who: [c.company, c.city, c.country].filter(Boolean).join(' · '),
           evidence: [
-            ['last spoke ', (c.last_contact_at || c.last_interaction)
-                ? fmtDate(c.last_contact_at || c.last_interaction) + (q !== null ? '  (' + q + ' days)' : '')
-                : 'never'],
+            ['last spoke ', lastSpoken(c, q)],
             ['email      ', c.email],
             ['about      ', c.last_contact_summary || c.last_contact_note],
             ['next step  ', c.next_step],
@@ -1224,14 +1243,12 @@ RENDER.email = function (body) {
         const dq = daysSince(c.last_contact_at || c.last_interaction);
         list.appendChild(entry({
           tone: c.knows_us === 'yes' ? 'good' : c.knows_us === 'vaguely' ? 'signal' : '',
-          rail: dq === null ? 'never' : dq + 'd',
+          rail: lastSpokenRail(dq),
           action: c.name,
           who: [c.country, c.company].filter(Boolean).join('  \u00B7  '),
           evidence: [
             ['country    ', c.country],
-            ['last spoke ', (c.last_contact_at || c.last_interaction)
-                ? fmtDate(c.last_contact_at || c.last_interaction)
-                  + (dq !== null ? '  (' + dq + ' days)' : '') : 'never'],
+            ['last spoke ', lastSpoken(c, dq)],
             ['about      ', c.last_contact_summary || c.last_contact_note],
             ['email      ', c.email]
           ],
@@ -1401,7 +1418,7 @@ RENDER.inbox = function (body) {
             who: [p.country, p.company].filter(Boolean).join('  \u00B7  '),
             evidence: [
               ['country    ', p.country || 'not on the record'],
-              ['last spoke ', p.last ? fmtDate(p.last) + (q2 !== null ? '  (' + q2 + ' days)' : '') : 'never'],
+              ['last spoke ', lastSpoken(p, q2)],
               ['about      ', p.summary || p.subject],
               ['exchanges  ', p.n]
             ],
@@ -3012,13 +3029,11 @@ async function localDossier(host, person) {
   const q = daysSince(person.last_contact_at || person.last_interaction);
   host.appendChild(entry({
     tone: person.knows_us === 'yes' ? 'good' : person.knows_us === 'vaguely' ? 'signal' : '',
-    rail: q === null ? 'never' : q + 'd',
+    rail: lastSpokenRail(q),
     action: person.name,
     who: [person.role, person.company, person.city, person.country].filter(Boolean).join('  \u00B7  '),
     evidence: [
-      ['last spoke ', (person.last_contact_at || person.last_interaction)
-          ? fmtDate(person.last_contact_at || person.last_interaction)
-            + (q !== null ? '  (' + q + ' days)' : '') : 'never'],
+      ['last spoke ', lastSpoken(person, q)],
       ['email      ', person.email],
       ['about      ', person.last_contact_summary || person.last_contact_note],
       ['next step  ', person.next_step],
@@ -3483,7 +3498,7 @@ async function openProfile(c) {
   col2.append(...[
     field('Last spoke', (c.last_contact_at || c.last_interaction)
       ? fmtDate(c.last_contact_at || c.last_interaction) + (dq !== null ? '   (' + dq + ' days ago)' : '')
-      : 'Never', true),
+      : (String(c.email || '').trim() ? 'No email on record' : 'No email address on file'), true),
     field('Knows Taranis', c.knows_us),
     field('Side', c.side === 'taranis' ? 'Taranis' : c.side === 'external' ? 'Client' : c.side),
     field('Category', c.category),
@@ -3722,25 +3737,41 @@ async function answerLocally(host, question) {
          factsheet, weekly note. Match the words people use against the kind
          of document rather than hoping the spelling lines up. 'desk' is in
          there on purpose: it is how deck gets mistyped. */
+      /* Each word narrows, rather than widening. "TMS pitchdesk" names two
+         things -- the deck, and Taranis Market Sentiment -- so a document
+         has to satisfy BOTH, not either. Pooling them was why asking for a
+         pitch deck returned every presentation in the archive. */
       const KINDS = [
-        { re: /pitch|deck|desk|slide|presentation|prez/,        keys: ['deck', 'presentation', 'pitch'] },
-        { re: /fact\s?sheet/,                                    keys: ['factsheet', 'fact_sheet', 'fact sheet'] },
-        { re: /weekly|newsletter|weekly note/,                   keys: ['weekly', 'newsletter', 'note'] },
-        { re: /month|monthly report|gdn/,                        keys: ['month', 'gdn', 'report'] },
-        { re: /one\s?pager/,                                     keys: ['one_pager', 'onepager', 'pager'] },
-        { re: /\btms\b/,                                         keys: ['tms'] }
+        { re: /pitch|deck|desk/,            keys: ['deck', 'pitch'] },
+        { re: /presentation|prez|slide/,    keys: ['presentation', 'prez', 'slide'] },
+        { re: /fact\s?sheet/,               keys: ['factsheet', 'fact_sheet', 'fact sheet'] },
+        { re: /weekly|newsletter/,          keys: ['weekly', 'newsletter', 'note'] },
+        { re: /month/,                      keys: ['month'] },
+        { re: /report/,                     keys: ['report'] },
+        { re: /one\s?pager/,                keys: ['one_pager', 'onepager', 'pager'] },
+        // Acronyms people actually use, with the full name as an alias so a
+        // deck titled "Taranis Market Sentiment" answers to TMS.
+        { re: /\btms\b/,                    keys: ['tms', 'taranis market sentiment'] },
+        { re: /\bgdn\b/,                    keys: ['gdn'] }
       ];
-      const wanted = [];
-      for (const k of KINDS) if (k.re.test(low)) wanted.push.apply(wanted, k.keys);
+      const groups = KINDS.filter(k => k.re.test(low));
 
       const matches = (d, needle) =>
         String(d.doc_key || '').toLowerCase().indexOf(needle) > -1 ||
         String(d.title || '').toLowerCase().indexOf(needle) > -1;
 
       let show = docs;
-      if (wanted.length) {
-        const hits = docs.filter(d => wanted.some(w => matches(d, w)));
-        if (hits.length) show = hits;
+      if (groups.length) {
+        // Every named thing must be satisfied.
+        const strict = docs.filter(d => groups.every(g => g.keys.some(k => matches(d, k))));
+        if (strict.length) {
+          show = strict;
+        } else {
+          // Nothing satisfies all of them, so fall back rather than showing
+          // an empty answer to a reasonable question.
+          const loose = docs.filter(d => groups.some(g => g.keys.some(k => matches(d, k))));
+          if (loose.length) show = loose;
+        }
       } else {
         const term = (searchTerms(question)[0] || '').toLowerCase();
         if (term.length > 2) {
@@ -3834,12 +3865,11 @@ async function answerLocally(host, question) {
         const dq = daysSince(p.last_contact_at || p.last_interaction);
         host.appendChild(entry({
           tone: p.knows_us === 'yes' ? 'good' : p.knows_us === 'vaguely' ? 'signal' : '',
-          rail: dq === null ? 'never' : dq + 'd',
+          rail: lastSpokenRail(dq),
           action: p.name,
           who: [p.role, p.company, p.city, p.country].filter(Boolean).join('  \u00B7  '),
           evidence: [
-            ['last spoke ', (p.last_contact_at || p.last_interaction)
-                ? fmtDate(p.last_contact_at || p.last_interaction) : 'never'],
+            ['last spoke ', lastSpoken(p, null)],
             ['about      ', p.last_contact_summary || p.last_contact_note],
             ['next step  ', p.next_step],
             ['knows us   ', p.knows_us],
