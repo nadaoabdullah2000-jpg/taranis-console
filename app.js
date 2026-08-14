@@ -88,19 +88,34 @@ function money(v) {
   return 'USD ' + grouped + (short ? '   (' + short + ')' : '');
 }
 
+/* Alert text arrives with UTF-8 read as Latin-1 in places, so an apostrophe
+   turns up as a smear of characters. Repair it on the way to the screen
+   rather than leaving "founder's" as "founderaEURTMs". */
+function deMojibake(s) {
+  return String(s)
+    .replace(/\u00E2\u20AC\u2122/g, '\u2019')
+    .replace(/\u00E2\u20AC\u009C/g, '\u201C')
+    .replace(/\u00E2\u20AC\u009D/g, '\u201D')
+    .replace(/\u00E2\u20AC\u201C/g, '\u2013')
+    .replace(/\u00E2\u20AC\u201D/g, '\u2014')
+    .replace(/\u00E2\u0080\u0099/g, '\u2019')
+    .replace(/\u00C3\u00A9/g, '\u00E9')
+    .replace(/\u00C2\u00A0/g, ' ');
+}
+
 function asText(v) {
   if (v === null || v === undefined || v === '') return '';
   if (Array.isArray(v)) {
-    return v.map(x => (x && typeof x === 'object')
+    return deMojibake(v.map(x => (x && typeof x === 'object')
       ? (x.name || x.label || x.value || JSON.stringify(x))
-      : String(x)).filter(Boolean).join(', ');
+      : String(x)).filter(Boolean).join(', '));
   }
   if (typeof v === 'object') {
     const parts = [];
     for (const k in v) if (v[k] !== null && v[k] !== '') parts.push(k + ': ' + v[k]);
-    return parts.join(', ');
+    return deMojibake(parts.join(', '));
   }
-  return String(v);
+  return deMojibake(v);
 }
 
 function fmtDate(v) {
@@ -2926,6 +2941,9 @@ async function localDossier(host, person) {
       ['terms      ', person.introducer_terms],
       ['knows us   ', person.knows_us],
       ['exchanges  ', mail.length ? (mail.length >= 12 ? '12+' : mail.length) : null],
+      ['records    ', (person._merged && person._merged.length > 1)
+          ? person._merged.length + ' duplicate records shown as one (#'
+            + person._merged.join(', #') + ')' : null],
       ['intel      ', person.intelligence_text || person.raw_notes]
     ],
     tags: [
@@ -2933,7 +2951,8 @@ async function localDossier(host, person) {
       person.category ? [person.category, ''] : null
     ].filter(Boolean),
     actions: [
-      { label: 'Draft an email', primary: true, run: () => { PENDING.draft = person.name; go('email'); } },
+      { label: 'View profile', primary: true, run: () => openProfile(person) },
+      { label: 'Draft an email', run: () => { PENDING.draft = person.name; go('email'); } },
       { label: 'Book a Zoom', run: () => { PENDING.meet = person.name; go('meetings'); } }
     ]
   }));
@@ -3077,11 +3096,8 @@ async function openMandate(m) {
   const rest = Object.keys(full).filter(k =>
     shown.indexOf(k) < 0 && k !== 'field_sources' && asText(full[k]));
   if (rest.length) {
-    host.appendChild(el('p', { class: 'mono',
-      style: 'font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);'
-           + 'margin:28px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--rule)' },
-      'Everything else on the record'));
-    const ev = el('div', { class: 'ev' });
+    host.appendChild(el('p', { class: 'mono rec-head' }, 'Everything else on the record'));
+    const ev = el('div', { class: 'ev rec' });
     for (const k of rest) {
       ev.appendChild(el('div', null,
         el('span', { class: 'k' }, k.replace(/_/g, ' ').padEnd(20, ' ') + '  '),
@@ -3711,8 +3727,14 @@ async function answerLocally(host, question) {
         (groupLabel || (people.length + ' match \u201C' + t + '\u201D'))
         + (wantsKnown ? ', who already know us' : '')));
 
-      // One card each. The full record is behind View profile rather than
-      // printed out for everyone, so a list of thirty stays readable.
+      // One match gets the full dossier. Several get a card each, with the
+      // detail behind View profile so a list of thirty stays readable.
+      // Drawing both for a single person showed the same man twice.
+      if (people.length === 1) {
+        await localDossier(host, people[0]);
+        return;
+      }
+
       for (const p of people) {
         const dq = daysSince(p.last_contact_at || p.last_interaction);
         host.appendChild(entry({
@@ -3736,7 +3758,6 @@ async function answerLocally(host, question) {
           ]
         }));
       }
-      if (people.length === 1) await localDossier(host, people[0]);
       return;
     }
     if (groupSel) break;
