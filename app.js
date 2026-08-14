@@ -1347,38 +1347,7 @@ RENDER.inbox = function (body) {
       for (const m of rows) {
         const outbound = String(m.direction || '').toLowerCase().indexOf('out') === 0
           || String(m.direction || '').toLowerCase() === 'sent';
-        /* Why is this waiting on you? The stored fit_reason is often stale --
-         "Hard criteria failure" from before the rules changed. The honest
-         answer is in the three columns WI 01 actually writes: what it failed,
-         what was merely plausible, and what the alert never said. */
-      const jarr = (v) => {
-        let x = v;
-        for (let i = 0; i < 2 && typeof x === 'string'; i++) { try { x = JSON.parse(x); } catch (_) { x = []; } }
-        return Array.isArray(x) ? x.map(s => String(s).trim()).filter(Boolean) : [];
-      };
-      const fails   = jarr(m.hard_fail_reasons);
-      const soft    = jarr(m.soft_flags);
-      const missing = jarr(m.missing_hard_fields);
-      const q       = String(m.qualification || '').toLowerCase();
-
-      let verdict;
-      if (q === 'matched') {
-        verdict = { label: 'Matched', tone: 'good', text: 'Meets every criterion outright.' };
-      } else if (fails.length === 1) {
-        verdict = { label: 'Missed only on', tone: 'signal', text: fails[0] };
-      } else if (fails.length > 1) {
-        verdict = { label: 'Missed on ' + fails.length, tone: 'bad', text: fails.join('   \u00B7   ') };
-      } else if (soft.length) {
-        verdict = { label: 'Worth a look because', tone: 'signal', text: soft.join('   \u00B7   ') };
-      } else if (missing.length) {
-        verdict = { label: 'Never stated in the alert', tone: 'signal',
-          text: missing.join(', ').replace(/_/g, ' ') };
-      } else {
-        verdict = { label: 'Waiting on you', tone: 'signal',
-          text: asText(m.fit_reason) || 'No reason recorded \u2014 worth opening.' };
-      }
-
-      out.appendChild(entry({
+        out.appendChild(entry({
           tone: m.side === 'internal' ? 'accent' : m.side === 'unknown' ? 'quiet' : 'good',
           rail: outbound ? 'sent' : 'in',
           action: m.subject || '(no subject)',
@@ -1420,6 +1389,38 @@ RENDER.opps = function (body) {
     if (!rows.length) return body.appendChild(empty('No opportunities yet', 'Screened mandates from With Intelligence land here.'));
     for (const m of rows) {
       const tone = m.qualification === 'matched' ? 'good' : m.qualification === 'uncertain' ? 'signal' : 'bad';
+
+      /* Why is this waiting on you? The stored fit_reason is often stale --
+         "Hard criteria failure" from before the rules changed. The honest
+         answer is in the three columns WI 01 actually writes: what it failed,
+         what was merely plausible, and what the alert never said. */
+      const jarr = (v) => {
+        let x = v;
+        for (let i = 0; i < 2 && typeof x === 'string'; i++) { try { x = JSON.parse(x); } catch (_) { x = []; } }
+        return Array.isArray(x) ? x.map(s => String(s).trim()).filter(Boolean) : [];
+      };
+      const fails   = jarr(m.hard_fail_reasons);
+      const soft    = jarr(m.soft_flags);
+      const missing = jarr(m.missing_hard_fields);
+      const q       = String(m.qualification || '').toLowerCase();
+
+      let verdict;
+      if (q === 'matched') {
+        verdict = { label: 'Matched', tone: 'good', text: 'Meets every criterion outright.' };
+      } else if (fails.length === 1) {
+        verdict = { label: 'Missed only on', tone: 'signal', text: fails[0] };
+      } else if (fails.length > 1) {
+        verdict = { label: 'Missed on ' + fails.length, tone: 'bad', text: fails.join('   \u00B7   ') };
+      } else if (soft.length) {
+        verdict = { label: 'Worth a look because', tone: 'signal', text: soft.join('   \u00B7   ') };
+      } else if (missing.length) {
+        verdict = { label: 'Never stated in the alert', tone: 'signal',
+          text: missing.join(', ').replace(/_/g, ' ') };
+      } else {
+        verdict = { label: 'Waiting on you', tone: 'signal',
+          text: asText(m.fit_reason) || 'No reason recorded \u2014 worth opening.' };
+      }
+
       body.appendChild(entry({
         tone,
         rail: '#' + m.id,
@@ -2981,6 +2982,9 @@ async function openMandate(m) {
 
   const body = $('pg-body');
   clear(body);
+  // Replay the arrival animation: these open in place, so without this
+  // the page changes with no sign that anything happened.
+  body.style.animation = 'none'; void body.offsetWidth; body.style.animation = '';
   $('pg-title').textContent = m.investor_name || m.organization_name || ('Mandate #' + m.id);
   $('pg-sub').textContent = 'With Intelligence mandate';
   const host = el('div');
@@ -3285,6 +3289,9 @@ async function openProfile(c) {
 
   const body = $('pg-body');
   clear(body);
+  // Replay the arrival animation: these open in place, so without this
+  // the page changes with no sign that anything happened.
+  body.style.animation = 'none'; void body.offsetWidth; body.style.animation = '';
   $('pg-title').textContent = (c && c.name) || 'Contact';
   $('pg-sub').textContent = 'Reading the record\u2026';
   const host = el('div');
@@ -3499,6 +3506,52 @@ async function openProfile(c) {
   }
 }
 
+/* Two records for Charles McDermott are two rows in the database, not two
+   people. Rather than showing both and leaving you to work out they are the
+   same man, they are folded into one: the fullest record wins, and anything
+   the others carry that it is missing is filled in from them. The duplicate
+   ids are kept so the card can say so. */
+function foldPeople(rows) {
+  const key = (c) => {
+    const m = String(c.email || '').toLowerCase().trim();
+    if (m) return 'm:' + m;
+    return 'n:' + String(c.name || '').toLowerCase().replace(/\s+/g, ' ').trim()
+      + '|' + String(c.company || '').toLowerCase().trim();
+  };
+  const filled = (c) => Object.keys(c).filter(k => {
+    const v = c[k];
+    return v !== null && v !== undefined && v !== '' &&
+      !(Array.isArray(v) && !v.length);
+  }).length;
+
+  const groups = new Map();
+  for (const c of rows) {
+    const k = key(c);
+    if (!k || k === 'n:|') { groups.set('x' + Math.random(), [c]); continue; }
+    (groups.get(k) || groups.set(k, []).get(k)).push(c);
+  }
+
+  const out = [];
+  for (const g of groups.values()) {
+    if (g.length === 1) { out.push(g[0]); continue; }
+    // The record with the most filled in leads; the rest top it up.
+    const sorted = g.slice().sort((x, y) => filled(y) - filled(x));
+    const main = Object.assign({}, sorted[0]);
+    for (const other of sorted.slice(1)) {
+      for (const k in other) {
+        const v = other[k];
+        const cur = main[k];
+        const emptyCur = cur === null || cur === undefined || cur === ''
+          || (Array.isArray(cur) && !cur.length);
+        if (emptyCur && v !== null && v !== undefined && v !== '') main[k] = v;
+      }
+    }
+    main._merged = sorted.map(c => c.id).filter(v => v !== undefined && v !== null);
+    out.push(main);
+  }
+  return out;
+}
+
 /** Ask, answered from Supabase alone. Renders into the given container. */
 async function answerLocally(host, question) {
   const words = searchTerms(question);
@@ -3646,7 +3699,8 @@ async function answerLocally(host, question) {
             + ilikeAny(['name', 'company', 'city', 'country', 'role'], t);
       }
       if (wantsKnown) sel += '&knows_us=in.(yes,vaguely)';
-      people = await readRows('contacts_app', sel, 'contacts.search', { q: t || '', filter: 'all' });
+      people = foldPeople(
+        await readRows('contacts_app', sel, 'contacts.search', { q: t || '', filter: 'all' }));
     } catch (e) {
       host.appendChild(el('div', { class: 'banner' }, el('b', null, 'Could not read. '), e.message));
       return;
@@ -3671,7 +3725,10 @@ async function answerLocally(host, question) {
                 ? fmtDate(p.last_contact_at || p.last_interaction) : 'never'],
             ['about      ', p.last_contact_summary || p.last_contact_note],
             ['next step  ', p.next_step],
-            ['knows us   ', p.knows_us]
+            ['knows us   ', p.knows_us],
+            ['records    ', (p._merged && p._merged.length > 1)
+                ? p._merged.length + ' duplicate records shown as one (#'
+                  + p._merged.join(', #') + ')' : null]
           ],
           actions: [
             { label: 'View profile', primary: true, run: () => openProfile(p) },

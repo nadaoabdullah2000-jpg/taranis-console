@@ -45,7 +45,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..700&family=Inter:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..700&family=Inter:wght@200;300;400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
 <style>
 /* ============================================================
@@ -112,6 +112,7 @@
   --rail:44px;
 
   --font-display:'GT Flexa Ext','Archivo',system-ui,sans-serif;
+  --font-stretch-display:118%;
   --font-body:'Aktiv Grotesk','Inter',system-ui,-apple-system,sans-serif;
   --font-data:'IBM Plex Mono',ui-monospace,monospace;
 }
@@ -132,6 +133,7 @@ html,body{height:100%}
 body{
   margin:0; background:var(--paper); color:var(--ink);
   font-family:var(--font-body);
+  font-weight:300;
   font-size:15px; font-weight:300; line-height:1.55;
   -webkit-font-smoothing:antialiased;
 }
@@ -225,9 +227,11 @@ main{
 /* The sticky header needs to stay opaque or the cubes scroll through it. */
 .head{background:var(--paper)}
 .head{padding:22px 28px 15px;border-bottom:2px solid var(--sky);position:sticky;top:0;background:var(--paper);z-index:5}
-.head h2{font-family:var(--font-display);font-stretch:125%;font-weight:600;letter-spacing:-.02em;font-size:29px;margin:0;line-height:1.05;color:var(--ink-2)}
+.head h2{font-family:var(--font-display);font-stretch:118%;font-weight:300;letter-spacing:.012em;font-size:33px;margin:0;line-height:1.1;color:var(--ink-2)}
 .head p{margin:5px 0 0;color:var(--ink-3);font-size:13.5px;max-width:64ch}
-.body{padding:20px 28px 48px;flex:1}
+.body{padding:20px 28px 48px;flex:1;animation:arrive .22s cubic-bezier(.22,.61,.36,1) both}
+@keyframes arrive{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.body{animation:none}}
 .toolbar{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
 .search{flex:1;min-width:200px;padding:9px 12px;border:1px solid var(--rule);border-radius:6px;background:var(--card)}
 
@@ -239,13 +243,14 @@ main{
 .dot.accent{background:var(--sky)} .dot.quiet{background:var(--quiet)}
 .rail-n{font-family:var(--font-data);font-size:10px;color:var(--ink-3);writing-mode:vertical-rl;letter-spacing:.06em}
 .entry-main{padding:14px 16px}
-.entry-act{font-size:15px;font-weight:600;margin:0 0 3px;line-height:1.35}
+.entry-act{font-family:var(--font-display);font-stretch:112%;font-size:16px;font-weight:400;letter-spacing:.004em;margin:0 0 3px;line-height:1.35}
 .entry-who{font-size:13px;color:var(--ink-2);margin:0 0 8px}
 .entry-who b{font-weight:600;color:var(--ink)}
 .ev{font-family:var(--font-data);font-size:12px;color:var(--ink-2);line-height:1.65;padding-left:14px;border-left:2px solid var(--rule);margin:0}
 .ev div{margin-bottom:1px}
 .ev .k{color:var(--ink-3)}
 .ev .gold{color:var(--signal);font-weight:700}
+.ev .k{font-weight:600;color:var(--ink-3)}
 .callout{display:flex;gap:10px;align-items:baseline;margin:9px 0 4px;padding:9px 13px;
   border:1px solid var(--rule);border-left-width:3px;border-radius:5px;background:var(--card)}
 .callout-k{font-family:var(--font-data);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
@@ -298,7 +303,7 @@ main{
 .sheet.on{display:grid}
 .sheet-in{background:var(--card);border-radius:10px;max-width:620px;width:100%;max-height:86vh;overflow-y:auto;box-shadow:0 24px 60px -12px rgba(0,0,0,.4)}
 .sheet-hd{padding:18px 22px 12px;border-bottom:1px solid var(--rule-2)}
-.sheet-hd h3{font-family:var(--font-display);font-stretch:125%;letter-spacing:-.005em;font-size:23px;margin:0}
+.sheet-hd h3{font-family:var(--font-display);font-stretch:118%;font-weight:300;letter-spacing:.012em;font-size:25px;margin:0}
 .sheet-bd{padding:18px 22px}
 .sheet-ft{padding:14px 22px 18px;display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--rule-2)}
 .ta{width:100%;padding:11px 12px;border:1px solid var(--rule);border-radius:6px;background:var(--paper);resize:vertical;min-height:150px;font-size:14px;line-height:1.6}
