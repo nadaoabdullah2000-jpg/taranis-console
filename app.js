@@ -533,7 +533,7 @@ const TABS = [
   { id: 'approvals',icon: '\u25C6', label: 'Approvals',    title: 'Approvals',
     sub: 'Opportunities the screen could not settle on its own. Approve, correct, or reject.' },
   { id: 'contacts', icon: '\u25A0', label: 'Contacts',     title: 'Contacts',
-    sub: 'The fundraising book. Who knows Taranis, when you last spoke, and what is owed.' },
+    sub: 'The fundraising book. Who knows Taranis, when you last emailed, and what is owed.' },
   { id: 'notes',    icon: '\u25A5', label: 'Notes',        title: 'Notes',
     sub: 'What was said, where, and with whom. Linked to the contact book when the person is in it.' },
   { id: 'email',    icon: '\u2709', label: 'Email',        title: 'Email',
@@ -609,7 +609,7 @@ function entry(o) {
   const ev = el('div', { class: 'ev' });
   for (const [k, v] of (o.evidence || [])) {
     if (v === null || v === undefined || v === '') continue;
-    const hot = /last spoke|email|starts|on\s/.test(k);
+    const hot = /last email|email|starts|on\s/.test(k);
     ev.appendChild(el('div', null,
       el('span', { class: 'k' }, k + '  '),
       hot ? el('span', { class: 'gold' }, String(v)) : document.createTextNode(String(v))));
@@ -940,7 +940,7 @@ RENDER.contacts = function (body) {
           action: c.name,
           who: [c.company, c.city, c.country].filter(Boolean).join(' · '),
           evidence: [
-            ['last spoke ', lastSpoken(c, q)],
+            ['last email ', lastSpoken(c, q)],
             ['email      ', c.email],
             ['about      ', c.last_contact_summary || c.last_contact_note],
             ['next step  ', c.next_step],
@@ -1248,7 +1248,7 @@ RENDER.email = function (body) {
           who: [c.country, c.company].filter(Boolean).join('  \u00B7  '),
           evidence: [
             ['country    ', c.country],
-            ['last spoke ', lastSpoken(c, dq)],
+            ['last email ', lastSpoken(c, dq)],
             ['about      ', c.last_contact_summary || c.last_contact_note],
             ['email      ', c.email]
           ],
@@ -1333,7 +1333,7 @@ RENDER.inbox = function (body) {
   }
 
   /* Rows arrive newest first, so the first sighting of a person is their
-     most recent exchange. That is what "last spoken" and the summary mean. */
+     most recent exchange. That is what "last email" and the summary mean. */
   function foldToPeople(rows, idx) {
     const seen = new Map();
     for (const m of rows) {
@@ -1407,7 +1407,7 @@ RENDER.inbox = function (body) {
             : 'Try a surname, a firm, or a subject line.'));
       }
 
-      /* ---- the two people lists: name, country, summary, last spoken ---- */
+      /* ---- the two people lists: name, country, summary, last email ---- */
       if (people) {
         for (const p of rows) {
           const q2 = daysSince(p.last);
@@ -1418,7 +1418,7 @@ RENDER.inbox = function (body) {
             who: [p.country, p.company].filter(Boolean).join('  \u00B7  '),
             evidence: [
               ['country    ', p.country || 'not on the record'],
-              ['last spoke ', lastSpoken(p, q2)],
+              ['last email ', lastSpoken(p, q2)],
               ['about      ', p.summary || p.subject],
               ['exchanges  ', p.n]
             ],
@@ -3033,7 +3033,7 @@ async function localDossier(host, person) {
     action: person.name,
     who: [person.role, person.company, person.city, person.country].filter(Boolean).join('  \u00B7  '),
     evidence: [
-      ['last spoke ', lastSpoken(person, q)],
+      ['last email ', lastSpoken(person, q)],
       ['email      ', person.email],
       ['about      ', person.last_contact_summary || person.last_contact_note],
       ['next step  ', person.next_step],
@@ -3496,7 +3496,7 @@ async function openProfile(c) {
   ].filter(Boolean));
 
   col2.append(...[
-    field('Last spoke', (c.last_contact_at || c.last_interaction)
+    field('Last email', (c.last_contact_at || c.last_interaction)
       ? fmtDate(c.last_contact_at || c.last_interaction) + (dq !== null ? '   (' + dq + ' days ago)' : '')
       : (String(c.email || '').trim() ? 'No email on record' : 'No email address on file'), true),
     field('Knows Taranis', c.knows_us),
@@ -3869,7 +3869,7 @@ async function answerLocally(host, question) {
           action: p.name,
           who: [p.role, p.company, p.city, p.country].filter(Boolean).join('  \u00B7  '),
           evidence: [
-            ['last spoke ', lastSpoken(p, null)],
+            ['last email ', lastSpoken(p, null)],
             ['about      ', p.last_contact_summary || p.last_contact_note],
             ['next step  ', p.next_step],
             ['knows us   ', p.knows_us],
@@ -4224,7 +4224,7 @@ function demoResponse(action) {
     'assistant.ask': { sources: ['contacts', 'crm_emails'], answer:
       'Three people in Geneva know us, and one of them is worth calling this morning.\n\n' +
       '\u25CF <b>Miles Kerstein</b> \u2014 Pictet Wealth Management\n' +
-      '     Last spoke 11 days ago. He asked for the track record net of fees and you have not\n' +
+      '     Last email 11 days ago. He asked for the track record net of fees and you have not\n' +
       '     sent it. July\u2019s TMS answers him directly.\n\n' +
       '\u25CF <b>Sophie Ravel</b> \u2014 Mirabaud\n' +
       '     Only knows us vaguely. Antoine\u2019s introduction went out in March and never landed.\n\n' +
