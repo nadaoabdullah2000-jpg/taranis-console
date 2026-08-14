@@ -1347,7 +1347,38 @@ RENDER.inbox = function (body) {
       for (const m of rows) {
         const outbound = String(m.direction || '').toLowerCase().indexOf('out') === 0
           || String(m.direction || '').toLowerCase() === 'sent';
-        out.appendChild(entry({
+        /* Why is this waiting on you? The stored fit_reason is often stale --
+         "Hard criteria failure" from before the rules changed. The honest
+         answer is in the three columns WI 01 actually writes: what it failed,
+         what was merely plausible, and what the alert never said. */
+      const jarr = (v) => {
+        let x = v;
+        for (let i = 0; i < 2 && typeof x === 'string'; i++) { try { x = JSON.parse(x); } catch (_) { x = []; } }
+        return Array.isArray(x) ? x.map(s => String(s).trim()).filter(Boolean) : [];
+      };
+      const fails   = jarr(m.hard_fail_reasons);
+      const soft    = jarr(m.soft_flags);
+      const missing = jarr(m.missing_hard_fields);
+      const q       = String(m.qualification || '').toLowerCase();
+
+      let verdict;
+      if (q === 'matched') {
+        verdict = { label: 'Matched', tone: 'good', text: 'Meets every criterion outright.' };
+      } else if (fails.length === 1) {
+        verdict = { label: 'Missed only on', tone: 'signal', text: fails[0] };
+      } else if (fails.length > 1) {
+        verdict = { label: 'Missed on ' + fails.length, tone: 'bad', text: fails.join('   \u00B7   ') };
+      } else if (soft.length) {
+        verdict = { label: 'Worth a look because', tone: 'signal', text: soft.join('   \u00B7   ') };
+      } else if (missing.length) {
+        verdict = { label: 'Never stated in the alert', tone: 'signal',
+          text: missing.join(', ').replace(/_/g, ' ') };
+      } else {
+        verdict = { label: 'Waiting on you', tone: 'signal',
+          text: asText(m.fit_reason) || 'No reason recorded \u2014 worth opening.' };
+      }
+
+      out.appendChild(entry({
           tone: m.side === 'internal' ? 'accent' : m.side === 'unknown' ? 'quiet' : 'good',
           rail: outbound ? 'sent' : 'in',
           action: m.subject || '(no subject)',
@@ -1394,13 +1425,15 @@ RENDER.opps = function (body) {
         rail: '#' + m.id,
         action: m.investor_name || m.organization_name || ('Mandate #' + m.id),
         who: [m.organization_name, m.investor_country, m.investor_city].filter(Boolean).join(' · '),
+        callout: verdict.text,
+        calloutLabel: verdict.label,
+        calloutTone: verdict.tone,
         evidence: [
           ['type      ', asText(m.investor_type)],
           ['strategy  ', asText(m.strategies)],
           ['ticket    ', money(m.ticket_min_usd)],
           ['score     ', m.fit_score],
-          ['reason    ', asText(m.fit_reason)],
-          ['not stated', asText(m.missing_hard_fields)],
+          ['not stated', missing.length ? missing.join(', ').replace(/_/g, ' ') : null],
           // If a mandate is empty in every column above, say so rather than
           // drawing a blank stripe with no explanation.
           ['note      ', (!m.investor_name && !m.organization_name && !m.fit_reason)
@@ -1858,12 +1891,16 @@ RENDER.rejected = function (body) {
         action: m.investor_name || m.organization_name || ('Mandate #' + m.id),
         who: [m.organization_name, asText(m.investor_country), asText(m.investor_type)]
           .filter(Boolean).join('  \u00B7  '),
-        callout: why.length === 1 ? why[0]
-          : why.length === 0 ? 'Rejected before any reason was recorded' : null,
-        calloutLabel: why.length === 1 ? 'Missed only on' : 'No reason recorded',
-        calloutTone: 'signal',
+        // Whatever it was turned away for, that is the line to read first --
+        // one reason or four. Amber where a single miss makes it worth
+        // reopening, red where it failed on several counts.
+        callout: why.length ? why.join('   \u00B7   ')
+          : 'Rejected before any reason was recorded',
+        calloutLabel: why.length === 0 ? 'No reason recorded'
+          : why.length === 1 ? 'Missed only on'
+          : 'Missed on ' + why.length,
+        calloutTone: why.length > 1 ? 'bad' : 'signal',
         evidence: [
-          ['turned away', why.length > 1 ? why.join('   \u00B7   ') : null],
           ['failures  ', missCount(why.length)],
           ['strategy  ', asText(m.strategies)],
           ['ticket    ', money(m.ticket_min_usd)]
