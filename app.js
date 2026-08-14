@@ -4281,6 +4281,74 @@ async function watchForUpdates() {
   setInterval(check, 5 * 60 * 1000);
 }
 
+/* ------------------------------------------------------------ installing
+
+   No link can install a web app -- that is the browser's decision, not the
+   page's. What a page CAN do is catch the moment Chrome decides the app is
+   installable and offer a proper button, so it is one tap rather than a hunt
+   through a menu. Safari gives pages no equivalent at all, so on an iPhone
+   the same button shows the two steps instead.
+   --------------------------------------------------------------------- */
+
+let installPrompt = null;
+
+function isStandalone() {
+  return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+      || window.navigator.standalone === true;
+}
+
+function isiOS() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent)
+      || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+function showInstallBar() {
+  if ($('installbar') || isStandalone()) return;
+  const bar = el('div', {
+    id: 'installbar',
+    style: 'position:fixed;left:12px;right:12px;bottom:12px;z-index:120;max-width:520px;margin:0 auto;'
+         + 'background:#0E1113;color:#DCE9EC;border:1px solid rgba(87,192,214,.3);border-radius:10px;'
+         + 'padding:13px 15px;display:flex;gap:12px;align-items:center;'
+         + 'box-shadow:0 14px 34px -14px rgba(0,0,0,.6)'
+  });
+  bar.appendChild(el('div', { style: 'flex:1;font-size:13.5px;line-height:1.45' },
+    el('b', { style: 'display:block;font-size:14px;margin-bottom:2px' }, 'Put Taranis on your home screen'),
+    installPrompt
+      ? 'Opens without a browser bar, like an app.'
+      : (isiOS()
+          ? 'Tap the Share button below, then "Add to Home Screen".'
+          : 'Open your browser menu and choose "Install app".')));
+
+  if (installPrompt) {
+    bar.appendChild(el('button', { class: 'btn btn-sm', style: 'flex:none', onclick: async () => {
+      const p = installPrompt; installPrompt = null;
+      bar.remove();
+      try { p.prompt(); await p.userChoice; } catch (_) {}
+    } }, 'Install'));
+  }
+  bar.appendChild(el('button', {
+    class: 'btn btn-sm btn-quiet',
+    style: 'flex:none;background:transparent;color:#8FB6C0;border-color:rgba(87,192,214,.3)',
+    onclick: () => { bar.remove(); try { localStorage.setItem('taranis.noinstall', '1'); } catch (_) {} }
+  }, 'Not now'));
+
+  document.body.appendChild(bar);
+}
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installPrompt = e;
+  if (!isStandalone()) setTimeout(showInstallBar, 1500);
+});
+
+// Safari never fires that event, so offer the instructions on a first visit.
+(function offerOniOS() {
+  if (!isiOS() || isStandalone()) return;
+  let dismissed = null;
+  try { dismissed = localStorage.getItem('taranis.noinstall'); } catch (_) {}
+  if (!dismissed) setTimeout(showInstallBar, 2500);
+})();
+
 watchForUpdates();
 
 (async function boot() {
