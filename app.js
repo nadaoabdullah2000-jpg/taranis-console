@@ -1807,26 +1807,42 @@ RENDER.rejected = function (body) {
     placeholder: 'Name, firm, country or reason\u2026' });
   find.addEventListener('input', () => { clearTimeout(find._t); find._t = setTimeout(paint, 250); });
 
+  /* Two kinds of filter, and conflating them was misleading. The first group
+     asks what a mandate was TURNED AWAY FOR -- those are the recorded
+     reasons. The second asks what the RECORD SAYS, regardless of why it was
+     rejected. A minimum ticket of 100k is not a rejection under the rules
+     (only a maximum below the floor is), so a mandate can appear under
+     "ticket below 500k" while honestly reading "missed only on asset class". */
   const CHIPS = [
-    ['all',       'Everything'],
-    ['one',       'Missed by one'],
-    ['none',      'No reason recorded'],
-    ['strategy',  'Strategy'],
-    ['asset',     'Asset class'],
-    ['type',      'Investor type'],
-    ['country',   'Outside GB/CH/US'],
-    ['ticket',    'Ticket below USD 500k'],   // by value, not by reason
-    ['emerging',  'No emerging managers'],
-    ['parse',     'Failed parse']
+    ['all',       'Everything',            'x'],
+    ['one',       'Missed by one',         'x'],
+    ['none',      'No reason recorded',    'x'],
+    ['strategy',  'Strategy',              'r'],
+    ['asset',     'Asset class',           'r'],
+    ['type',      'Investor type',         'r'],
+    ['country',   'Outside GB/CH/US',      'r'],
+    ['emerging',  'No emerging managers',  'r'],
+    ['parse',     'Failed parse',          'r'],
+    ['ticket',    'Ticket below USD 500k', 'd']
   ];
-  const chips = el('div', { class: 'chips' });
+  const DATA_ONLY = { ticket: 'A minimum ticket below USD 500,000 is not itself a rejection '
+    + '\u2014 only a maximum below the floor is. These were turned away for other reasons.' };
+
+  const chips = el('div');
   const btns = {};
-  for (const [k, lbl] of CHIPS) {
+  const groupLabel = (t) => el('p', { class: 'mono',
+    style: 'font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:10px 0 5px' }, t);
+
+  const rowX = el('div', { class: 'chips' });
+  const rowR = el('div', { class: 'chips' });
+  const rowD = el('div', { class: 'chips' });
+  for (const [k, lbl, grp] of CHIPS) {
     btns[k] = el('button', { class: 'chip', onclick: () => { tone = k; paintChips(); paint(); } }, lbl);
-    chips.appendChild(btns[k]);
+    (grp === 'r' ? rowR : grp === 'd' ? rowD : rowX).appendChild(btns[k]);
   }
+  chips.append(rowX, groupLabel('Turned away for'), rowR, groupLabel('Or by what the record says'), rowD);
   function paintChips() {
-    for (const [k, lbl] of CHIPS) {
+    for (const [k, lbl] of CHIPS) {   // the group is not needed here
       const b = btns[k];
       b.style.borderColor = (k === tone) ? 'var(--bad)' : '';
       b.style.color       = (k === tone) ? 'var(--bad)' : '';
@@ -1949,6 +1965,11 @@ RENDER.rejected = function (body) {
       return Number(y.id || 0) - Number(x.id || 0);
     });
 
+    if (DATA_ONLY[tone]) {
+      out.appendChild(el('div', { class: 'banner' },
+        el('b', null, 'This filter reads the record, not the reason. '), DATA_ONLY[tone]));
+    }
+
     if (!rows.length) {
       return out.appendChild(empty('Nothing here',
         tone === 'one'    ? 'No mandate was turned away on a single criterion.'
@@ -1977,7 +1998,8 @@ RENDER.rejected = function (body) {
         evidence: [
           ['failures  ', missCount(why.length)],
           ['strategy  ', asText(m.strategies)],
-          ['ticket    ', money(m.ticket_min_usd)]
+          ['ticket    ', money(m.ticket_min_usd)
+              + (tone === 'ticket' ? '   \u2014 below the floor, but not why it was turned away' : '')]
         ],
         tags: [['rejected', 'bad'],
                why.length === 0 ? ['no reason recorded', 'signal']

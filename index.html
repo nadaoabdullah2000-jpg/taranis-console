@@ -182,8 +182,15 @@ button,input,textarea,select{font:inherit;color:inherit}
 .field{display:block;margin-bottom:12px}
 .field span{display:block;font-size:12px;font-weight:600;margin-bottom:6px;color:var(--ink-2)}
 .field input{width:100%;padding:11px 12px;border:1px solid var(--rule);border-radius:6px;background:var(--card)}
-.btn{border:1px solid var(--ink);background:var(--ink);color:var(--paper);padding:10px 16px;border-radius:6px;font-weight:600;font-size:14px;cursor:pointer;transition:opacity .15s}
-.btn:hover{opacity:.85}
+.btn{border:1px solid var(--ink);background:var(--ink);color:var(--paper);padding:10px 16px;
+  border-radius:6px;font-weight:600;font-size:14px;cursor:pointer;
+  transition:opacity .15s, transform .09s cubic-bezier(.22,.61,.36,1), box-shadow .15s;
+  will-change:transform}
+.btn:hover{opacity:.86;transform:translateY(-1px);box-shadow:0 3px 10px -4px rgba(5,42,51,.45)}
+/* The press itself. Without this a click feels like nothing happened. */
+.btn:active{transform:translateY(1px) scale(.985);box-shadow:none;transition-duration:.04s}
+.btn:disabled{opacity:.5;transform:none;box-shadow:none;cursor:default}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .btn[disabled]{opacity:.4;cursor:not-allowed}
 .btn-quiet{background:transparent;color:var(--ink);border-color:var(--rule)}
 .btn-quiet:hover{background:var(--rule-2);opacity:1}
@@ -231,17 +238,37 @@ main{
 .head p{margin:5px 0 0;color:var(--ink-3);font-size:13.5px;max-width:64ch}
 .body{padding:20px 28px 48px;flex:1;animation:arrive .22s cubic-bezier(.22,.61,.36,1) both}
 @keyframes arrive{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){.body{animation:none}}
+@media (prefers-reduced-motion:reduce){.body{animation:none}
+  .btn,.chip{transition:none}.btn:hover,.chip:hover{transform:none}}
 .toolbar{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
 .search{flex:1;min-width:200px;padding:9px 12px;border:1px solid var(--rule);border-radius:6px;background:var(--card)}
 
 /* ---------- Entry: action first, evidence indented in mono ---------- */
 .entry{background:var(--card);position:relative;z-index:1;border:1px solid var(--rule);border-radius:8px;margin-bottom:10px;display:grid;grid-template-columns:var(--rail) 1fr;overflow:hidden;box-shadow:var(--shadow)}
-.entry-rail{border-right:1px solid var(--rule-2);display:flex;flex-direction:column;align-items:center;padding:14px 0 10px;gap:7px;background:var(--rule-2)}
+/* The rail is the one piece of chrome on every card, so it carries the
+   lattice from the cover rather than being a flat grey strip. Sized large
+   and cropped, so each card shows a different part of it. */
+/* The rail is the one piece of chrome on every card, so it carries the
+   cover artwork: the brand lattice on the sidebar black, cropped so each
+   card shows a different part of it. The pattern was drawn as cyan lines
+   for a dark ground, so it gets the dark ground rather than being washed
+   out over a pale one. */
+.entry-rail{border-right:1px solid rgba(87,192,214,.22);display:flex;flex-direction:column;
+  align-items:center;padding:14px 0 10px;gap:7px;position:relative;overflow:hidden;
+  background:#0E1113 url('./brand-pattern.svg') center center / 240px auto no-repeat}
+.entry-rail>*{position:relative;z-index:1}
+/* A tint over the artwork so the card's state still reads at a glance. */
+.entry.bad .entry-rail{box-shadow:inset 3px 0 0 var(--bad)}
+.entry.good .entry-rail{box-shadow:inset 3px 0 0 var(--good)}
+.entry.signal .entry-rail{box-shadow:inset 3px 0 0 var(--signal)}
+.entry.accent .entry-rail{box-shadow:inset 3px 0 0 var(--sky)}
+.entry.quiet .entry-rail{box-shadow:inset 3px 0 0 var(--quiet)}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--ink-3);flex:none}
 .dot.good{background:var(--good)} .dot.signal{background:var(--signal)} .dot.bad{background:var(--bad)}
 .dot.accent{background:var(--sky)} .dot.quiet{background:var(--quiet)}
-.rail-n{font-family:var(--font-data);font-size:10px;color:var(--ink-3);writing-mode:vertical-rl;letter-spacing:.06em}
+.rail-n{font-family:var(--font-data);font-size:10px;color:#8FB6C0;writing-mode:vertical-rl;letter-spacing:.06em}
+/* The dot sits on black now, so it needs a ring to stay visible. */
+.entry-rail .dot{box-shadow:0 0 0 3px rgba(14,17,19,.9)}
 .entry-main{padding:14px 16px}
 .entry-act{font-family:var(--font-display);font-stretch:112%;font-size:16px;font-weight:400;letter-spacing:.004em;margin:0 0 3px;line-height:1.35}
 .entry-who{font-size:13px;color:var(--ink-2);margin:0 0 8px}
@@ -298,8 +325,11 @@ main{
 #ask-row{display:flex;gap:8px;align-items:flex-end;max-width:900px}
 #ask-in{flex:1;padding:11px 13px;border:1px solid var(--rule);border-radius:8px;background:var(--card);resize:none;max-height:150px;font-size:14.5px}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:9px;max-width:900px}
-.chip{border:1px solid var(--rule);background:var(--card);border-radius:14px;padding:4px 11px;font-size:12.5px;cursor:pointer;color:var(--ink-2)}
-.chip:hover{border-color:var(--accent);color:var(--accent)}
+.chip{border:1px solid var(--rule);background:var(--card);border-radius:14px;padding:4px 11px;
+  font-size:12.5px;cursor:pointer;color:var(--ink-2);
+  transition:border-color .15s, color .15s, transform .09s cubic-bezier(.22,.61,.36,1)}
+.chip:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-1px)}
+.chip:active{transform:translateY(0) scale(.97);transition-duration:.04s}
 .typing{display:inline-flex;gap:3px}
 .typing i{width:5px;height:5px;border-radius:50%;background:var(--ink-3);animation:bl 1.2s infinite}
 .typing i:nth-child(2){animation-delay:.2s} .typing i:nth-child(3){animation-delay:.4s}
