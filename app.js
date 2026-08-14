@@ -821,11 +821,17 @@ RENDER.approvals = function (body) {
           ['reason  ', asText(r.fit_reason)]
         ],
         tags: [['pending', 'signal']],
+        // These went through the gateway to wi.review.approve, an action the
+        // gateway has no route for -- so the one screen named for making
+        // decisions was the only one where a decision did nothing. Same
+        // write as Opportunities and Rejected: straight to Supabase.
         actions: [
           { label: 'View the mandate', run: () => openMandate(r) },
-          { label: 'Approve', primary: true, run: () => act('wi.review.approve', { review_id: r.review_id }, 'Approved') },
-          { label: 'Correct a field', run: () => editSheet(r) },
-          { label: 'Reject', run: () => act('wi.review.reject', { review_id: r.review_id }, 'Rejected') }
+          { label: 'Approve', primary: true,
+            run: () => setQualification(r, 'matched', 'Approved.', () => go('approvals')) },
+          { label: 'Fill the gaps', run: () => fillSheet(r) },
+          { label: 'Reject',
+            run: () => setQualification(r, 'rejected', 'Rejected.', () => go('approvals')) }
         ]
       }));
     }
@@ -1762,7 +1768,8 @@ async function setQualification(m, to, said, after) {
   const ask = to === 'rejected'
     ? 'Reject this mandate? It moves to the Rejected list and you can still change your mind.'
     : to === 'matched'
-      ? 'Mark this as matched? It moves to Opportunities and stops asking for a decision.'
+      ? 'Approve this mandate? It is marked matched, leaves your approvals queue, '
+        + 'and stops asking for a decision.'
       : 'Move this back to Opportunities for a decision?';
   if (!confirm(ask)) return;
   try {
