@@ -215,6 +215,21 @@ async function supaSelect(table, query) {
   return await res.json();
 }
 
+/** Remove rows matching a filter. Used only where the app offers a delete. */
+async function supaDelete(table, filter) {
+  if (!CFG.supabaseUrl || !session || !session.token) throw new Error('NO_SUPABASE');
+  await ensureToken();
+  const res = await fetch(CFG.supabaseUrl + '/rest/v1/' + table + '?' + filter, {
+    method: 'DELETE',
+    headers: {
+      apikey: CFG.supabaseAnonKey,
+      Authorization: 'Bearer ' + session.token,
+      Prefer: 'return=minimal'
+    }
+  });
+  if (!res.ok) throw new Error(await supaWhy(res, 'deleting from ' + table));
+}
+
 /** Update rows matching a filter. Used to retire the previous current version. */
 async function supaPatch(table, filter, patch) {
   if (!CFG.supabaseUrl || !session || !session.token) throw new Error('NO_SUPABASE');
@@ -443,6 +458,8 @@ const TABS = [
     sub: 'The Friday dashboard, read from the stored snapshot rather than a Telegram attachment.' },
   { id: 'network',  icon: '\u25CB', label: 'Network',      title: 'LinkedIn network',
     sub: 'First-degree connections, separate from the contact book.' },
+  { id: 'search',   icon: '\u2315', label: 'Search',       title: 'Search everything',
+    sub: 'One box across people, email, notes, documents and mandates.' },
   { id: 'ask',      icon: '\u25C7', label: 'Ask',          title: 'Ask',
     sub: 'Anything you used to type into the bot. It queries before it answers.' }
 ];
@@ -751,6 +768,34 @@ RENDER.contacts = function (body) {
   // The book is 400+ people. A fixed 60 silently hid most of it with no
   // sign anything was missing. Page instead: complete, but fast to paint.
   let shown = 120;
+
+  /* CRM 04 harvests addresses out of the mailbox and the spreadsheet import
+     ran separately, so the same person is in the book twice in places. This
+     does not merge anything -- merging would have to move email, notes and
+     meetings across, and getting that wrong loses history. It marks them, so
+     you can see both and decide. */
+  function markDuplicates(rows) {
+    const byMail = {}, byName = {};
+    for (const c of rows) {
+      const m = String(c.email || '').toLowerCase().trim();
+      const n = (String(c.name || '').toLowerCase().trim() + '|'
+               + String(c.company || '').toLowerCase().trim());
+      if (m) (byMail[m] = byMail[m] || []).push(c);
+      if (n !== '|') (byName[n] = byName[n] || []).push(c);
+    }
+    for (const c of rows) {
+      const m = String(c.email || '').toLowerCase().trim();
+      const n = (String(c.name || '').toLowerCase().trim() + '|'
+               + String(c.company || '').toLowerCase().trim());
+      const twins = new Set();
+      for (const g of [byMail[m], byName[n]]) {
+        if (!g || g.length < 2) continue;
+        for (const other of g) if (other !== c) twins.add(other);
+      }
+      c._dupes = Array.from(twins);
+    }
+    return rows;
+  }
   input.addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
 
   function run(keepCount) {
@@ -775,6 +820,7 @@ RENDER.contacts = function (body) {
       if (filter === 'clients') sel += '&side=eq.external';
       return readRows('contacts_app', sel, 'contacts.search', { q, filter });
     }, (rows) => {
+      markDuplicates(rows);
       if (!rows.length) return out.appendChild(empty('No one matches', 'Try a surname, or the firm on its own.'));
       for (const c of rows) {
         const q = (c.days_quiet !== null && c.days_quiet !== undefined)
@@ -792,6 +838,12 @@ RENDER.contacts = function (body) {
             ['about      ', c.last_contact_summary || c.last_contact_note],
             ['next step  ', c.next_step],
             ['ticket     ', c.aum_band],
+            ['duplicate  ', (c._dupes && c._dupes.length)
+                ? 'Also in the book as #' + c._dupes.map(d => d.id).join(', #')
+                  + ' \u2014 same ' + (c._dupes.some(d =>
+                      String(d.email || '').toLowerCase() === String(c.email || '').toLowerCase() && c.email)
+                    ? 'email address' : 'name and firm')
+                : null],
             ['region     ', c.region],
             ['terms      ', c.introducer_terms],
             ['intel      ', c.intelligence_text || c.raw_notes]
@@ -802,7 +854,8 @@ RENDER.contacts = function (body) {
               : 'not approached',
              c.knows_us === 'yes' ? 'good' : c.knows_us === 'vaguely' ? 'signal' : 'quiet'],
             c.side === 'taranis' ? ['taranis', 'accent'] : null,
-            c.category ? [c.category, ''] : null
+            c.category ? [c.category, ''] : null,
+            (c._dupes && c._dupes.length) ? ['possible duplicate', 'signal'] : null
           ].filter(Boolean),
           actions: [
             { label: 'View profile', primary: true, run: () => openProfile(c) },
@@ -1536,7 +1589,7 @@ RENDER.notes = function (body) {
       }
       for (const n of rows) {
         out.appendChild(entry({
-          tone: n.in_contact_book ? 'good' : '',
+          tone: n.done_at ? 'quiet' : (n.in_contact_book ? 'good' : ''),
           rail: n.note_date ? n.note_date.slice(5).replace('-', '/') : '',
           action: n.title || 'Untitled note',
           who: [n.contact_name, n.contact_company, n.place].filter(Boolean).join('  \u00B7  '),
@@ -1549,13 +1602,30 @@ RENDER.notes = function (body) {
             ['note   ', n.body],
             ['by     ', n.author]
           ],
-          tags: [n.in_contact_book ? ['in the book', 'good'] : ['not linked', 'quiet']],
-          actions: n.contact_name ? [
-            { label: 'View profile', primary: true,
-              run: () => openProfile({ name: n.contact_name, email: n.contact_email, id: n.contact_id }) },
-            { label: 'History', run: () => askAbout('What did we send ' + n.contact_name
-                + ' and when did we last speak?') }
-          ] : []
+          tags: [n.in_contact_book ? ['in the book', 'good'] : ['not linked', 'quiet'],
+                 n.done_at ? ['dealt with', 'quiet'] : null].filter(Boolean),
+          actions: [
+            n.contact_name ? { label: 'View profile', primary: true,
+              run: () => openProfile({ name: n.contact_name, email: n.contact_email, id: n.contact_id }) } : null,
+            { label: 'Edit', run: () => editNoteSheet(n, run) },
+            n.done_at
+              ? { label: 'Reopen', run: async () => {
+                  try { await supaPatch('notes', 'id=eq.' + encodeURIComponent(n.id), { done_at: null }); run(); }
+                  catch (e) { toast(e.message, true); } } }
+              : { label: 'Mark as dealt with', run: async () => {
+                  try {
+                    await supaPatch('notes', 'id=eq.' + encodeURIComponent(n.id),
+                      { done_at: new Date().toISOString() });
+                    toast('Marked as dealt with.'); run();
+                  } catch (e) { toast(e.message, true); } } },
+            { label: 'Delete', run: async () => {
+                if (!confirm('Delete this note? It cannot be undone.')) return;
+                try {
+                  await supaDelete('notes', 'id=eq.' + encodeURIComponent(n.id));
+                  toast('Deleted.'); run();
+                } catch (e) { toast(e.message, true); }
+              } }
+          ].filter(Boolean)
         }));
       }
     });
@@ -2408,6 +2478,40 @@ RENDER.network = function (body) {
 
 /* ------------------------------------------------------------------- ask */
 
+RENDER.search = function (body) {
+  clear(body);
+
+  /* The same engine Ask uses in its local mode, exposed as a plain search box.
+     Ask is for questions; this is for "where is that thing". Same reads, no
+     model, so it works whatever n8n is doing. */
+
+  const q = el('input', { class: 'search', type: 'search',
+    placeholder: 'A name, a firm, a subject line, a document\u2026' });
+  const out = el('div');
+  body.append(el('div', { class: 'toolbar' }, q,
+    el('button', { class: 'btn btn-sm', onclick: () => run() }, 'Search')), out);
+  q.addEventListener('keydown', (e) => { if (e.key === 'Enter') run(); });
+
+  async function run() {
+    const term = q.value.trim();
+    clear(out);
+    if (!term) return;
+    out.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Looking\u2026'));
+    const host = el('div');
+    try {
+      await answerLocally(host, term);
+    } catch (e) {
+      clear(host);
+      host.appendChild(el('div', { class: 'banner' }, el('b', null, 'Could not search. '), e.message));
+    }
+    clear(out);
+    out.appendChild(host);
+  }
+
+  if (PENDING.q) { const v = PENDING.q; PENDING.q = null; PENDING.qmode = null; q.value = v; run(); }
+  setTimeout(() => q.focus(), 60);
+};
+
 RENDER.ask = function (body) {
   const host = body.parentElement;
   host.style.padding = '0';
@@ -2933,6 +3037,57 @@ let PROFILE_BACK = null;
 /* Adding somebody to the book, from wherever you happen to be. The Email tab
    has its own inline version for when you are about to write to them; this is
    the same write, in a panel, for when you simply want them recorded. */
+/* Correcting a note. Same gap Contacts had: you could write one and read it
+   back, and nothing else. A note you cannot fix is a note you stop trusting. */
+function editNoteSheet(n, after) {
+  const F = {};
+  const mk = (k, label, node) => { F[k] = node;
+    return el('label', { class: 'field' }, el('span', null, label), node); };
+  const txt = (v) => el('input', { class: 'search', value: v == null ? '' : String(v) });
+
+  const form = el('div', { style: 'min-width:min(680px,72vw)' },
+    el('div', { class: 'grid2' },
+      mk('title', 'Title', txt(n.title)),
+      mk('note_date', 'Date', (() => {
+        const d = el('input', { class: 'search', type: 'date' });
+        d.value = n.note_date ? String(n.note_date).slice(0, 10) : '';
+        return d;
+      })())),
+    mk('place', 'Place', txt(n.place)),
+    mk('body', 'The note', (() => {
+      const t = el('textarea', { class: 'ta', style: 'min-height:160px' });
+      t.value = n.body || '';
+      return t;
+    })()),
+    el('div', { class: 'grid2' },
+      mk('contact_name', 'Who it was with', txt(n.contact_name)),
+      mk('contact_company', 'Company', txt(n.contact_company))));
+
+  const save = el('button', { class: 'btn btn-sm' }, 'Save the changes');
+  save.addEventListener('click', async () => {
+    const patch = {};
+    for (const k in F) {
+      const v = String(F[k].value == null ? '' : F[k].value).trim();
+      patch[k] = v === '' ? null : v;
+    }
+    if (!patch.title && !patch.body) return toast('A note needs a title or something in it.', true);
+    save.disabled = true; save.textContent = 'Saving\u2026';
+    try {
+      await supaPatch('notes', 'id=eq.' + encodeURIComponent(n.id), patch);
+      toast('Saved.');
+      closeSheet();
+      if (typeof after === 'function') after();
+    } catch (e) {
+      toast(e.message, true);
+      save.disabled = false; save.textContent = 'Save the changes';
+    }
+  });
+
+  sheet('Edit the note', [form], [
+    save, el('button', { class: 'btn btn-sm btn-quiet', onclick: closeSheet }, 'Cancel')
+  ]);
+}
+
 function addContactSheet(after) {
   const F = {};
   const mk = (key, label, node) => { F[key] = node;
@@ -3176,29 +3331,37 @@ async function openProfile(c) {
 
   const [mail, notes] = await Promise.all([
     (async () => {
-      /* Somebody who was only ever CC'd is not the counterparty on the
-         thread, so searching counterparty_addr misses them entirely --
-         which is exactly what happened to everyone added from a CC list.
-         Both readings are collected and merged: the shaped view for the
-         summary and the side, and the raw table for every message their
-         address appears on at all, in From, To or CC. */
+      /* Only email we can PROVE belongs to this person.
+
+         Two proofs are accepted: the message is linked to their contact id,
+         or their address appears in From, To or CC. Nothing else.
+
+         There used to be a third route -- matching on the counterparty name
+         -- for people with no address on file. It was too loose: a contact
+         with no email ended up showing twenty-five unrelated messages,
+         while the header said zero exchanges. A profile that shows somebody
+         else's correspondence is worse than one that shows none. */
       const out = new Map();
+      const hasId = c.id !== undefined && c.id !== null && /^\d+$/.test(String(c.id));
 
-      try {
-        let sel = 'select=*&order=received_at.desc&limit=25';
-        sel += addr
-          ? '&or=(counterparty_addr.eq.' + encodeURIComponent(addr) + ',counterparty_name.ilike.' + nameLike + ')'
-          : '&counterparty_name.ilike.' + nameLike;
-        for (const m of await readRows('crm_emails_app', sel, 'emails.search', { q: c.name, side: 'all' })) {
-          out.set(String(m.id), m);
-        }
-      } catch (_) { /* fall through to the raw table */ }
+      if (!hasId && !addr) return [];
 
+      // The shaped view, for the summary, intent and side.
       try {
         const ors = [];
-        if (c.id !== undefined && c.id !== null && /^\d+$/.test(String(c.id))) {
-          ors.push('contact_id.eq.' + c.id);
+        if (addr) ors.push('counterparty_addr.eq.' + encodeURIComponent(addr));
+        if (hasId) ors.push('contact_id.eq.' + c.id);
+        if (ors.length) {
+          const rows = await supaSelect('crm_emails_app',
+            'select=*&order=received_at.desc&limit=25&or=(' + ors.join(',') + ')');
+          for (const m of rows) out.set(String(m.id), m);
         }
+      } catch (_) { /* the raw table below still covers it */ }
+
+      // The raw table, which catches anyone who was only ever CC'd.
+      try {
+        const ors = [];
+        if (hasId) ors.push('contact_id.eq.' + c.id);
         if (addr) {
           const t = lk(addr);
           ors.push('from_addr.ilike.' + t, 'to_addr.ilike.' + t, 'cc_addr.ilike.' + t);
@@ -3209,7 +3372,7 @@ async function openProfile(c) {
             + '&or=(' + ors.join(',') + ')&order=received_at.desc&limit=40');
           for (const m of rows) if (!out.has(String(m.id))) out.set(String(m.id), m);
         }
-      } catch (_) { /* the shaped rows still show */ }
+      } catch (_) {}
 
       return Array.from(out.values())
         .sort((x, y) => String(y.received_at || '').localeCompare(String(x.received_at || '')));
@@ -3238,6 +3401,11 @@ async function openProfile(c) {
   host.appendChild(head(mail.length
     ? (mail.length >= 25 ? '25+ emails' : mail.length + (mail.length === 1 ? ' email' : ' emails'))
     : 'No email on record'));
+  if (!mail.length && !String(c.email || '').trim()) {
+    host.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px;margin:0' },
+      'This record has no email address, so their correspondence cannot be matched to them. '
+      + 'Add one with Edit and any email either way will appear here.'));
+  }
   const clean = (v) => String(v || '').replace(/["<>]/g, '').replace(/\s+/g, ' ').trim();
   const onIt = (m) => {
     // Say plainly how this person was on the message, because "1 as CC" in

@@ -262,7 +262,7 @@ main{
 
 /* ---------- Ask (chat) ---------- */
 #ask-wrap{display:flex;flex-direction:column;height:100%}
-#ask-log{flex:1;overflow-y:auto;padding:20px 28px}
+#ask-log{flex:1;overflow-y:auto;padding:20px 28px 34px}
 .msg{max-width:78ch;margin-bottom:18px}
 .msg .from{font-family:var(--font-data);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:5px}
 .msg.me{margin-left:auto}
@@ -271,7 +271,7 @@ main{
 .bub b{font-weight:600}
 .bub a{color:var(--accent)}
 .srcs{margin-top:9px;padding-top:8px;border-top:1px solid var(--rule-2);font-family:var(--font-data);font-size:11px;color:var(--ink-3)}
-#ask-bar{border-top:1px solid var(--rule);padding:12px 28px 18px;background:var(--paper);position:sticky;bottom:0}
+#ask-bar{border-top:1px solid var(--rule);padding:12px 28px 18px;background:var(--paper);position:sticky;bottom:0;z-index:5;box-shadow:0 -10px 18px -12px rgba(0,0,0,.35)}
 #ask-row{display:flex;gap:8px;align-items:flex-end;max-width:900px}
 #ask-in{flex:1;padding:11px 13px;border:1px solid var(--rule);border-radius:8px;background:var(--card);resize:none;max-height:150px;font-size:14.5px}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:9px;max-width:900px}
