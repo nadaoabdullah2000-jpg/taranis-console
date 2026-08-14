@@ -88,11 +88,32 @@ function money(v) {
   return 'USD ' + grouped + (short ? '   (' + short + ')' : '');
 }
 
-/* Alert text arrives with UTF-8 read as Latin-1 in places, so an apostrophe
-   turns up as a smear of characters. Repair it on the way to the screen
-   rather than leaving "founder's" as "founderaEURTMs". */
-function deMojibake(s) {
-  return String(s)
+/* Everything that reaches the screen goes through here.
+
+   Three separate messes arrive from the With Intelligence alerts and the
+   email bodies, and all three used to be printed exactly as stored:
+
+     1. HTML entities. "$1m.&nbsp;" is a non-breaking space that was never
+        decoded, and &amp; &quot; &#39; arrive the same way.
+     2. Mojibake. UTF-8 read as Latin-1 turns an apostrophe into a smear.
+     3. Machine tokens. The extractor snake_cases whole phrases, so a
+        strategy reads "ticket_sizes_for_smas_start_at_$1m" rather than as
+        English. Underscores are unpicked only where the value is clearly a
+        token -- never in an address or a URL, which legitimately contain them.
+*/
+const ENTITIES = {
+  nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: '\u2019',
+  rsquo: '\u2019', lsquo: '\u2018', ldquo: '\u201C', rdquo: '\u201D',
+  ndash: '\u2013', mdash: '\u2014', hellip: '\u2026', middot: '\u00B7',
+  eacute: '\u00E9', egrave: '\u00E8', agrave: '\u00E0', ccedil: '\u00E7',
+  euro: '\u20AC', pound: '\u00A3', deg: '\u00B0', trade: '\u2122', copy: '\u00A9'
+};
+
+function cleanText(s) {
+  let t = String(s);
+
+  // 1. mojibake
+  t = t
     .replace(/\u00E2\u20AC\u2122/g, '\u2019')
     .replace(/\u00E2\u20AC\u009C/g, '\u201C')
     .replace(/\u00E2\u20AC\u009D/g, '\u201D')
@@ -101,21 +122,58 @@ function deMojibake(s) {
     .replace(/\u00E2\u0080\u0099/g, '\u2019')
     .replace(/\u00C3\u00A9/g, '\u00E9')
     .replace(/\u00C2\u00A0/g, ' ');
+
+  // 2. entities, named and numeric
+  t = t.replace(/&([a-zA-Z]+);/g, (m, name) => {
+    const k = name.toLowerCase();
+    return Object.prototype.hasOwnProperty.call(ENTITIES, k) ? ENTITIES[k] : m;
+  });
+  t = t.replace(/&#(\d+);/g, (m, n) => {
+    const c = Number(n);
+    return (c > 0 && c < 1114112) ? String.fromCodePoint(c) : m;
+  });
+  t = t.replace(/&#x([0-9a-fA-F]+);/g, (m, n) => {
+    const c = parseInt(n, 16);
+    return (c > 0 && c < 1114112) ? String.fromCodePoint(c) : m;
+  });
+
+  // 3. any tag that survived the extraction
+  t = t.replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]{1,80}>/g, '');
+
+  // Tidy the whitespace BEFORE deciding whether this is a single token.
+  // A decoded &nbsp; on the end used to leave a trailing space, and the
+  // token test then refused to unpick the underscores.
+  t = t.replace(/[ \t\u00A0]+/g, ' ').trim();
+
+  // 4. machine tokens, but never addresses or links
+  if (!/\s/.test(t) && t.indexOf('_') > -1
+      && !/@/.test(t) && !/^https?:/i.test(t) && !/\//.test(t)) {
+    t = t.replace(/_/g, ' ');
+  }
+
+  return t;
 }
+
+/** Kept for the older call sites. */
+function deMojibake(s) { return cleanText(s); }
 
 function asText(v) {
   if (v === null || v === undefined || v === '') return '';
   if (Array.isArray(v)) {
-    return deMojibake(v.map(x => (x && typeof x === 'object')
+    // Each element is cleaned on its own. Joining first would put spaces in
+    // the string and the machine-token rule would never fire.
+    return v.map(x => cleanText((x && typeof x === 'object')
       ? (x.name || x.label || x.value || JSON.stringify(x))
-      : String(x)).filter(Boolean).join(', '));
+      : String(x))).filter(Boolean).join(', ');
   }
   if (typeof v === 'object') {
     const parts = [];
-    for (const k in v) if (v[k] !== null && v[k] !== '') parts.push(k + ': ' + v[k]);
-    return deMojibake(parts.join(', '));
+    for (const k in v) if (v[k] !== null && v[k] !== '') {
+      parts.push(cleanText(k) + ': ' + cleanText(v[k]));
+    }
+    return parts.join(', ');
   }
-  return deMojibake(v);
+  return cleanText(v);
 }
 
 function fmtDate(v) {
@@ -3082,6 +3140,14 @@ async function openMandate(m) {
     'investor_type','strategies','ticket_min_usd','fit_score','fit_reason','qualification',
     'missing_hard_fields','hard_fail_reasons','published_at','linkedin_url',
     'view_article_url','view_intention_url','view_investor_url'];
+
+  /* Plumbing, not intelligence. These identify the row and the email it came
+     out of, which matters when tracing a parsing problem and never when
+     reading a mandate. Timestamps go too: the alert date is the date that
+     means something, not when a workflow happened to write the row. */
+  const HIDE = ['record_key','raw_email_id','source_message_id','block_index',
+    'source_email_date','created_at','updated_at','field_sources','soft_flags',
+    'hard_notes','content_hash','embedding'];
   const prov = fillProvenance(full);
   if (prov.length) {
     host.appendChild(el('p', { class: 'mono',
@@ -3094,7 +3160,7 @@ async function openMandate(m) {
   }
 
   const rest = Object.keys(full).filter(k =>
-    shown.indexOf(k) < 0 && k !== 'field_sources' && asText(full[k]));
+    shown.indexOf(k) < 0 && HIDE.indexOf(k) < 0 && asText(full[k]));
   if (rest.length) {
     host.appendChild(el('p', { class: 'mono rec-head' }, 'Everything else on the record'));
     const ev = el('div', { class: 'ev rec' });
