@@ -1,6 +1,6 @@
 --- app.js.orig	2026-08-19 12:45:33.416014326 +0000
-+++ app.js	2026-08-19 14:00:57.575947053 +0000
-@@ -39,7 +39,9 @@
++++ app.js	2026-08-19 14:44:01.157564478 +0000
+@@ -39,7 +39,17 @@
  let DEMO = false;                 // sample-data mode
  let session = null;               // { email, token }
  let pollTimer = null;
@@ -8,10 +8,37 @@
 +const counts = { today: 0, approvals: 0, intake: 0, hfn: 0 };
 +// Survives a re-render, so filling a gap does not lose your place.
 +let intakeView = 'all';
++// Which folder of WI reports you are standing in. Editing or deleting a
++// report re-renders the tab, and landing back in the other folder each time
++// would be its own small annoyance.
++let hfnFolder = 'hedge_fund';
++const HFN_FOLDERS = [
++  ['hedge_fund',    'Hedge fund newsletters', 'hedge-fund'],
++  ['family_office', 'Family office reports',  'family-office']
++];
  const PENDING = { q: null, qmode: null, draft: null, meet: null };   // a question handed from one tab to another
  
  /* ------------------------------------------------------------- DOM utils */
-@@ -530,6 +532,8 @@
+@@ -372,6 +382,18 @@
+   }
+ }
+ 
++/** Remove a stored object. Storage policy allows this only under the
++    newsletters/ prefix, so a deck that has gone out to investors still
++    cannot be deleted from the browser. */
++async function deleteFromStorage(path) {
++  await ensureToken();
++  const res = await fetch(CFG.supabaseUrl + '/storage/v1/object/documents/' + encodeURI(path), {
++    method: 'DELETE',
++    headers: { apikey: CFG.supabaseAnonKey, Authorization: 'Bearer ' + session.token }
++  });
++  if (!res.ok) throw new Error('Storage refused the delete (' + res.status + ')');
++}
++
+ /** Upload a file to Supabase Storage. Returns the stored path. */
+ async function uploadToStorage(file, path, onProgress, replace) {
+   await ensureToken();
+@@ -530,6 +552,8 @@
  const TABS = [
    { id: 'today',    icon: '\u25CF', label: 'Today',        title: 'Today',
      sub: 'What arrived while you were away, and what is waiting on you.' },
@@ -20,16 +47,16 @@
    { id: 'approvals',icon: '\u25C6', label: 'Approvals',    title: 'Approvals',
      sub: 'Opportunities the screen could not settle on its own. Approve, correct, or reject.' },
    { id: 'contacts', icon: '\u25A0', label: 'Contacts',     title: 'Contacts',
-@@ -548,6 +552,8 @@
+@@ -548,6 +572,8 @@
      sub: 'Scheduled, waiting on approval, or cancelled. The join link and passcode live here.' },
    { id: 'docs',     icon: '\u25AC', label: 'Documents',    title: 'Documents',
      sub: 'Upload a deck or report, and it is versioned, stored and announced to the team.' },
-+  { id: 'hfn',      icon: '\u25A4', label: 'Newsletters',  title: 'Hedge fund newsletters',
-+    sub: 'Industry reports, each with a summary written beside it so you need not open the PDF.' },
++  { id: 'hfn',      icon: '\u25A4', label: 'WI reports',   title: 'With Intelligence reports',
++    sub: 'Filed by folder, each with a summary written beside it so you need not open the PDF.' },
    { id: 'reports',  icon: '\u25F0', label: 'Reports',      title: 'Weekly report',
      sub: 'The Friday dashboard, read from the stored snapshot rather than a Telegram attachment.' },
    { id: 'network',  icon: '\u25CB', label: 'Network',      title: 'LinkedIn network',
-@@ -806,6 +812,287 @@
+@@ -806,6 +832,308 @@
    });
  };
  
@@ -51,9 +78,9 @@
 +   An email with nothing under it is the interesting row: WI 01 stored the
 +   message but the splitter found no 'Asset class:' line in it. That is what a
 +   forward stripped to plain text looks like, and what a changed WI template
-+   will look like. It is what the nav badge counts, for that reason, and it
-+   stays visible under every verdict filter - a message that produced nothing
-+   is a fault, not a verdict, so no verdict should hide it. */
++   will look like. A message that produced nothing is a fault rather than a
++   verdict, so it has a chip of its own - "Nothing read" - instead of being
++   carried into every verdict filter, where it only made those lists wrong. */
 +RENDER.intake = function (body) {
 +  clear(body);
 +
@@ -65,7 +92,8 @@
 +    ['matched',    'Accepted',     'good'],
 +    ['uncertain',  'Needs review', 'signal'],
 +    ['rejected',   'Rejected',     'bad'],
-+    ['incomplete', 'To complete',  'signal']
++    ['incomplete', 'To complete',  'signal'],
++    ['unread',     'Nothing read', 'bad']
 +  ];
 +
 +  const chips = el('div', { class: 'chips' });
@@ -118,6 +146,8 @@
 +        let n = 0;
 +        if (key === 'incomplete') {
 +          n = (data.incomplete || []).length;
++        } else if (key === 'unread') {
++          n = data.emails.filter(e => !e.items.length).length;
 +        } else {
 +          for (const e of data.emails) {
 +            n += (key === 'all') ? e.items.length
@@ -180,20 +210,32 @@
 +        'Alerts appear here as soon as WI 01 finishes reading them.'));
 +    }
 +
-+    let drawn = 0;
++    if (view === 'unread') {
++      list.appendChild(el('div', { class: 'banner' },
++        el('b', null, 'Stored, but nothing could be read out. '),
++        'The splitter found no "Asset class:" line, which usually means the '
++        + 'forward arrived without its HTML. The alert is safe in wi_raw_emails, '
++        + 'so re-sending it as HTML and replaying is enough to recover it.'));
++    }
++
++    let drawn = 0, shownEmails = 0;
 +    for (const e of emails) {
 +      const keep   = e.items.filter(shown);
 +      const silent = !e.items.length;
 +
-+      /* Under a filter, an email with nothing matching says only that today's
-+         post contained something you are not looking at. Drop it. */
-+      if (view !== 'all' && !keep.length && !silent) continue;
++      /* A filter should hold only what it names. An email with nothing
++         matching says just that today's post contained something you are not
++         looking at, and an unreadable one is not an accepted or a rejected
++         mandate - it belongs under its own chip, not under all of them. */
++      if (view === 'unread') { if (!silent) continue; }
++      else if (view !== 'all' && !keep.length) continue;
 +
 +      const forwarded = /megarbane/i.test(String(e.from_addr || ''));
 +      const count = (view === 'all' || silent)
 +        ? (e.items.length + (e.items.length === 1 ? ' item' : ' items'))
 +        : (keep.length + ' of ' + e.items.length + ' items');
 +
++      shownEmails++;
 +      list.appendChild(el('div', { class: 'entry' + (silent ? ' bad' : '') },
 +        el('div', { class: 'entry-rail' },
 +          el('span', { class: 'dot ' + (silent ? 'bad' : 'good') })),
@@ -242,9 +284,15 @@
 +      }
 +    }
 +
-+    if (view !== 'all' && !drawn) {
-+      list.appendChild(empty('Nothing under that filter',
-+        'Today\'s post carried no items with that verdict.'));
++    /* Counted in emails as well as items, because the Nothing read view draws
++       emails and no items at all - measuring only items would have it report
++       itself empty while showing rows. */
++    if (view !== 'all' && !drawn && !shownEmails) {
++      list.appendChild(empty(
++        view === 'unread' ? 'Everything was read' : 'Nothing under that filter',
++        view === 'unread'
++          ? 'Every alert that arrived today was split into items successfully.'
++          : 'Today\'s post carried no items with that verdict.'));
 +    }
 +  }
 +
@@ -317,7 +365,92 @@
  RENDER.approvals = function (body) {
    // Was the last tab still going through n8n. When the gateway refuses on
    // the execution cap its error carries no CORS header, so the browser threw
-@@ -2395,6 +2682,204 @@
+@@ -1841,6 +2169,7 @@
+     ['all',       'Everything',            'x'],
+     ['one',       'Missed by one',         'x'],
+     ['none',      'No reason recorded',    'x'],
++    ['news',      'Not a mandate',         'x'],
+     ['strategy',  'Strategy',              'r'],
+     ['asset',     'Asset class',           'r'],
+     ['type',      'Investor type',         'r'],
+@@ -1874,7 +2203,12 @@
+       // The counts will not add up to the total, and should not: a mandate
+       // that missed on three criteria is counted under all three.
+       if (all) {
+-        const n = k === 'all' ? all.length : all.filter(m => passes(m, k)).length;
++        // Every count but 'Not a mandate' is taken over real mandates only,
++        // so the numbers agree with what each filter actually shows.
++        const mand = all.filter(m => !notMandate(m));
++        const n = k === 'news' ? all.filter(notMandate).length
++                : k === 'all'  ? mand.length
++                : mand.filter(m => passes(m, k)).length;
+         b.textContent = lbl + '  ' + n;
+         b.style.opacity = n ? '' : '.45';
+       } else {
+@@ -1908,6 +2242,21 @@
+     return out;
+   };
+ 
++  /* A launch or a market-trend piece is not a mandate that failed - it was
++     never a mandate. WI 01 sets those aside before the criteria run, which
++     records exactly ONE reason, so left in the pile they would dominate
++     "Missed by one" - the filter that matters most, because a single miss
++     is usually a screening error rather than a real decline.
++
++     So they come out of every other view and get a chip of their own. Two
++     ways to spot one: the reason WI 01 wrote, and WI's own category on
++     investor_tag. Either is enough, because investor_tag is only populated
++     on records written since the category fix. */
++  const NOT_MANDATE = /launch|new manager|market trend|service provider|people move|performance|fundrais|regulat|top story|top insight|managers insight/i;
++  const notMandate = (m) =>
++    /not an investor mandate/i.test(reasons(m).join(' '))
++    || NOT_MANDATE.test(String(m.investor_tag || ''));
++
+   const missCount = (n) =>
+     n === 0 ? 'no reason was recorded'
+     : n === 1 ? 'one criterion only'
+@@ -1967,7 +2316,9 @@
+     clear(out);
+     if (!all) return;
+     const q = find.value.trim().toLowerCase();
+-    let rows = all;
++    const pool = (tone === 'news') ? all.filter(notMandate)
++                                   : all.filter(m => !notMandate(m));
++    let rows = pool;
+ 
+     rows = rows.filter(m => passes(m, tone));
+ 
+@@ -1994,10 +2345,19 @@
+         el('b', null, 'This filter reads the record, not the reason. '), DATA_ONLY[tone]));
+     }
+ 
++    if (tone === 'news') {
++      out.appendChild(el('div', { class: 'banner' },
++        el('b', null, 'These were never mandates. '),
++        'WI files them as launches, market trends or service-provider pieces, and '
++        + 'WI 01 sets them aside before the criteria run. They are kept because the '
++        + 'reading is often useful \u2014 the reports themselves live under Newsletters.'));
++    }
++
+     if (!rows.length) {
+       return out.appendChild(empty('Nothing here',
+         tone === 'one'    ? 'No mandate was turned away on a single criterion.'
+         : tone === 'none' ? 'Every rejected mandate has at least one reason recorded against it.'
++        : tone === 'news'   ? 'No launches or industry pieces have been set aside yet.'
+         : tone === 'ticket' ? 'No rejected mandate has a ticket under USD 500,000.'
+         : 'No mandate was turned away for that reason.'));
+     }
+@@ -2040,7 +2400,8 @@
+     }
+     out.appendChild(el('p', { class: 'mono',
+       style: 'color:var(--ink-3);font-size:12px;margin-top:18px' },
+-      'Showing ' + rows.length + ' of ' + all.length + ' rejected'
++      'Showing ' + rows.length + ' of ' + pool.length
++      + (tone === 'news' ? ' set aside' : ' rejected mandates')
+       + (tone === 'all' ? '. The counts on the filters overlap \u2014 a mandate that missed on three criteria is counted under all three.' : '')));
+   }
+ 
+@@ -2395,6 +2756,388 @@
    });
  };
  
@@ -339,8 +472,20 @@
 +  const input = el('input', { type: 'file', id: 'hfn-file', accept: '.pdf' });
 +  const drop = el('label', { class: 'drop', for: 'hfn-file' },
 +    input,
-+    el('h4', null, 'File a newsletter'),
-+    el('p', null, 'Drop a PDF here, or click to choose one. Up to 50 MB.'));
++    el('h4', null, 'File a report'),
++    el('p', null, 'Drop a PDF here, or click to choose one. Up to 50 MB. '
++      + 'It is filed under the folder selected above.'));
++
++  /* The folder is chosen before anything else, because it decides both where
++     the file is stored and which list you are adding to. */
++  const folders = el('div', { class: 'chips', style: 'margin-bottom:14px' });
++  const fBtn = {};
++  for (const [key, label] of HFN_FOLDERS) {
++    fBtn[key] = el('button', { class: 'chip',
++      onclick: () => { hfnFolder = key; go('hfn'); } }, label);
++    folders.appendChild(fBtn[key]);
++  }
++  body.appendChild(folders);
 +
 +  const chosen  = el('div');
 +  const title   = el('input', { class: 'search', placeholder: 'Title, e.g. Hedge Fund Alert — August 2026' });
@@ -390,7 +535,11 @@
 +       filename, and storage_path is unique. Without it the second upload of
 +       the day fails on a constraint the person cannot see. */
 +    const stamp = Date.now().toString(36);
-+    const path  = 'newsletters/' + when.slice(0, 7) + '/' + when + '-' + stamp + '-' + safe;
++    const slug  = (HFN_FOLDERS.find(f => f[0] === hfnFolder) || HFN_FOLDERS[0])[2];
++    /* Still under newsletters/, so the storage delete policy from migration 5
++       covers both folders without another exception. */
++    const path  = 'newsletters/' + slug + '/' + when.slice(0, 7)
++                + '/' + when + '-' + stamp + '-' + safe;
 +
 +    send.disabled = true; send.textContent = 'Uploading…';
 +    prog.style.display = 'block';
@@ -401,6 +550,7 @@
 +        title:        title.value.trim(),
 +        publisher:    pubName.value.trim() || null,
 +        issue_date:   issue.value || null,
++        report_type:  hfnFolder,
 +        storage_path: path,
 +        public_url:   CFG.supabaseUrl + '/storage/v1/object/public/documents/' + encodeURI(path),
 +        filename:     picked.name,
@@ -427,12 +577,23 @@
 +    if (DEMO) return [];
 +    return await supaSelect('hf_newsletters',
 +      'select=id,title,publisher,issue_date,public_url,summary,key_points,allocator_signals,'
-+      + 'managers_mentioned,relevance,summary_status,summary_error,summary_attempts,uploaded_at'
++      + 'managers_mentioned,relevance,summary_status,summary_error,summary_attempts,'
++      + 'uploaded_at,storage_path,was_truncated,report_type'
++      + '&report_type=eq.' + encodeURIComponent(hfnFolder)
 +      + '&order=issue_date.desc.nullslast,uploaded_at.desc&limit=40');
 +  }, (rows) => {
++    for (const [key, label] of HFN_FOLDERS) {
++      const on = key === hfnFolder;
++      fBtn[key].style.borderColor = on ? 'var(--accent)' : '';
++      fBtn[key].style.color       = on ? 'var(--accent)' : '';
++      fBtn[key].style.fontWeight  = on ? '600' : '';
++      // Only the folder you are in can be counted; the other one was never
++      // fetched, so a number there would be a guess.
++      fBtn[key].textContent = on ? label + '  ' + rows.length : label;
++    }
 +    if (!rows.length) {
-+      return list.appendChild(empty('Nothing filed yet',
-+        'Whatever you upload above appears here, with its summary beside it.'));
++      return list.appendChild(empty('Nothing in this folder yet',
++        'Whatever you file above appears here, with its summary beside it.'));
 +    }
 +
 +    const jarr = (v) => {
@@ -441,8 +602,152 @@
 +      return Array.isArray(x) ? x.map(s => String(s).trim()).filter(Boolean) : [];
 +    };
 +
++    /* Sorted here as well as in the query. The order clause is correct, but a
++       browser running a cached build, or an issue filed without a date, would
++       quietly put last month's issue on top - and the one thing this list has
++       to get right is which issue is the newest. Undated issues fall to the
++       bottom and are ranked by when they were filed. */
++    rows = rows.slice().sort((a, b) => {
++      const da = a.issue_date || '', db = b.issue_date || '';
++      if (da !== db) return da < db ? 1 : -1;      // desc; '' therefore sorts last
++      return String(b.uploaded_at || '').localeCompare(String(a.uploaded_at || ''));
++    });
++
++    const heading = (t) => el('p', { class: 'mono',
++      style: 'font-size:10px;letter-spacing:.14em;text-transform:uppercase;'
++           + 'color:var(--ink-3);margin:20px 0 8px' }, t);
++    const bullets = (arr) => {
++      const d = el('div', { class: 'ev' });
++      for (const x of arr) {
++        d.appendChild(el('div', null,
++          el('span', { class: 'k' }, '\u2014  '), document.createTextNode(x)));
++      }
++      return d;
++    };
++
++    /* The whole reading, rather than the first paragraph of it. The card is a
++       list you scan; this is the thing you actually read, so it carries every
++       paragraph, every signal and every point instead of the first five. */
++    function summarySheet(r) {
++      const signals  = jarr(r.allocator_signals);
++      const points   = jarr(r.key_points);
++      const managers = jarr(r.managers_mentioned);
++      const inner = el('div', { style: 'min-width:min(720px,74vw)' });
++
++      const meta = [r.publisher,
++                    r.issue_date ? fmtDate(r.issue_date) : null,
++                    r.relevance ? r.relevance + ' relevance' : null,
++                    r.was_truncated ? 'long issue, front section only' : null]
++        .filter(Boolean).join('   \u00B7   ');
++      if (meta) {
++        inner.appendChild(el('p', { class: 'mono',
++          style: 'font-size:12px;color:var(--ink-3);margin:0 0 18px' }, meta));
++      }
++
++      for (const p of String(r.summary || '').split(/\n{2,}/).map(s => s.trim()).filter(Boolean)) {
++        inner.appendChild(el('p', { style: 'margin:0 0 13px;line-height:1.6' }, p));
++      }
++
++      if (signals.length)  { inner.appendChild(heading('Someone is allocating')); inner.appendChild(bullets(signals)); }
++      if (points.length)   { inner.appendChild(heading('Key points'));            inner.appendChild(bullets(points)); }
++      if (managers.length) { inner.appendChild(heading('Managers named'));        inner.appendChild(bullets([managers.join(', ')])); }
++
++      const foot = [el('button', { class: 'btn btn-quiet', onclick: closeSheet }, 'Close')];
++      if (r.public_url) {
++        foot.push(el('button', { class: 'btn',
++          onclick: () => window.open(r.public_url, '_blank', 'noopener,noreferrer') }, 'Open the PDF'));
++      }
++      sheet(r.title || 'Summary', [inner], foot);
++    }
++
++    /* Named for newsletters because editSheet is already taken, by the WI
++       review form. Title, publisher and issue date are the three a person can
++       reasonably correct; the summary is not editable here because rewriting a
++       machine summary by hand makes it unclear which parts were read and which
++       were typed. Fix the metadata and read it again instead. */
++    function newsletterSheet(r) {
++      const t = el('input', { class: 'search', value: r.title || '' });
++      const p = el('input', { class: 'search', value: r.publisher || '' });
++      const d = el('input', { class: 'search', type: 'date', value: r.issue_date || '' });
++      const fold = el('select', { class: 'search' });
++      for (const [key, label] of HFN_FOLDERS) {
++        const o = el('option', { value: key }, label);
++        if ((r.report_type || 'hedge_fund') === key) o.selected = true;
++        fold.appendChild(o);
++      }
++      const again = el('input', { type: 'checkbox' });
++
++      const inner = el('div', { style: 'min-width:min(560px,74vw)' },
++        el('label', { class: 'field' }, el('span', null, 'Title'), t),
++        el('label', { class: 'field' }, el('span', null, 'Publisher'), p),
++        el('label', { class: 'field' }, el('span', null, 'Issue date'), d),
++        el('label', { class: 'field' }, el('span', null, 'Folder'), fold),
++        el('p', { class: 'mono', style: 'font-size:12px;color:var(--ink-3);margin:10px 0 0' },
++          'The issue date is what orders this list. It defaults to the day you filed '
++          + 'the report, which is right for the current issue and wrong for a back one.'),
++        el('label', { style: 'display:flex;gap:8px;align-items:center;margin-top:16px;'
++             + 'font-size:13.5px;color:var(--ink-2)' },
++          again, 'Read it again after saving'));
++
++      const del = el('button', { class: 'btn btn-sm btn-quiet',
++        style: 'color:var(--bad);border-color:var(--bad)' }, 'Delete');
++      del.addEventListener('click', async () => {
++        if (!confirm('Delete "' + (r.title || 'this report') + '"? The summary goes with '
++          + 'it and the PDF is removed from storage. This cannot be undone.')) return;
++        try {
++          /* Row first. An orphaned file is harmless and invisible; a row pointing
++             at a file that is gone is a broken card someone has to puzzle over. */
++          await supaDelete('hf_newsletters', 'id=eq.' + encodeURIComponent(r.id));
++          let orphan = false;
++          if (r.storage_path) {
++            try { await deleteFromStorage(r.storage_path); } catch (_) { orphan = true; }
++          }
++          closeSheet();
++          toast(orphan
++            ? 'Deleted, but the PDF is still in storage \u2014 run migration 5 to allow that.'
++            : 'Deleted.', orphan);
++          go('hfn');
++        } catch (e) { toast(e.message, true); }
++      });
++
++      const save = el('button', { class: 'btn btn-sm' }, 'Save changes');
++      save.addEventListener('click', async () => {
++        const patch = {
++          title: t.value.trim() || r.title,
++          publisher: p.value.trim() || null,
++          issue_date: d.value || null,
++          report_type: fold.value
++        };
++        // Attempts is reset with the status, or the worker would ignore a row
++        // it has already given up on three times.
++        if (again.checked) {
++          patch.summary_status = 'pending';
++          patch.summary_attempts = 0;
++          patch.summary_error = null;
++        }
++        try {
++          await supaPatch('hf_newsletters', 'id=eq.' + encodeURIComponent(r.id), patch);
++          closeSheet();
++          toast(again.checked ? 'Saved. It will be read again within the half hour.' : 'Saved.');
++          go('hfn');
++        } catch (e) { toast(e.message, true); }
++      });
++
++      sheet('Edit ' + (r.title || 'report'), [inner],
++        [del, el('button', { class: 'btn btn-sm btn-quiet', onclick: closeSheet }, 'Cancel'), save]);
++    }
++
 +    counts.hfn = rows.filter(r => r.summary_status === 'failed').length;
 +    paintCounts();
++
++    /* A summary appears in the table whenever HFN 01 next runs, not when you
++       happen to be looking - so a PENDING row would sit there until someone
++       thought to reload. Check back while the tab is open and something is
++       still being read. The guard on `current` is the point: without it this
++       would drag you back here from whatever tab you had moved on to. */
++    const waiting = rows.some(r =>
++      r.summary_status === 'pending' || r.summary_status === 'running');
++    if (waiting) setTimeout(() => { if (current === 'hfn') go('hfn'); }, 60000);
 +
 +    for (const r of rows) {
 +      const st       = String(r.summary_status || 'pending');
@@ -471,21 +776,30 @@
 +        callTone = '';
 +      }
 +
++      /* The card stays scannable: what the issue is, and the one line worth
++         acting on. Everything else moved behind View summary, because five key
++         points and a manager list per card turned the tab into a wall. */
 +      const evidence = [
 +        ['publisher', asText(r.publisher)],
 +        ['issue    ', r.issue_date ? fmtDate(r.issue_date) : null],
 +        ['relevance', st === 'done' ? asText(r.relevance) : null],
-+        ['managers ', managers.length ? managers.join(', ') : null],
++        ['points   ', (st === 'done' && points.length)
++            ? points.length + (points.length === 1 ? ' point' : ' points')
++              + (managers.length ? ', ' + managers.length + ' managers named' : '')
++            : null],
 +        ['filed    ', fmtDate(r.uploaded_at)]
 +      ];
-+      for (const p of points.slice(0, 5)) evidence.push(['\u2014        ', p]);
 +
 +      const actions = [];
++      if (st === 'done') {
++        actions.push({ label: 'View summary', primary: true, run: () => summarySheet(r) });
++      }
 +      if (r.public_url) {
-+        actions.push({ label: 'Open the PDF', primary: true,
++        actions.push({ label: 'Open the PDF', primary: st !== 'done',
 +          run: () => window.open(r.public_url, '_blank', 'noopener,noreferrer') });
 +        actions.push({ label: 'Copy the link', run: () => copy(r.public_url) });
 +      }
++      actions.push({ label: 'Edit or delete', run: () => newsletterSheet(r) });
 +      if (st === 'failed') {
 +        /* Attempts is reset as well as the status, because the worker gives up
 +           after three and would otherwise ignore the row it was just asked to
@@ -504,7 +818,10 @@
 +        tone: st === 'failed' ? 'bad' : st === 'done' ? 'good' : 'signal',
 +        rail: '#' + r.id,
 +        action: r.title,
-+        who: st === 'done' ? asText(r.summary) : '',
++        who: st === 'done' ? (() => {
++          const s = asText(r.summary);
++          return s.length > 200 ? s.slice(0, 200).replace(/\s+\S*$/, '') + '\u2026' : s;
++        })() : '',
 +        callout: call,
 +        calloutLabel: callLabel,
 +        calloutTone: callTone,
@@ -522,7 +839,7 @@
  RENDER.reports = function (body) {
    clear(body);
  
-@@ -4121,12 +4606,27 @@
+@@ -4121,12 +4864,27 @@
  async function poll() {
    if (document.hidden) return;          // a background tab counts nothing
    try {
