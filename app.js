@@ -39,7 +39,7 @@ const CFG = Object.assign({
 let DEMO = false;                 // sample-data mode
 let session = null;               // { email, token }
 let pollTimer = null;
-const counts = { today: 0, approvals: 0 };
+const counts = { today: 0, approvals: 0, intake: 0 };
 const PENDING = { q: null, qmode: null, draft: null, meet: null };   // a question handed from one tab to another
 
 /* ------------------------------------------------------------- DOM utils */
@@ -530,6 +530,8 @@ function signOut() {
 const TABS = [
   { id: 'today',    icon: '\u25CF', label: 'Today',        title: 'Today',
     sub: 'What arrived while you were away, and what is waiting on you.' },
+  { id: 'intake',   icon: '\u25A7', label: 'Intake',       title: "Today's intake",
+    sub: 'Every alert that arrived today and what was read out of it, forwarded or sent direct.' },
   { id: 'approvals',icon: '\u25C6', label: 'Approvals',    title: 'Approvals',
     sub: 'Opportunities the screen could not settle on its own. Approve, correct, or reject.' },
   { id: 'contacts', icon: '\u25A0', label: 'Contacts',     title: 'Contacts',
@@ -803,6 +805,127 @@ RENDER.today = function (body) {
         ])
       }));
     }
+  });
+};
+
+/* What arrived in the post today, grouped by the email it came in on.
+   Opportunities and Rejected answer "what should I do about this". This
+   answers "did today's alert get read at all", which is the question you have
+   when an email was forwarded by hand and you want to watch it land.
+
+   An email with nothing under it is the interesting row: WI 01 stored the
+   message but the splitter found no 'Asset class:' line in it. That is what a
+   forward stripped to plain text looks like, and what a changed WI template
+   will look like. It is what the nav badge counts, for that reason. */
+RENDER.intake = function (body) {
+  fill(body, async () => {
+    if (DEMO) return { demo: true, emails: [] };
+
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+
+    const emails = await supaSelect('wi_raw_emails',
+      'select=id,from_addr,subject,received_at'
+      + '&received_at=gte.' + encodeURIComponent(dayStart.toISOString())
+      + '&order=received_at.desc&limit=50');
+
+    if (!emails.length) return { emails: [] };
+
+    /* Two queries rather than a PostgREST embed, because an embed needs a
+       declared foreign key between wi_mandates and wi_raw_emails and there is
+       no guarantee one was ever created - WI 01 writes raw_email_id as a plain
+       bigint. Joining on the client costs one round trip and cannot break on a
+       schema detail. */
+    const ids = emails.map(e => e.id).filter(v => v !== null && v !== undefined);
+    const mandates = ids.length ? await supaSelect('wi_mandates',
+      'select=id,raw_email_id,investor_name,organization_name,qualification,fit_score,'
+      + 'investor_country,investor_type,investor_tag,strategies,ticket_min_usd,intention_summary'
+      + '&raw_email_id=in.(' + ids.join(',') + ')'
+      + '&order=id.asc&limit=300') : [];
+
+    const byEmail = new Map();
+    for (const m of mandates) {
+      const k = String(m.raw_email_id);
+      if (!byEmail.has(k)) byEmail.set(k, []);
+      byEmail.get(k).push(m);
+    }
+
+    return { emails: emails.map(e =>
+      Object.assign({}, e, { items: byEmail.get(String(e.id)) || [] })) };
+  }, (d) => {
+    if (d.demo) {
+      return body.appendChild(empty('Not in the sample',
+        'Intake reads the real mailbox. Sign in to see it.'));
+    }
+
+    const emails = d.emails || [];
+    if (!emails.length) {
+      return body.appendChild(empty('Nothing in yet today',
+        'Alerts appear here as soon as WI 01 finishes reading them.'));
+    }
+
+    let read = 0;
+    for (const e of emails) read += e.items.length;
+    counts.intake = emails.filter(e => !e.items.length).length;
+    paintCounts();
+
+    for (const e of emails) {
+      const forwarded = /megarbane/i.test(String(e.from_addr || ''));
+      const silent    = !e.items.length;
+
+      body.appendChild(el('div', { class: 'entry' + (silent ? ' bad' : '') },
+        el('div', { class: 'entry-rail' },
+          el('span', { class: 'dot ' + (silent ? 'bad' : 'good') })),
+        el('div', { class: 'entry-main' },
+          el('p', { class: 'entry-act' }, cleanText(e.subject) || 'No subject'),
+          el('p', { class: 'entry-who' },
+            (forwarded ? 'Forwarded by ' + cleanText(e.from_addr)
+                       : 'Sent direct by With Intelligence')
+            + '  \u00B7  ' + fmtDate(e.received_at)),
+          silent
+            ? el('div', { class: 'callout bad' },
+                el('span', { class: 'callout-k' }, 'Nothing read out of this'),
+                el('span', { class: 'callout-v' },
+                  'The message was stored but no item was found in it. Usually the '
+                  + 'forward arrived without its HTML, so there was no "Asset class:" '
+                  + 'line to split on.'))
+            : el('div', { class: 'ev' },
+                el('div', null,
+                  el('span', { class: 'k' }, 'read out  '),
+                  document.createTextNode(e.items.length
+                    + (e.items.length === 1 ? ' item' : ' items'))))
+        )));
+
+      for (const m of e.items) {
+        const tone = m.qualification === 'matched'   ? 'good'
+                   : m.qualification === 'uncertain' ? 'signal'
+                   : 'bad';
+        body.appendChild(entry({
+          tone,
+          rail: '#' + m.id,
+          action: m.investor_name || m.organization_name || ('Item #' + m.id),
+          who: asText(m.intention_summary),
+          evidence: [
+            ['WI filed as', asText(m.investor_tag)],
+            ['country    ', asText(m.investor_country)],
+            ['type       ', asText(m.investor_type)],
+            ['strategy   ', asText(m.strategies)],
+            ['ticket     ', money(m.ticket_min_usd)],
+            ['score      ', m.fit_score]
+          ],
+          tags: [[m.qualification, tone]],
+          actions: [
+            { label: 'Open it', primary: true,
+              run: () => go(m.qualification === 'rejected' ? 'rejected' : 'opps') }
+          ]
+        }));
+      }
+    }
+
+    body.appendChild(el('p', { class: 'mono',
+      style: 'color:var(--ink-3);font-size:12px;margin-top:18px' },
+      emails.length + (emails.length === 1 ? ' email' : ' emails')
+      + ', ' + read + (read === 1 ? ' item' : ' items') + ' read out'));
   });
 };
 
@@ -4121,12 +4244,27 @@ function reviewDraft(d) {
 async function poll() {
   if (document.hidden) return;          // a background tab counts nothing
   try {
-    const [n, m] = await Promise.all([
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+
+    const [n, m, raw] = await Promise.all([
       supaSelect('app_notifications', 'select=id&read_at=is.null&limit=200'),
-      supaSelect('wi_mandates', 'select=id&qualification=eq.uncertain&published_at=is.null&limit=200')
+      supaSelect('wi_mandates', 'select=id&qualification=eq.uncertain&published_at=is.null&limit=200'),
+      supaSelect('wi_raw_emails',
+        'select=id&received_at=gte.' + encodeURIComponent(dayStart.toISOString()) + '&limit=50')
     ]);
     counts.today = n.length;
     counts.approvals = m.length;
+
+    if (raw.length) {
+      const seen = await supaSelect('wi_mandates',
+        'select=raw_email_id&raw_email_id=in.(' + raw.map(r => r.id).join(',') + ')&limit=300');
+      const withItems = new Set(seen.map(r => String(r.raw_email_id)));
+      counts.intake = raw.filter(r => !withItems.has(String(r.id))).length;
+    } else {
+      counts.intake = 0;
+    }
+
     paintCounts();
   } catch (_) { /* a failed poll is not worth interrupting anyone */ }
 }
