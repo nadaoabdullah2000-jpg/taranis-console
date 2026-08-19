@@ -39,7 +39,7 @@ const CFG = Object.assign({
 let DEMO = false;                 // sample-data mode
 let session = null;               // { email, token }
 let pollTimer = null;
-const counts = { today: 0, approvals: 0, intake: 0 };
+const counts = { today: 0, approvals: 0, intake: 0, hfn: 0 };
 const PENDING = { q: null, qmode: null, draft: null, meet: null };   // a question handed from one tab to another
 
 /* ------------------------------------------------------------- DOM utils */
@@ -550,6 +550,8 @@ const TABS = [
     sub: 'Scheduled, waiting on approval, or cancelled. The join link and passcode live here.' },
   { id: 'docs',     icon: '\u25AC', label: 'Documents',    title: 'Documents',
     sub: 'Upload a deck or report, and it is versioned, stored and announced to the team.' },
+  { id: 'hfn',      icon: '\u25A4', label: 'Newsletters',  title: 'Hedge fund newsletters',
+    sub: 'Industry reports, each with a summary written beside it so you need not open the PDF.' },
   { id: 'reports',  icon: '\u25F0', label: 'Reports',      title: 'Weekly report',
     sub: 'The Friday dashboard, read from the stored snapshot rather than a Telegram attachment.' },
   { id: 'network',  icon: '\u25CB', label: 'Network',      title: 'LinkedIn network',
@@ -2515,6 +2517,200 @@ RENDER.docs = function (body) {
         { label: 'Copy the link', run: () => copy(x.public_url) }
       ] : []
     }));
+  });
+};
+
+/* The reading pile. Upload an industry report and HFN 01 picks it up within
+   the half hour, pulls the text out and writes a summary onto the row.
+
+   Deliberately not the Documents tab: that one carries is_current versioning,
+   where a new upload supersedes the last under the same key. Newsletters do
+   not supersede each other - every issue stands on its own - so they live in
+   their own table and none of that machinery applies.
+
+   Storage is shared, under a newsletters/ prefix, so the bucket policies from
+   migration 2 cover these files without anything new. */
+RENDER.hfn = function (body) {
+  clear(body);
+
+  let picked = null;
+
+  const input = el('input', { type: 'file', id: 'hfn-file', accept: '.pdf' });
+  const drop = el('label', { class: 'drop', for: 'hfn-file' },
+    input,
+    el('h4', null, 'File a newsletter'),
+    el('p', null, 'Drop a PDF here, or click to choose one. Up to 50 MB.'));
+
+  const chosen  = el('div');
+  const title   = el('input', { class: 'search', placeholder: 'Title, e.g. Hedge Fund Alert — August 2026' });
+  const pubName = el('input', { class: 'search', placeholder: 'Publisher, e.g. With Intelligence' });
+  const issue   = el('input', { class: 'search', type: 'date' });
+  const send    = el('button', { class: 'btn' }, 'File it');
+  const prog    = el('div', { class: 'bar' }, el('i'));
+  prog.style.display = 'none';
+
+  body.append(
+    drop, chosen,
+    el('div', { class: 'grid2', style: 'margin-top:12px' }, title, pubName),
+    el('div', { class: 'grid2', style: 'margin-top:10px' }, issue, send),
+    prog);
+
+  function show(f) {
+    picked = f;
+    clear(chosen);
+    if (!f) return;
+    chosen.appendChild(el('div', { class: 'picked' },
+      el('span', { class: 'nm' }, f.name),
+      el('span', { class: 'sz' }, (f.size / 1048576).toFixed(1) + ' MB')));
+    if (!title.value) title.value = f.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ');
+  }
+  input.addEventListener('change', () => show(input.files[0]));
+  ['dragenter', 'dragover'].forEach(ev =>
+    drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(ev =>
+    drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', e => {
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) show(e.dataTransfer.files[0]);
+  });
+
+  send.addEventListener('click', async () => {
+    if (!picked) return toast('Choose a file first.', true);
+    if (!title.value.trim()) return toast('Give it a title.', true);
+    if (picked.size > 50 * 1048576) return toast('That is over 50 MB. Ask for the limit to be raised.', true);
+    if (DEMO) return toast('Sample data - connect Supabase to file a newsletter.', true);
+
+    const safe  = picked.name.replace(/[^A-Za-z0-9._-]+/g, '-');
+    const when  = issue.value || new Date().toISOString().slice(0, 10);
+    /* The path carries a timestamp because two issues can share a date and a
+       filename, and storage_path is unique. Without it the second upload of
+       the day fails on a constraint the person cannot see. */
+    const stamp = Date.now().toString(36);
+    const path  = 'newsletters/' + when.slice(0, 7) + '/' + when + '-' + stamp + '-' + safe;
+
+    send.disabled = true; send.textContent = 'Uploading…';
+    prog.style.display = 'block';
+    try {
+      await uploadToStorage(picked, path, (pc) => { prog.firstChild.style.width = pc + '%'; }, false);
+      send.textContent = 'Filing…';
+      await supaInsert('hf_newsletters', {
+        title:        title.value.trim(),
+        publisher:    pubName.value.trim() || null,
+        issue_date:   issue.value || null,
+        storage_path: path,
+        public_url:   CFG.supabaseUrl + '/storage/v1/object/public/documents/' + encodeURI(path),
+        filename:     picked.name,
+        size_bytes:   picked.size,
+        mime:         picked.type || 'application/pdf',
+        uploaded_by:  (session && session.email) || null
+      });
+      toast('Filed. The summary appears here once it has been read.');
+      go('hfn');
+    } catch (e) {
+      toast(e.message, true);
+    } finally {
+      send.disabled = false; send.textContent = 'File it';
+      prog.style.display = 'none'; prog.firstChild.style.width = '0';
+    }
+  });
+
+  /* ---------- the pile ---------- */
+  const list = el('div', { style: 'margin-top:26px' });
+  body.appendChild(list);
+  list.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading…'));
+
+  fill(list, async () => {
+    if (DEMO) return [];
+    return await supaSelect('hf_newsletters',
+      'select=id,title,publisher,issue_date,public_url,summary,key_points,allocator_signals,'
+      + 'managers_mentioned,relevance,summary_status,summary_error,summary_attempts,uploaded_at'
+      + '&order=uploaded_at.desc&limit=40');
+  }, (rows) => {
+    if (!rows.length) {
+      return list.appendChild(empty('Nothing filed yet',
+        'Whatever you upload above appears here, with its summary beside it.'));
+    }
+
+    const jarr = (v) => {
+      let x = v;
+      for (let i = 0; i < 2 && typeof x === 'string'; i++) { try { x = JSON.parse(x); } catch (_) { x = []; } }
+      return Array.isArray(x) ? x.map(s => String(s).trim()).filter(Boolean) : [];
+    };
+
+    counts.hfn = rows.filter(r => r.summary_status === 'failed').length;
+    paintCounts();
+
+    for (const r of rows) {
+      const st       = String(r.summary_status || 'pending');
+      const signals  = jarr(r.allocator_signals);
+      const points   = jarr(r.key_points);
+      const managers = jarr(r.managers_mentioned);
+
+      /* The callout is the one thing to read first. An allocator signal beats
+         a summary, because that is the line that might turn into a call. */
+      let call, callLabel, callTone;
+      if (st === 'done' && signals.length) {
+        call = signals.join('   \u00B7   ');
+        callLabel = signals.length === 1 ? 'Someone is allocating' : signals.length + ' allocators moving';
+        callTone = 'good';
+      } else if (st === 'failed') {
+        call = r.summary_error || 'It could not be read.';
+        callLabel = 'Not summarised';
+        callTone = 'bad';
+      } else if (st === 'pending' || st === 'running') {
+        call = st === 'running' ? 'Being read now.' : 'Waiting to be read. HFN 01 picks it up within the half hour.';
+        callLabel = 'No summary yet';
+        callTone = 'signal';
+      } else if (st === 'done') {
+        call = 'Nothing in this issue names an investor who could be approached.';
+        callLabel = 'No allocator signal';
+        callTone = '';
+      }
+
+      const evidence = [
+        ['publisher', asText(r.publisher)],
+        ['issue    ', r.issue_date ? fmtDate(r.issue_date) : null],
+        ['relevance', st === 'done' ? asText(r.relevance) : null],
+        ['managers ', managers.length ? managers.join(', ') : null],
+        ['filed    ', fmtDate(r.uploaded_at)]
+      ];
+      for (const p of points.slice(0, 5)) evidence.push(['\u2014        ', p]);
+
+      const actions = [];
+      if (r.public_url) {
+        actions.push({ label: 'Open the PDF', primary: true,
+          run: () => window.open(r.public_url, '_blank', 'noopener,noreferrer') });
+        actions.push({ label: 'Copy the link', run: () => copy(r.public_url) });
+      }
+      if (st === 'failed') {
+        /* Attempts is reset as well as the status, because the worker gives up
+           after three and would otherwise ignore the row it was just asked to
+           reconsider. */
+        actions.push({ label: 'Summarise again', run: async () => {
+          try {
+            await supaPatch('hf_newsletters', 'id=eq.' + encodeURIComponent(r.id),
+              { summary_status: 'pending', summary_attempts: 0, summary_error: null });
+            toast('Queued. It will be read within the half hour.');
+            go('hfn');
+          } catch (e) { toast(e.message, true); }
+        } });
+      }
+
+      list.appendChild(entry({
+        tone: st === 'failed' ? 'bad' : st === 'done' ? 'good' : 'signal',
+        rail: '#' + r.id,
+        action: r.title,
+        who: st === 'done' ? asText(r.summary) : '',
+        callout: call,
+        calloutLabel: callLabel,
+        calloutTone: callTone,
+        evidence: evidence,
+        tags: [[st, st === 'failed' ? 'bad' : st === 'done' ? 'good' : 'signal']],
+        actions: actions
+      }));
+    }
+
+    list.appendChild(el('p', { class: 'mono',
+      style: 'color:var(--ink-3);font-size:12px;margin-top:18px' }, 'Showing ' + rows.length));
   });
 };
 
