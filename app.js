@@ -40,6 +40,8 @@ let DEMO = false;                 // sample-data mode
 let session = null;               // { email, token }
 let pollTimer = null;
 const counts = { today: 0, approvals: 0, intake: 0, hfn: 0 };
+// Survives a re-render, so filling a gap does not lose your place.
+let intakeView = 'all';
 const PENDING = { q: null, qmode: null, draft: null, meet: null };   // a question handed from one tab to another
 
 /* ------------------------------------------------------------- DOM utils */
@@ -815,67 +817,163 @@ RENDER.today = function (body) {
    answers "did today's alert get read at all", which is the question you have
    when an email was forwarded by hand and you want to watch it land.
 
+   The chips split the day's reading by verdict. They filter the items inside
+   each email rather than the emails themselves, so the grouping survives:
+   under "Rejected" you still see which message each rejection came out of.
+
+   "To complete" is the exception, and deliberately so. It leaves today behind
+   and lists mandates already published to the team that went out with fields
+   the alert never stated, best score first. A gap does not stop being worth
+   filling tomorrow, and a view scoped to today would usually be empty at the
+   moment you went looking.
+
    An email with nothing under it is the interesting row: WI 01 stored the
    message but the splitter found no 'Asset class:' line in it. That is what a
    forward stripped to plain text looks like, and what a changed WI template
-   will look like. It is what the nav badge counts, for that reason. */
+   will look like. It is what the nav badge counts, for that reason, and it
+   stays visible under every verdict filter - a message that produced nothing
+   is a fault, not a verdict, so no verdict should hide it. */
 RENDER.intake = function (body) {
-  fill(body, async () => {
-    if (DEMO) return { demo: true, emails: [] };
+  clear(body);
 
-    const dayStart = new Date();
-    dayStart.setHours(0, 0, 0, 0);
+  let data = null;
+  let view = intakeView;
 
-    const emails = await supaSelect('wi_raw_emails',
-      'select=id,from_addr,subject,received_at'
-      + '&received_at=gte.' + encodeURIComponent(dayStart.toISOString())
-      + '&order=received_at.desc&limit=50');
+  const VIEWS = [
+    ['all',        'Everything',   'accent'],
+    ['matched',    'Accepted',     'good'],
+    ['uncertain',  'Needs review', 'signal'],
+    ['rejected',   'Rejected',     'bad'],
+    ['incomplete', 'To complete',  'signal']
+  ];
 
-    if (!emails.length) return { emails: [] };
+  const chips = el('div', { class: 'chips' });
+  const btns  = {};
+  const list  = el('div', { style: 'margin-top:14px' });
+  body.append(chips, list);
 
-    /* Two queries rather than a PostgREST embed, because an embed needs a
-       declared foreign key between wi_mandates and wi_raw_emails and there is
-       no guarantee one was ever created - WI 01 writes raw_email_id as a plain
-       bigint. Joining on the client costs one round trip and cannot break on a
-       schema detail. */
-    const ids = emails.map(e => e.id).filter(v => v !== null && v !== undefined);
-    const mandates = ids.length ? await supaSelect('wi_mandates',
-      'select=id,raw_email_id,investor_name,organization_name,qualification,fit_score,'
-      + 'investor_country,investor_type,investor_tag,strategies,ticket_min_usd,intention_summary'
-      + '&raw_email_id=in.(' + ids.join(',') + ')'
-      + '&order=id.asc&limit=300') : [];
+  const verdict = (m) => String(m.qualification || '').toLowerCase();
+  const shown   = (m) => view === 'all' || verdict(m) === view;
 
-    const byEmail = new Map();
-    for (const m of mandates) {
-      const k = String(m.raw_email_id);
-      if (!byEmail.has(k)) byEmail.set(k, []);
-      byEmail.get(k).push(m);
+  const jarr = (v) => {
+    let x = v;
+    for (let n = 0; n < 2 && typeof x === 'string'; n++) { try { x = JSON.parse(x); } catch (_) { x = []; } }
+    return Array.isArray(x) ? x.map(s => String(s).trim()).filter(Boolean) : [];
+  };
+
+  /* The same eight checks Check Missing Fields makes inside WI 01. Kept
+     identical on purpose: if the two ever disagree, the Telegram warning and
+     this list would name different fields for the same mandate. */
+  const gapsOf = (m) => {
+    const blank = (v) => v === null || v === undefined || String(v).trim() === '';
+    const g = [];
+    if (blank(m.investor_country))   g.push('investor_country');
+    if (blank(m.investor_type))      g.push('investor_type');
+    if (blank(m.contact_name))       g.push('contact_name');
+    if (blank(m.ticket_min_usd))     g.push('ticket_min_usd');
+    if (blank(m.aum_usd) && blank(m.aum_band)) g.push('aum_usd');
+    if (blank(m.linkedin_url))       g.push('linkedin_url');
+    if (blank(m.allocation_timing))  g.push('allocation_timing');
+    if (!jarr(m.strategies).length)  g.push('strategies');
+    return g;
+  };
+
+  for (const v of VIEWS) {
+    btns[v[0]] = el('button', { class: 'chip',
+      onclick: () => { view = v[0]; intakeView = view; paintChips(); paint(); } }, v[1]);
+    chips.appendChild(btns[v[0]]);
+  }
+
+  function paintChips() {
+    for (const [key, label, tone] of VIEWS) {
+      const b = btns[key];
+      const on = key === view;
+      /* The active chip takes its own verdict colour, so the list underneath
+         never has to be read to know which way it is filtered. */
+      b.style.borderColor = on ? 'var(--' + tone + ')' : '';
+      b.style.color       = on ? 'var(--' + tone + ')' : '';
+      b.style.fontWeight  = on ? '600' : '';
+      if (data) {
+        let n = 0;
+        if (key === 'incomplete') {
+          n = (data.incomplete || []).length;
+        } else {
+          for (const e of data.emails) {
+            n += (key === 'all') ? e.items.length
+                                 : e.items.filter(m => verdict(m) === key).length;
+          }
+        }
+        b.textContent = label + '  ' + n;
+        b.style.opacity = n ? '' : '.45';
+      } else {
+        b.textContent = label;
+      }
+    }
+  }
+
+  function paintIncomplete() {
+    const rows = data.incomplete || [];
+    list.appendChild(el('p', { class: 'mono',
+      style: 'color:var(--ink-3);font-size:12px;margin:0 0 14px' },
+      'Already sent to the team, but with fields the alert never stated. '
+      + 'Best fit score first. This is the one view that looks past today.'));
+
+    if (!rows.length) {
+      return list.appendChild(empty('Nothing to complete',
+        'Every mandate published in the last month has what it needs.'));
     }
 
-    return { emails: emails.map(e =>
-      Object.assign({}, e, { items: byEmail.get(String(e.id)) || [] })) };
-  }, (d) => {
-    if (d.demo) {
-      return body.appendChild(empty('Not in the sample',
-        'Intake reads the real mailbox. Sign in to see it.'));
+    for (const m of rows) {
+      const g = gapsOf(m);
+      list.appendChild(entry({
+        tone: 'signal',
+        rail: '#' + m.id,
+        action: m.investor_name || m.organization_name || ('Mandate #' + m.id),
+        who: [m.organization_name, m.investor_country, m.investor_city].filter(Boolean).join('  \u00B7  '),
+        callout: g.join(', ').replace(/_/g, ' '),
+        calloutLabel: g.length === 1 ? 'One field missing' : g.length + ' fields missing',
+        calloutTone: 'signal',
+        evidence: [
+          ['score     ', m.fit_score],
+          ['published ', m.published_at ? fmtDate(m.published_at) : null],
+          ['ticket    ', money(m.ticket_min_usd)],
+          ['strategy  ', asText(m.strategies)],
+          ['WI filed as', asText(m.investor_tag)]
+        ],
+        tags: [['published', 'good'], [g.length + (g.length === 1 ? ' gap' : ' gaps'), 'signal']],
+        actions: [
+          { label: 'Fill the gaps', primary: true, run: () => fillSheet(m) },
+          { label: 'View the mandate', run: () => openMandate(m) }
+        ]
+      }));
     }
+  }
 
-    const emails = d.emails || [];
+  function paint() {
+    clear(list);
+    if (view === 'incomplete') return paintIncomplete();
+
+    const emails = (data && data.emails) || [];
     if (!emails.length) {
-      return body.appendChild(empty('Nothing in yet today',
+      return list.appendChild(empty('Nothing in yet today',
         'Alerts appear here as soon as WI 01 finishes reading them.'));
     }
 
-    let read = 0;
-    for (const e of emails) read += e.items.length;
-    counts.intake = emails.filter(e => !e.items.length).length;
-    paintCounts();
-
+    let drawn = 0;
     for (const e of emails) {
-      const forwarded = /megarbane/i.test(String(e.from_addr || ''));
-      const silent    = !e.items.length;
+      const keep   = e.items.filter(shown);
+      const silent = !e.items.length;
 
-      body.appendChild(el('div', { class: 'entry' + (silent ? ' bad' : '') },
+      /* Under a filter, an email with nothing matching says only that today's
+         post contained something you are not looking at. Drop it. */
+      if (view !== 'all' && !keep.length && !silent) continue;
+
+      const forwarded = /megarbane/i.test(String(e.from_addr || ''));
+      const count = (view === 'all' || silent)
+        ? (e.items.length + (e.items.length === 1 ? ' item' : ' items'))
+        : (keep.length + ' of ' + e.items.length + ' items');
+
+      list.appendChild(el('div', { class: 'entry' + (silent ? ' bad' : '') },
         el('div', { class: 'entry-rail' },
           el('span', { class: 'dot ' + (silent ? 'bad' : 'good') })),
         el('div', { class: 'entry-main' },
@@ -894,15 +992,14 @@ RENDER.intake = function (body) {
             : el('div', { class: 'ev' },
                 el('div', null,
                   el('span', { class: 'k' }, 'read out  '),
-                  document.createTextNode(e.items.length
-                    + (e.items.length === 1 ? ' item' : ' items'))))
+                  document.createTextNode(count)))
         )));
 
-      for (const m of e.items) {
-        const tone = m.qualification === 'matched'   ? 'good'
-                   : m.qualification === 'uncertain' ? 'signal'
-                   : 'bad';
-        body.appendChild(entry({
+      for (const m of keep) {
+        drawn++;
+        const q = verdict(m);
+        const tone = q === 'matched' ? 'good' : q === 'uncertain' ? 'signal' : 'bad';
+        list.appendChild(entry({
           tone,
           rail: '#' + m.id,
           action: m.investor_name || m.organization_name || ('Item #' + m.id),
@@ -915,19 +1012,84 @@ RENDER.intake = function (body) {
             ['ticket     ', money(m.ticket_min_usd)],
             ['score      ', m.fit_score]
           ],
-          tags: [[m.qualification, tone]],
+          tags: [[q, tone]],
           actions: [
             { label: 'Open it', primary: true,
-              run: () => go(m.qualification === 'rejected' ? 'rejected' : 'opps') }
+              run: () => go(q === 'rejected' ? 'rejected' : 'opps') }
           ]
         }));
       }
     }
 
-    body.appendChild(el('p', { class: 'mono',
-      style: 'color:var(--ink-3);font-size:12px;margin-top:18px' },
-      emails.length + (emails.length === 1 ? ' email' : ' emails')
-      + ', ' + read + (read === 1 ? ' item' : ' items') + ' read out'));
+    if (view !== 'all' && !drawn) {
+      list.appendChild(empty('Nothing under that filter',
+        'Today\'s post carried no items with that verdict.'));
+    }
+  }
+
+  paintChips();
+  list.appendChild(el('p', { class: 'mono',
+    style: 'color:var(--ink-3);font-size:12px' }, 'Loading…'));
+
+  fill(list, async () => {
+    if (DEMO) return { demo: true, emails: [], incomplete: [] };
+
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+    const monthBack = new Date(Date.now() - 30 * 864e5).toISOString();
+
+    /* select=* on the published query, not a column list: fillSheet skips any
+       field missing from the object it is handed, so a trimmed select would
+       quietly shorten the form. */
+    const [emails, published] = await Promise.all([
+      supaSelect('wi_raw_emails',
+        'select=id,from_addr,subject,received_at'
+        + '&received_at=gte.' + encodeURIComponent(dayStart.toISOString())
+        + '&order=received_at.desc&limit=50'),
+      supaSelect('wi_mandates',
+        'select=*&published_at=not.is.null'
+        + '&created_at=gte.' + encodeURIComponent(monthBack)
+        + '&order=fit_score.desc.nullslast&limit=200')
+    ]);
+
+    const incomplete = published.filter(m => gapsOf(m).length > 0);
+
+    if (!emails.length) return { emails: [], incomplete: incomplete };
+
+    /* Two queries rather than a PostgREST embed, because an embed needs a
+       declared foreign key between wi_mandates and wi_raw_emails and there is
+       no guarantee one was ever created - WI 01 writes raw_email_id as a plain
+       bigint. Joining on the client costs one round trip and cannot break on a
+       schema detail. */
+    const ids = emails.map(e => e.id).filter(v => v !== null && v !== undefined);
+    const mandates = ids.length ? await supaSelect('wi_mandates',
+      'select=id,raw_email_id,investor_name,organization_name,qualification,fit_score,'
+      + 'investor_country,investor_type,investor_tag,strategies,ticket_min_usd,intention_summary'
+      + '&raw_email_id=in.(' + ids.join(',') + ')'
+      + '&order=id.asc&limit=300') : [];
+
+    const byEmail = new Map();
+    for (const m of mandates) {
+      const key = String(m.raw_email_id);
+      if (!byEmail.has(key)) byEmail.set(key, []);
+      byEmail.get(key).push(m);
+    }
+
+    return {
+      emails: emails.map(e =>
+        Object.assign({}, e, { items: byEmail.get(String(e.id)) || [] })),
+      incomplete: incomplete
+    };
+  }, (d) => {
+    if (d.demo) {
+      return list.appendChild(empty('Not in the sample',
+        'Intake reads the real mailbox. Sign in to see it.'));
+    }
+    data = d;
+    counts.intake = (d.emails || []).filter(e => !e.items.length).length;
+    paintCounts();
+    paintChips();
+    paint();
   });
 };
 
@@ -2545,6 +2707,10 @@ RENDER.hfn = function (body) {
   const title   = el('input', { class: 'search', placeholder: 'Title, e.g. Hedge Fund Alert — August 2026' });
   const pubName = el('input', { class: 'search', placeholder: 'Publisher, e.g. With Intelligence' });
   const issue   = el('input', { class: 'search', type: 'date' });
+  // Undated issues sort last, so an unset date would make a freshly filed
+  // newsletter look like it had failed to upload. Today is a better guess
+  // than nothing and is still editable before filing.
+  issue.value = new Date().toISOString().slice(0, 10);
   const send    = el('button', { class: 'btn' }, 'File it');
   const prog    = el('div', { class: 'bar' }, el('i'));
   prog.style.display = 'none';
@@ -2623,7 +2789,7 @@ RENDER.hfn = function (body) {
     return await supaSelect('hf_newsletters',
       'select=id,title,publisher,issue_date,public_url,summary,key_points,allocator_signals,'
       + 'managers_mentioned,relevance,summary_status,summary_error,summary_attempts,uploaded_at'
-      + '&order=uploaded_at.desc&limit=40');
+      + '&order=issue_date.desc.nullslast,uploaded_at.desc&limit=40');
   }, (rows) => {
     if (!rows.length) {
       return list.appendChild(empty('Nothing filed yet',
