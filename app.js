@@ -1008,6 +1008,18 @@ RENDER.intake = function (body) {
         : (keep.length + ' of ' + e.items.length + ' items');
 
       shownEmails++;
+
+      /* Under a verdict filter the email is context, not a result. Drawn as a
+         full card it carries the same weight as the mandates beneath it and
+         reads as the first hit in the list, which is the one thing it is not.
+         Under Everything and Nothing read the email IS the subject, so there
+         it keeps the card. */
+      if (view !== 'all' && view !== 'unread') {
+        list.appendChild(el('p', { class: 'mono',
+          style: 'font-size:10px;letter-spacing:.12em;text-transform:uppercase;'
+               + 'color:var(--ink-3);margin:24px 0 9px' },
+          (cleanText(e.subject) || 'No subject') + '  \u00B7  ' + count));
+      } else {
       list.appendChild(el('div', { class: 'entry' + (silent ? ' bad' : '') },
         el('div', { class: 'entry-rail' },
           el('span', { class: 'dot ' + (silent ? 'bad' : 'good') })),
@@ -1029,6 +1041,7 @@ RENDER.intake = function (body) {
                   el('span', { class: 'k' }, 'read out  '),
                   document.createTextNode(count)))
         )));
+      }
 
       for (const m of keep) {
         drawn++;
@@ -2950,9 +2963,17 @@ RENDER.hfn = function (body) {
         inner.appendChild(el('p', { style: 'margin:0 0 13px;line-height:1.6' }, p));
       }
 
-      if (signals.length)  { inner.appendChild(heading('Someone is allocating')); inner.appendChild(bullets(signals)); }
-      if (points.length)   { inner.appendChild(heading('Key points'));            inner.appendChild(bullets(points)); }
-      if (managers.length) { inner.appendChild(heading('Managers named'));        inner.appendChild(bullets([managers.join(', ')])); }
+      /* managers_mentioned means opposite things in the two folders. In trade
+         news it is peers and competitors being written about; in a family
+         office report it is the funds those offices already invest with, which
+         is competitive intelligence - whoever is named holds the relationship. */
+      const fo = (r.report_type || 'hedge_fund') === 'family_office';
+      if (signals.length)  { inner.appendChild(heading(fo ? 'Offices worth approaching' : 'Someone is allocating'));
+                             inner.appendChild(bullets(signals)); }
+      if (points.length)   { inner.appendChild(heading(fo ? 'Who they are' : 'Key points'));
+                             inner.appendChild(bullets(points)); }
+      if (managers.length) { inner.appendChild(heading(fo ? 'Managers they already use' : 'Managers named'));
+                             inner.appendChild(bullets([managers.join(', ')])); }
 
       const foot = [el('button', { class: 'btn btn-quiet', onclick: closeSheet }, 'Close')];
       if (r.public_url) {
