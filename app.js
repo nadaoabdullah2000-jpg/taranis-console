@@ -626,7 +626,7 @@ const TABS = [
     sub: 'Screened out on two or more criteria. Kept so you can see what was turned away, and why.' },
   { id: 'hfn',      icon: '\u25A4', label: 'WI reports',   title: 'With Intelligence reports', group: 'wi',
     sub: 'Filed by folder, each with a summary written beside it so you need not open the PDF.' },
-  { id: 'tools',    icon: '\u26C9', label: 'Tools & CPs',  title: 'Tools & counterparties',
+  { id: 'tools',    icon: '\u25A3', label: 'Tools & CPs',  title: 'Tools & counterparties',
     sub: 'Every tool, vendor and counterparty Taranis uses, and where each one stands.' },
   { id: 'contacts', icon: '\u25A0', label: 'Contacts',     title: 'Contacts',
     sub: 'The fundraising book. Who knows Taranis, when you last emailed, and what is owed.' },
