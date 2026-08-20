@@ -1,13 +1,43 @@
 --- app.js.orig	2026-08-19 12:45:33.416014326 +0000
-+++ app.js	2026-08-19 14:56:12.655086047 +0000
-@@ -39,7 +39,17 @@
++++ app.js	2026-08-20 08:01:22.846665834 +0000
+@@ -39,7 +39,47 @@
  let DEMO = false;                 // sample-data mode
  let session = null;               // { email, token }
  let pollTimer = null;
 -const counts = { today: 0, approvals: 0 };
-+const counts = { today: 0, approvals: 0, intake: 0, hfn: 0 };
++const counts = { today: 0, approvals: 0, intake: 0, hfn: 0, tools: 0 };
 +// Survives a re-render, so filling a gap does not lose your place.
 +let intakeView = 'all';
++// Today opens on what is still waiting; cleared notices are one click away.
++let todayView = 'new';
++
++/* jsonb columns arrive as arrays through PostgREST but as strings through the
++   gateway, and occasionally double-encoded. Two passes, then give up and
++   return empty rather than throwing inside a render. */
++const jsonArr = (v) => {
++  let x = v;
++  for (let i = 0; i < 2 && typeof x === 'string'; i++) {
++    try { x = JSON.parse(x); } catch (_) { x = []; }
++  }
++  return Array.isArray(x) ? x : [];
++};
++
++const TC_STATUS = {
++  not_reviewed:        ['Not reviewed',        ''],
++  pending_information: ['Pending information', 'signal'],
++  under_review:        ['Under review',        'signal'],
++  approved:            ['Approved',            'good'],
++  rejected:            ['Rejected',            'bad']
++};
++const TC_RISK = { low: ['Low', 'good'], medium: ['Medium', 'signal'], high: ['High', 'bad'] };
++
++/* Approved and rejected are deliberately absent. Neither is a field you set;
++   both are consequences of a decision being recorded, and the database will
++   refuse them any other way. Offering them in a dropdown would invite a
++   refusal the person could not act on. */
++const TC_SETTABLE = ['not_reviewed', 'pending_information', 'under_review'];
++
++let toolsView = 'all';
 +// Which folder of WI reports you are standing in. Editing or deleting a
 +// report re-renders the tab, and landing back in the other folder each time
 +// would be its own small annoyance.
@@ -19,7 +49,20 @@
  const PENDING = { q: null, qmode: null, draft: null, meet: null };   // a question handed from one tab to another
  
  /* ------------------------------------------------------------- DOM utils */
-@@ -372,6 +382,18 @@
+@@ -288,6 +328,12 @@
+   if (/null value in column/i.test(msg)) {
+     return 'A required column was left empty and has no default: ' + msg;
+   }
++  /* The compliance triggers raise sentences written for a person to read and
++     act on. Wrapping one in "Database returned 400" buries the only part that
++     says what to do about it, so they pass through untouched. */
++  if (/^Cannot approve |^A compliance decision must |^Compliance decisions cannot /.test(msg)) {
++    return msg;
++  }
+   if (/invalid input syntax|violates .* constraint/i.test(msg)) {
+     return 'The database rejected a value: ' + msg + (hint ? ' \u2014 ' + hint : '');
+   }
+@@ -372,6 +418,18 @@
    }
  }
  
@@ -38,25 +81,194 @@
  /** Upload a file to Supabase Storage. Returns the stored path. */
  async function uploadToStorage(file, path, onProgress, replace) {
    await ensureToken();
-@@ -530,6 +552,8 @@
+@@ -456,17 +514,43 @@
+   };
+ }
+ 
+-/* Held in sessionStorage, not localStorage: it survives a page refresh, which
+-   is what stops a reload throwing you back to the cover, and it is discarded
+-   when the tab is closed. */
++/* Session storage by default: it survives a page refresh, which stops a reload
++   throwing you back to the cover, and it is discarded when the tab closes.
++   That is the right default on a shared or borrowed machine and the wrong one
++   on a phone, where closing the app is not a decision to sign out and the
++   alternative is typing a password into a handset several times a day.
++
++   So persistence is offered rather than assumed. Tick the box on the way in
++   and the session also goes to localStorage, which outlives the app closing;
++   leave it and the old behaviour is unchanged. Signing out clears both. */
++const KEEP_KEY = 'taranis.keep';
++
++function keepSignedIn() {
++  try { return localStorage.getItem(KEEP_KEY) === '1'; } catch (_) { return false; }
++}
++
++function setKeepSignedIn(on) {
++  try {
++    if (on) { localStorage.setItem(KEEP_KEY, '1'); }
++    else { localStorage.removeItem(KEEP_KEY); localStorage.removeItem(SESSION_KEY); }
++  } catch (_) { /* private mode */ }
++}
++
+ function saveSession(s) {
+   session = s;
+-  try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(s)); } catch (_) { /* private mode */ }
++  const raw = JSON.stringify(s);
++  try {
++    sessionStorage.setItem(SESSION_KEY, raw);
++    if (keepSignedIn()) localStorage.setItem(SESSION_KEY, raw);
++  } catch (_) { /* private mode */ }
+ }
+ 
+ function loadSession() {
+-  try { const raw = sessionStorage.getItem(SESSION_KEY); return raw ? JSON.parse(raw) : null; }
+-  catch (_) { return null; }
++  try {
++    const raw = sessionStorage.getItem(SESSION_KEY)
++             || (keepSignedIn() ? localStorage.getItem(SESSION_KEY) : null);
++    return raw ? JSON.parse(raw) : null;
++  } catch (_) { return null; }
+ }
+ 
+ /** Supabase tokens last an hour. Trade the refresh token for a fresh one. */
+@@ -519,7 +603,9 @@
+ function signOut() {
+   session = null;
+   DEMO = false;
++  // Both stores, whichever this session happened to be written to.
+   try { sessionStorage.removeItem(SESSION_KEY); } catch (_) {}
++  try { localStorage.removeItem(SESSION_KEY); localStorage.removeItem(KEEP_KEY); } catch (_) {}
+   if (pollTimer) clearInterval(pollTimer);
+   $('app').className = '';
+   $('gate').style.display = 'grid';
+@@ -530,8 +616,18 @@
  const TABS = [
    { id: 'today',    icon: '\u25CF', label: 'Today',        title: 'Today',
      sub: 'What arrived while you were away, and what is waiting on you.' },
-+  { id: 'intake',   icon: '\u25A7', label: 'Intake',       title: "Today's intake",
+-  { id: 'approvals',icon: '\u25C6', label: 'Approvals',    title: 'Approvals',
++  { id: 'intake',   icon: '\u25A7', label: 'Intake',       title: "Today's intake", group: 'wi',
 +    sub: 'Every alert that arrived today and what was read out of it, forwarded or sent direct.' },
-   { id: 'approvals',icon: '\u25C6', label: 'Approvals',    title: 'Approvals',
++  { id: 'approvals',icon: '\u25C6', label: 'Approvals',    title: 'Approvals', group: 'wi',
      sub: 'Opportunities the screen could not settle on its own. Approve, correct, or reject.' },
++  { id: 'opps',     icon: '\u25B2', label: 'Opportunities',title: 'Opportunities', group: 'wi',
++    sub: 'Mandates worth a decision — matched outright, or missing on one point.' },
++  { id: 'rejected', icon: '\u25BD', label: 'Rejected',     title: 'Rejected mandates', group: 'wi',
++    sub: 'Screened out on two or more criteria. Kept so you can see what was turned away, and why.' },
++  { id: 'hfn',      icon: '\u25A4', label: 'WI reports',   title: 'With Intelligence reports', group: 'wi',
++    sub: 'Filed by folder, each with a summary written beside it so you need not open the PDF.' },
++  { id: 'tools',    icon: '\u26C9', label: 'Tools & CPs',  title: 'Tools & counterparties',
++    sub: 'Every tool, vendor and counterparty Taranis uses, and where each one stands.' },
    { id: 'contacts', icon: '\u25A0', label: 'Contacts',     title: 'Contacts',
-@@ -548,6 +572,8 @@
+     sub: 'The fundraising book. Who knows Taranis, when you last emailed, and what is owed.' },
+   { id: 'notes',    icon: '\u25A5', label: 'Notes',        title: 'Notes',
+@@ -540,10 +636,6 @@
+     sub: 'Draft to a contact, read it back, then send. Nothing leaves without you approving it.' },
+   { id: 'inbox',    icon: '\u25A4', label: 'Follow up',      title: 'Follow up',
+     sub: 'Who is owed a reply and who has gone quiet, clients first. Every message is still here if you need it.' },
+-  { id: 'opps',     icon: '\u25B2', label: 'Opportunities',title: 'Opportunities',
+-    sub: 'Mandates worth a decision — matched outright, or missing on one point.' },
+-  { id: 'rejected', icon: '\u25BD', label: 'Rejected',     title: 'Rejected mandates',
+-    sub: 'Screened out on two or more criteria. Kept so you can see what was turned away, and why.' },
+   { id: 'meetings', icon: '\u25D0', label: 'Zoom meetings', title: 'Zoom meetings',
      sub: 'Scheduled, waiting on approval, or cancelled. The join link and passcode live here.' },
    { id: 'docs',     icon: '\u25AC', label: 'Documents',    title: 'Documents',
-     sub: 'Upload a deck or report, and it is versioned, stored and announced to the team.' },
-+  { id: 'hfn',      icon: '\u25A4', label: 'WI reports',   title: 'With Intelligence reports',
-+    sub: 'Filed by folder, each with a summary written beside it so you need not open the PDF.' },
-   { id: 'reports',  icon: '\u25F0', label: 'Reports',      title: 'Weekly report',
-     sub: 'The Friday dashboard, read from the stored snapshot rather than a Telegram attachment.' },
-   { id: 'network',  icon: '\u25CB', label: 'Network',      title: 'LinkedIn network',
-@@ -806,6 +832,321 @@
+@@ -563,11 +655,26 @@
+ function buildNav() {
+   const list = $('navlist');
+   clear(list);
++  /* One heading above the first member of a group. These five tabs are fed by
++     the same pipeline out of the same mailbox, and saying so once in the nav
++     is cheaper than repeating it in five subtitles. */
++  const GROUPS = { wi: 'With Intelligence' };
++  let openGroup = null;
+   for (const t of TABS) {
++    if (t.group && t.group !== openGroup) {
++      list.appendChild(el('p', { class: 'mono',
++        style: 'font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;'
++             + 'color:var(--ink-3);margin:20px 0 6px;padding-left:12px' },
++        GROUPS[t.group]));
++      openGroup = t.group;
++    } else if (!t.group) {
++      openGroup = null;
++    }
+     const b = el('button', {
+       class: 'navbtn', type: 'button', 'data-tab': t.id,
+       onclick: () => go(t.id)
+     }, el('span', { class: 'ic' }, t.icon), el('span', null, t.label));
++    if (t.group) b.style.paddingLeft = '26px';
+     list.appendChild(b);
+   }
+   paintCounts();
+@@ -769,10 +876,32 @@
+       at: r.created_at, read: r.read_at !== null && r.read_at !== undefined
+     })) };
+   }, (d) => {
+-    const items = d.items || [];
+-    counts.today = items.filter(i => !i.read).length;
++    const all = d.items || [];
++    counts.today = all.filter(i => !i.read).length;
+     paintCounts();
+-    if (!items.length) return body.appendChild(empty('Nothing waiting', 'New alerts, reviews and replies land here.'));
++
++    /* Today means what is still waiting on you. Cleared notices stay one click
++       away rather than disappearing - marking something read should stop it
++       competing for attention, not erase that it happened. */
++    const chips = el('div', { class: 'chips', style: 'margin-bottom:14px' });
++    for (const [k, lbl] of [['new', 'New'], ['read', 'Cleared']]) {
++      const on = todayView === k;
++      const n = all.filter(i => k === 'read' ? i.read : !i.read).length;
++      const c = el('button', { class: 'chip',
++        onclick: () => { todayView = k; go('today'); } }, lbl + '  ' + n);
++      c.style.borderColor = on ? 'var(--accent)' : '';
++      c.style.color       = on ? 'var(--accent)' : '';
++      c.style.fontWeight  = on ? '600' : '';
++      chips.appendChild(c);
++    }
++    body.appendChild(chips);
++
++    const items = all.filter(i => todayView === 'read' ? i.read : !i.read);
++    if (!items.length) {
++      return body.appendChild(todayView === 'read'
++        ? empty('Nothing cleared yet', 'Notices you mark as read collect here.')
++        : empty('You are up to date', 'New alerts, reviews and replies land here.'));
++    }
+     for (const i of items) {
+       body.appendChild(entry({
+         tone: i.kind === 'review' ? 'signal' : i.kind === 'matched' ? 'good' : 'accent',
+@@ -793,11 +922,30 @@
+         ] : []).concat(i.read ? [] : [
+           // Anything you cannot clear stops being read. app_notifications
+           // already carries read_at and has an update policy for the console.
+-          { label: 'Mark as read', run: async () => {
++          /* Goes green in place before the row leaves the list. Re-rendering
++             at once made the notice vanish under the cursor with nothing to
++             show the click had registered, which reads as a misfire rather
++             than as done. The pause is the receipt. */
++          { label: 'Mark as read', run: async (ev) => {
++              const btn = ev && ev.target;
+               try {
+                 await supaPatch('app_notifications', 'id=eq.' + encodeURIComponent(i.id),
+                   { read_at: new Date().toISOString() });
+-                go('today');
++                const card = btn && btn.closest ? btn.closest('.entry') : null;
++                if (card) {
++                  card.style.transition = 'background-color .2s ease, border-color .2s ease';
++                  card.style.backgroundColor = 'var(--good-soft)';
++                  card.style.borderColor = 'var(--good)';
++                  const dot = card.querySelector('.dot');
++                  if (dot) dot.className = 'dot good';
++                }
++                if (btn && btn.tagName === 'BUTTON') {
++                  btn.textContent = 'Read';
++                  btn.disabled = true;
++                  btn.style.color = 'var(--good)';
++                  btn.style.borderColor = 'var(--good)';
++                }
++                setTimeout(() => { if (current === 'today') go('today'); }, 900);
+               } catch (e) { toast(e.message, true); }
+             } }
+         ])
+@@ -806,6 +954,321 @@
    });
  };
  
@@ -378,7 +590,566 @@
  RENDER.approvals = function (body) {
    // Was the last tab still going through n8n. When the gateway refuses on
    // the execution cap its error carries no CORS header, so the browser threw
-@@ -1841,6 +2182,7 @@
+@@ -859,6 +1322,558 @@
+   });
+ };
+ 
++/* The compliance register. Nothing here decides anything: the database holds
++   the rules, and this tab's job is to make the state of each record legible
++   and to carry a human decision to the one place that can act on it.
++
++   Two things it deliberately will not do. It will not offer "Approved" as a
++   status you can pick, because approval is a consequence of a recorded
++   decision rather than a field. And it will not hide the refusal when the
++   database says no - the trigger writes a sentence explaining exactly what is
++   outstanding, and that sentence is more useful than anything this tab could
++   invent in its place. */
++
++const tcMissing = (r) => jsonArr(r.missing_requirements);
++
++const tcDue = (r) => {
++  if (!r.next_review_date) return false;
++  const d = new Date(r.next_review_date + 'T23:59:59');
++  return !isNaN(d.getTime()) && d <= new Date();
++};
++
++function tcRow(label, node) {
++  return el('label', { class: 'field' }, el('span', null, label), node);
++}
++
++function tcSelect(options, value) {
++  const s = el('select', { class: 'search' });
++  for (const [v, lbl] of options) {
++    const o = el('option', { value: v }, lbl);
++    if (v === value) o.selected = true;
++    s.appendChild(o);
++  }
++  return s;
++}
++
++
++/* ---------------------------------------------- the record, and the decision
++
++   Requirements are edited as one list rather than two. The schema keeps
++   required_documents and documents_received apart, which is right for
++   computing what is missing, but presenting them as two editors would ask a
++   person to keep two lists in step by hand - and the moment they drift, the
++   outstanding count is wrong in a way nobody can see.
++*/
++
++function tcReqEditor(r) {
++  const host = el('div');
++  let docs   = jsonArr(r && r.required_documents);
++  let got    = jsonArr(r && r.documents_received);
++  let checks = jsonArr(r && r.compliance_checks);
++
++  const heading = (t, note) => el('div', { style: 'margin:22px 0 8px' },
++    el('p', { class: 'mono', style: 'font-size:10px;letter-spacing:.14em;'
++      + 'text-transform:uppercase;color:var(--ink-3);margin:0' }, t),
++    note ? el('p', { style: 'font-size:12.5px;color:var(--ink-3);margin:4px 0 0' }, note) : null);
++
++  const docList = el('div');
++  const chkList = el('div');
++
++  function drawDocs() {
++    clear(docList);
++    if (!docs.length) {
++      docList.appendChild(el('p', { style: 'font-size:13px;color:var(--ink-3);margin:0 0 6px' },
++        'No documents required yet.'));
++    }
++    docs.forEach((d, i) => {
++      const has = got.some(g => g.key === d.key);
++      const tick = el('input', { type: 'checkbox' });
++      tick.checked = has;
++      tick.addEventListener('change', () => {
++        if (tick.checked) {
++          if (!got.some(g => g.key === d.key)) {
++            got.push({ key: d.key, received_at: new Date().toISOString(),
++                       by: (session && session.email) || null });
++          }
++        } else {
++          got = got.filter(g => g.key !== d.key);
++        }
++        drawDocs();
++      });
++      const mand = el('input', { type: 'checkbox' });
++      mand.checked = d.mandatory !== false;
++      mand.addEventListener('change', () => { docs[i].mandatory = mand.checked; drawDocs(); });
++
++      docList.appendChild(el('div', { style: 'display:flex;gap:10px;align-items:center;'
++        + 'padding:7px 0;border-bottom:1px solid var(--rule-2)' },
++        tick,
++        el('span', { style: 'flex:1;font-size:13.5px'
++          + (has ? '' : ';color:var(--ink-2)') }, d.label || d.key),
++        el('span', { class: 'mono', style: 'font-size:11px;color:var(--ink-3);'
++          + 'display:flex;gap:5px;align-items:center' }, mand, 'required'),
++        el('button', { class: 'linkish', style: 'color:var(--bad)',
++          onclick: () => { docs.splice(i, 1); got = got.filter(g => g.key !== d.key); drawDocs(); } }, 'remove')));
++    });
++    const nd = el('input', { class: 'search', placeholder: 'Add a required document\u2026' });
++    nd.addEventListener('keydown', (e) => {
++      if (e.key !== 'Enter') return;
++      const label = nd.value.trim();
++      if (!label) return;
++      const key = label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
++      if (!docs.some(d => d.key === key)) docs.push({ key: key, label: label, mandatory: true });
++      nd.value = '';
++      drawDocs();
++    });
++    docList.appendChild(el('div', { style: 'margin-top:9px' }, nd));
++  }
++
++  function drawChecks() {
++    clear(chkList);
++    if (!checks.length) {
++      chkList.appendChild(el('p', { style: 'font-size:13px;color:var(--ink-3);margin:0 0 6px' },
++        'No checks defined yet.'));
++    }
++    checks.forEach((c, i) => {
++      const sel = tcSelect([['pending', 'Pending'], ['passed', 'Passed'], ['failed', 'Failed']],
++        c.status || 'pending');
++      sel.style.maxWidth = '130px';
++      sel.addEventListener('change', () => {
++        checks[i].status = sel.value;
++        checks[i].checked_at = new Date().toISOString();
++        checks[i].by = (session && session.email) || null;
++        drawChecks();
++      });
++      const mand = el('input', { type: 'checkbox' });
++      mand.checked = c.mandatory !== false;
++      mand.addEventListener('change', () => { checks[i].mandatory = mand.checked; });
++
++      chkList.appendChild(el('div', { style: 'display:flex;gap:10px;align-items:center;'
++        + 'padding:7px 0;border-bottom:1px solid var(--rule-2)' },
++        el('span', { style: 'flex:1;font-size:13.5px' }, c.label || c.key),
++        sel,
++        el('span', { class: 'mono', style: 'font-size:11px;color:var(--ink-3);'
++          + 'display:flex;gap:5px;align-items:center' }, mand, 'required'),
++        el('button', { class: 'linkish', style: 'color:var(--bad)',
++          onclick: () => { checks.splice(i, 1); drawChecks(); } }, 'remove')));
++    });
++    const nc = el('input', { class: 'search', placeholder: 'Add a compliance check\u2026' });
++    nc.addEventListener('keydown', (e) => {
++      if (e.key !== 'Enter') return;
++      const label = nc.value.trim();
++      if (!label) return;
++      const key = label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
++      if (!checks.some(c => c.key === key)) {
++        checks.push({ key: key, label: label, mandatory: true, status: 'pending' });
++      }
++      nc.value = '';
++      drawChecks();
++    });
++    chkList.appendChild(el('div', { style: 'margin-top:9px' }, nc));
++  }
++
++  host.append(
++    heading('Required documents', 'Tick one when it arrives. Untick "required" for anything optional.'),
++    docList,
++    heading('Compliance checks', 'A check counts as done only at Passed. Pending and Failed both block approval.'),
++    chkList);
++
++  drawDocs();
++  drawChecks();
++
++  return { node: host,
++           read: () => ({ required_documents: docs, documents_received: got, compliance_checks: checks }) };
++}
++
++function toolSheet(r) {
++  const isNew = !r;
++  r = r || {};
++
++  const name  = el('input', { class: 'search', value: r.name || '' });
++  const type  = tcSelect([['tool', 'Tool'], ['counterparty', 'Counterparty']], r.entity_type || 'tool');
++  const prov  = el('input', { class: 'search', value: r.provider || '' });
++  const purp  = el('input', { class: 'search', value: r.purpose || '' });
++  const owner = el('input', { class: 'search', value: r.owner || (session && session.email) || '' });
++  const risk  = tcSelect([['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], r.risk_level || 'medium');
++  const stat  = tcSelect(TC_SETTABLE.map(k => [k, TC_STATUS[k][0]]),
++                         TC_SETTABLE.indexOf(r.compliance_status) >= 0 ? r.compliance_status : 'not_reviewed');
++  const rev   = el('input', { class: 'search', value: r.reviewer || '' });
++  const lastR = el('input', { class: 'search', type: 'date', value: r.last_review_date || '' });
++  const nextR = el('input', { class: 'search', type: 'date', value: r.next_review_date || '' });
++  const notes = el('textarea', { class: 'search', rows: '3', style: 'resize:vertical' });
++  notes.value = r.notes || '';
++
++  const reqs = tcReqEditor(r);
++
++  const inner = el('div', { style: 'min-width:min(780px,80vw)' },
++    tcRow('Name', name),
++    el('div', { class: 'grid2' }, tcRow('Type', type), tcRow('Provider / company', prov)),
++    tcRow('Purpose / use case', purp),
++    el('div', { class: 'grid2' }, tcRow('Owner', owner), tcRow('Risk level', risk)),
++    reqs.node);
++
++  /* Locked out rather than offered and refused. The status control carries
++     only the three states a person actually sets; approved and rejected are
++     what a recorded decision does to the record, not what this form does. */
++  const gate = el('p', { style: 'font-size:12.5px;color:var(--ink-3);margin:6px 0 0' },
++    'Approved and Rejected are not on this list. Both follow from a decision '
++    + 'recorded under "Record a decision", which is also what the database requires.');
++
++  inner.append(
++    el('p', { class: 'mono', style: 'font-size:10px;letter-spacing:.14em;text-transform:uppercase;'
++      + 'color:var(--ink-3);margin:22px 0 8px' }, 'Where it stands'),
++    el('div', { class: 'grid2' }, tcRow('Status', stat), tcRow('Reviewer', rev)),
++    gate,
++    el('div', { class: 'grid2' }, tcRow('Last reviewed', lastR), tcRow('Next review', nextR)),
++    tcRow('Notes', notes));
++
++  if (!isNew) {
++    const missing = tcMissing(r);
++    inner.appendChild(el('div', { class: 'banner', style: missing.length
++        ? 'background:var(--bad-soft);border-color:var(--bad);color:var(--bad)' : '' },
++      el('b', null, missing.length
++        ? (missing.length + (missing.length === 1 ? ' requirement outstanding. ' : ' requirements outstanding. '))
++        : 'Nothing outstanding. '),
++      missing.length
++        ? missing.map(m => m.label).join(', ')
++        : 'This record can be put to a reviewer for a decision.'));
++  }
++
++  const save = el('button', { class: 'btn btn-sm' }, isNew ? 'Add it' : 'Save changes');
++  save.addEventListener('click', async () => {
++    if (!name.value.trim()) return toast('Give it a name.', true);
++    const payload = Object.assign({
++      name: name.value.trim(),
++      entity_type: type.value,
++      provider: prov.value.trim() || null,
++      purpose: purp.value.trim() || null,
++      owner: owner.value.trim() || null,
++      risk_level: risk.value,
++      compliance_status: stat.value,
++      reviewer: rev.value.trim() || null,
++      last_review_date: lastR.value || null,
++      next_review_date: nextR.value || null,
++      notes: notes.value.trim() || null
++    }, reqs.read());
++
++    /* An approved record must not be silently demoted because this form only
++       offers three states. Leave the status alone and let the decision path
++       own it. */
++    if (!isNew && (r.compliance_status === 'approved' || r.compliance_status === 'rejected')) {
++      delete payload.compliance_status;
++    }
++
++    try {
++      if (isNew) await supaInsert('tools_counterparties', payload);
++      else await supaPatch('tools_counterparties', 'id=eq.' + encodeURIComponent(r.id), payload);
++      closeSheet();
++      toast(isNew ? 'Added.' : 'Saved.');
++      go('tools');
++    } catch (e) { toast(e.message, true); }
++  });
++
++  sheet(isNew ? 'Add a tool or counterparty' : r.name, [inner],
++    [el('button', { class: 'btn btn-sm btn-quiet', onclick: closeSheet }, 'Cancel'), save]);
++}
++
++/* The only route to Approved or Rejected. Writes the decision first, then the
++   status - in that order, because the database checks for the decision before
++   it will accept the status, and doing it the other way round would fail on
++   every first attempt. */
++function decisionSheet(r) {
++  const missing  = tcMissing(r);
++  const docs     = jsonArr(r.required_documents);
++  const checks   = jsonArr(r.compliance_checks);
++  const reviewed = docs.map(d => ({ kind: 'document', key: d.key, label: d.label || d.key }))
++    .concat(checks.map(c => ({ kind: 'check', key: c.key, label: c.label || c.key,
++                               status: c.status || 'pending' })));
++
++  const decision = tcSelect(
++    (missing.length ? [] : [['approved', 'Approve']])
++      .concat([['more_information_required', 'Ask for more information'], ['rejected', 'Reject']]),
++    missing.length ? 'more_information_required' : 'approved');
++  const comments = el('textarea', { class: 'search', rows: '3', style: 'resize:vertical' });
++  const reason   = el('input', { class: 'search',
++    placeholder: 'Why, in one line \u2014 recorded against your name' });
++
++  const inner = el('div', { style: 'min-width:min(640px,76vw)' });
++
++  if (missing.length) {
++    inner.appendChild(el('div', { class: 'banner', style: 'background:var(--bad-soft);border-color:var(--bad);color:var(--bad)' },
++      el('b', null, 'Approval is not available. '),
++      missing.length + (missing.length === 1 ? ' mandatory requirement is ' : ' mandatory requirements are ')
++      + 'outstanding: ' + missing.map(m => m.label).join(', ')
++      + '. You can still ask for more information or reject.'));
++  }
++
++  inner.append(
++    el('p', { style: 'font-size:13.5px;color:var(--ink-2);margin:4px 0 16px;line-height:1.55' },
++      'This is recorded against your sign-in, with the time, and cannot be edited '
++      + 'afterwards. A correction is made by recording a further decision.'),
++    tcRow('Decision', decision),
++    tcRow('Reason', reason),
++    tcRow('Comments', comments));
++
++  if (reviewed.length) {
++    inner.append(
++      el('p', { class: 'mono', style: 'font-size:10px;letter-spacing:.14em;text-transform:uppercase;'
++        + 'color:var(--ink-3);margin:20px 0 8px' }, 'What you are confirming you reviewed'),
++      el('div', { class: 'ev' }, ...reviewed.map(x => el('div', null,
++        el('span', { class: 'k' }, (x.kind === 'check' ? 'check    ' : 'document ')),
++        document.createTextNode(x.label + (x.status ? ' \u2014 ' + x.status : ''))))));
++  }
++
++  const go2 = el('button', { class: 'btn btn-sm' }, 'Record it');
++  go2.addEventListener('click', async () => {
++    if (!reason.value.trim()) return toast('Give a reason. It is the part that is read later.', true);
++    const d = decision.value;
++    go2.disabled = true; go2.textContent = 'Recording\u2026';
++    try {
++      await supaInsert('compliance_reviews', {
++        subject_type: 'tool_counterparty',
++        subject_id: r.id,
++        decision: d,
++        // Overwritten server-side from the token. Sent so the row is complete
++        // if the trigger is ever absent, never trusted as the source.
++        decided_by: (session && session.email) || 'unknown',
++        reason: reason.value.trim(),
++        comments: comments.value.trim() || null,
++        requirements_reviewed: reviewed
++      });
++      const status = d === 'approved' ? 'approved'
++                   : d === 'rejected' ? 'rejected'
++                   : 'pending_information';
++      await supaPatch('tools_counterparties', 'id=eq.' + encodeURIComponent(r.id),
++        { compliance_status: status, last_review_date: new Date().toISOString().slice(0, 10) });
++      closeSheet();
++      toast('Decision recorded.');
++      go('tools');
++    } catch (e) {
++      toast(e.message, true);
++      go2.disabled = false; go2.textContent = 'Record it';
++    }
++  });
++
++  sheet('Decision \u2014 ' + r.name, [inner],
++    [el('button', { class: 'btn btn-sm btn-quiet', onclick: closeSheet }, 'Cancel'), go2]);
++}
++
++function historySheet(r) {
++  const inner = el('div', { style: 'min-width:min(720px,78vw)' });
++  inner.appendChild(el('p', { class: 'mono', style: 'font-size:12px;color:var(--ink-3);margin:0 0 14px' },
++    'Every change, newest first. Written by the database, not by this page.'));
++  const host = el('div');
++  inner.appendChild(host);
++  sheet('History \u2014 ' + r.name, [inner],
++    [el('button', { class: 'btn btn-sm btn-quiet', onclick: closeSheet }, 'Close')]);
++
++  fill(host, async () => {
++    const [log, revs] = await Promise.all([
++      supaSelect('audit_log',
++        'select=*&table_name=eq.tools_counterparties&row_id=eq.' + encodeURIComponent(r.id)
++        + '&order=changed_at.desc&limit=60'),
++      supaSelect('compliance_reviews',
++        'select=*&subject_type=eq.tool_counterparty&subject_id=eq.' + encodeURIComponent(r.id)
++        + '&order=decided_at.desc&limit=30')
++    ]);
++    return { log: log, revs: revs };
++  }, (d) => {
++    if (d.revs.length) {
++      host.appendChild(el('p', { class: 'mono', style: 'font-size:10px;letter-spacing:.14em;'
++        + 'text-transform:uppercase;color:var(--ink-3);margin:0 0 8px' }, 'Decisions'));
++      for (const v of d.revs) {
++        host.appendChild(entry({
++          tone: v.decision === 'approved' ? 'good' : v.decision === 'rejected' ? 'bad' : 'signal',
++          action: (TC_STATUS[v.decision] ? TC_STATUS[v.decision][0] : v.decision).replace(/_/g, ' '),
++          who: asText(v.reason),
++          evidence: [
++            ['by      ', v.decided_by],
++            ['at      ', fmtDate(v.decided_at)],
++            ['comments', asText(v.comments)],
++            ['reviewed', jsonArr(v.requirements_reviewed).length + ' items']
++          ]
++        }));
++      }
++    }
++    host.appendChild(el('p', { class: 'mono', style: 'font-size:10px;letter-spacing:.14em;'
++      + 'text-transform:uppercase;color:var(--ink-3);margin:22px 0 8px' }, 'Changes'));
++    if (!d.log.length) {
++      return host.appendChild(empty('Nothing recorded', 'Changes appear here as they are made.'));
++    }
++    for (const a of d.log) {
++      const ch = jsonArr(a.changes);
++      host.appendChild(entry({
++        tone: a.action === 'insert' ? 'good' : a.action === 'delete' ? 'bad' : 'accent',
++        action: a.action === 'insert' ? 'Created'
++              : a.action === 'delete' ? 'Deleted'
++              : ch.length + (ch.length === 1 ? ' field changed' : ' fields changed'),
++        who: (a.changed_by || 'unknown') + '  \u00B7  ' + fmtDate(a.changed_at),
++        evidence: ch.slice(0, 8).map(c => [
++          String(c.field).replace(/_/g, ' ').padEnd(10),
++          (asText(c.old) || '\u2014') + '  \u2192  ' + (asText(c.new) || '\u2014')
++        ])
++      }));
++    }
++  });
++}
++
++RENDER.tools = function (body) {
++  clear(body);
++
++  let all = null;
++
++  const find = el('input', { class: 'search', type: 'search',
++    placeholder: 'Name, provider or owner\u2026' });
++  const fType = tcSelect([['', 'Any type'], ['tool', 'Tools'], ['counterparty', 'Counterparties']], '');
++  const fRisk = tcSelect([['', 'Any risk'], ['high', 'High'], ['medium', 'Medium'], ['low', 'Low']], '');
++  const dueBox = el('input', { type: 'checkbox', id: 'tc-due' });
++  const dueLbl = el('label', { for: 'tc-due',
++    style: 'display:flex;gap:7px;align-items:center;font-size:13px;color:var(--ink-2);white-space:nowrap' },
++    dueBox, 'Review due');
++  const addBtn = el('button', { class: 'btn btn-sm', onclick: () => toolSheet(null) }, 'Add');
++
++  body.appendChild(el('div', { class: 'toolbar' }, find, fType, fRisk, dueLbl, addBtn));
++
++  const chips = el('div', { class: 'chips', style: 'margin:12px 0 4px' });
++  const out = el('div');
++  body.append(chips, out);
++
++  const VIEWS = [
++    ['all',          'Everything',   'accent'],
++    ['outstanding',  'Outstanding',  'signal'],
++    ['not_reviewed', 'Not reviewed', ''],
++    ['under_review', 'Under review', 'signal'],
++    ['approved',     'Approved',     'good'],
++    ['rejected',     'Rejected',     'bad'],
++    ['high',         'High risk',    'bad']
++  ];
++  const btns = {};
++  for (const [k, lbl] of VIEWS) {
++    btns[k] = el('button', { class: 'chip',
++      onclick: () => { toolsView = k; paintChips(); paint(); } }, lbl);
++    chips.appendChild(btns[k]);
++  }
++
++  const inView = (r, k) =>
++      k === 'all'         ? true
++    : k === 'outstanding' ? tcMissing(r).length > 0
++    : k === 'high'        ? r.risk_level === 'high'
++    :                       r.compliance_status === k;
++
++  function paintChips() {
++    for (const [k, lbl, tone] of VIEWS) {
++      const b = btns[k];
++      const on = k === toolsView;
++      b.style.borderColor = on ? 'var(--' + (tone || 'accent') + ')' : '';
++      b.style.color       = on ? 'var(--' + (tone || 'accent') + ')' : '';
++      b.style.fontWeight  = on ? '600' : '';
++      if (all) {
++        const n = all.filter(r => inView(r, k)).length;
++        b.textContent = lbl + '  ' + n;
++        b.style.opacity = n ? '' : '.45';
++      } else {
++        b.textContent = lbl;
++      }
++    }
++  }
++
++  function paint() {
++    clear(out);
++    const q = find.value.trim().toLowerCase();
++    let rows = all.filter(r => inView(r, toolsView));
++    if (fType.value) rows = rows.filter(r => r.entity_type === fType.value);
++    if (fRisk.value) rows = rows.filter(r => r.risk_level === fRisk.value);
++    if (dueBox.checked) rows = rows.filter(tcDue);
++    if (q) {
++      rows = rows.filter(r => [r.name, r.provider, r.owner, r.purpose]
++        .some(v => String(v || '').toLowerCase().includes(q)));
++    }
++
++    if (!rows.length) {
++      return out.appendChild(all.length
++        ? empty('Nothing under that filter', 'Widen the filters, or clear the search box.')
++        : empty('The register is empty',
++            'Add the first tool or counterparty and it starts at Not reviewed.'));
++    }
++
++    for (const r of rows) {
++      const missing = tcMissing(r);
++      const st = TC_STATUS[r.compliance_status] || ['Unknown', ''];
++      const rk = TC_RISK[r.risk_level] || ['?', ''];
++      const due = tcDue(r);
++
++      /* The warning outranks the status. A record can read Under review and
++         still be four documents short, and the second fact is the one that
++         decides what happens next. */
++      let call = null, callLabel = null, callTone = '';
++      if (missing.length) {
++        call = missing.map(m => m.label + (m.why === 'failed' ? ' (failed)' : '')).join('   \u00B7   ');
++        callLabel = missing.length === 1 ? '1 requirement outstanding'
++                                         : missing.length + ' requirements outstanding';
++        callTone = 'bad';
++      } else if (r.compliance_status === 'approved' && due) {
++        call = 'The review date has passed. Approval stands until someone reconsiders it.';
++        callLabel = 'Review overdue';
++        callTone = 'signal';
++      } else if (r.compliance_status === 'approved') {
++        call = 'Approved by ' + (r.approved_by || 'a reviewer')
++             + (r.approval_date ? ' on ' + fmtDate(r.approval_date) : '') + '.';
++        callLabel = 'Cleared';
++        callTone = 'good';
++      } else if (r.compliance_status !== 'rejected') {
++        call = 'Nothing outstanding. It needs a reviewer to record a decision.';
++        callLabel = 'Ready for a decision';
++        callTone = 'signal';
++      }
++
++      out.appendChild(entry({
++        tone: missing.length ? 'bad' : (st[1] || 'accent'),
++        rail: '#' + r.id,
++        action: r.name,
++        who: asText(r.purpose),
++        callout: call,
++        calloutLabel: callLabel,
++        calloutTone: callTone,
++        evidence: [
++          ['type      ', r.entity_type === 'counterparty' ? 'Counterparty' : 'Tool'],
++          ['provider  ', asText(r.provider)],
++          ['owner     ', asText(r.owner)],
++          ['reviewer  ', asText(r.reviewer)],
++          ['last review', r.last_review_date ? fmtDate(r.last_review_date) : null],
++          ['next review', r.next_review_date ? fmtDate(r.next_review_date) : null]
++        ],
++        tags: [[st[0], st[1]], [rk[0] + ' risk', rk[1]]].concat(due ? [['review due', 'signal']] : []),
++        actions: [
++          { label: 'Open', primary: true, run: () => toolSheet(r) },
++          { label: 'Record a decision', run: () => decisionSheet(r) },
++          { label: 'History', run: () => historySheet(r) }
++        ]
++      }));
++    }
++
++    out.appendChild(el('p', { class: 'mono',
++      style: 'color:var(--ink-3);font-size:12px;margin-top:18px' },
++      'Showing ' + rows.length + ' of ' + all.length));
++  }
++
++  for (const c of [fType, fRisk]) c.addEventListener('change', paint);
++  dueBox.addEventListener('change', paint);
++  find.addEventListener('input', () => { if (all) paint(); });
++
++  paintChips();
++  out.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading\u2026'));
++
++  fill(out, async () => {
++    if (DEMO) return [];
++    return await supaSelect('tools_counterparties', 'select=*&order=name.asc&limit=300');
++  }, (rows) => {
++    all = rows;
++    counts.tools = rows.filter(r => tcMissing(r).length > 0).length;
++    paintCounts();
++    paintChips();
++    paint();
++  });
++};
++
+ RENDER.contacts = function (body) {
+   const bar = el('div', { class: 'toolbar' });
+   const input = el('input', { class: 'search', type: 'search', placeholder: 'Name, firm or city…' });
+@@ -1841,6 +2856,7 @@
      ['all',       'Everything',            'x'],
      ['one',       'Missed by one',         'x'],
      ['none',      'No reason recorded',    'x'],
@@ -386,7 +1157,7 @@
      ['strategy',  'Strategy',              'r'],
      ['asset',     'Asset class',           'r'],
      ['type',      'Investor type',         'r'],
-@@ -1874,7 +2216,12 @@
+@@ -1874,7 +2890,12 @@
        // The counts will not add up to the total, and should not: a mandate
        // that missed on three criteria is counted under all three.
        if (all) {
@@ -400,7 +1171,7 @@
          b.textContent = lbl + '  ' + n;
          b.style.opacity = n ? '' : '.45';
        } else {
-@@ -1908,6 +2255,21 @@
+@@ -1908,6 +2929,21 @@
      return out;
    };
  
@@ -422,7 +1193,7 @@
    const missCount = (n) =>
      n === 0 ? 'no reason was recorded'
      : n === 1 ? 'one criterion only'
-@@ -1967,7 +2329,9 @@
+@@ -1967,7 +3003,9 @@
      clear(out);
      if (!all) return;
      const q = find.value.trim().toLowerCase();
@@ -433,7 +1204,7 @@
  
      rows = rows.filter(m => passes(m, tone));
  
-@@ -1994,10 +2358,19 @@
+@@ -1994,10 +3032,19 @@
          el('b', null, 'This filter reads the record, not the reason. '), DATA_ONLY[tone]));
      }
  
@@ -453,7 +1224,7 @@
          : tone === 'ticket' ? 'No rejected mandate has a ticket under USD 500,000.'
          : 'No mandate was turned away for that reason.'));
      }
-@@ -2040,7 +2413,8 @@
+@@ -2040,7 +3087,8 @@
      }
      out.appendChild(el('p', { class: 'mono',
        style: 'color:var(--ink-3);font-size:12px;margin-top:18px' },
@@ -463,7 +1234,7 @@
        + (tone === 'all' ? '. The counts on the filters overlap \u2014 a mandate that missed on three criteria is counted under all three.' : '')));
    }
  
-@@ -2395,6 +2769,396 @@
+@@ -2395,6 +3443,396 @@
    });
  };
  
@@ -860,7 +1631,7 @@
  RENDER.reports = function (body) {
    clear(body);
  
-@@ -4121,12 +4885,27 @@
+@@ -4121,12 +5559,27 @@
  async function poll() {
    if (document.hidden) return;          // a background tab counts nothing
    try {
@@ -890,3 +1661,32 @@
      paintCounts();
    } catch (_) { /* a failed poll is not worth interrupting anyone */ }
  }
+@@ -4263,6 +5716,8 @@
+   }
+   const b = $('gate-go'); b.disabled = true; b.textContent = 'Signing in…';
+   try {
++    // Set before saveSession, which reads it to decide where the session goes.
++    setKeepSignedIn(!!(keepBox && keepBox.checked));
+     saveSession(await signInWithPassword(email, pass));
+     $('gate-pass').value = '';
+     $('gate-note').textContent = 'Only addresses on the allow list can sign in.';
+@@ -4272,6 +5727,19 @@
+   } finally { b.disabled = false; b.textContent = 'Sign in'; }
+ }
+ 
++/* Built here rather than in index.html so the whole change is one file. The
++   box is ticked by default on a touch device and cleared everywhere else: a
++   phone is a personal device where signing out is deliberate, a desktop may
++   be shared. Either way it is visible and the person can overrule it. */
++const keepBox = el('input', { type: 'checkbox', id: 'gate-keep' });
++keepBox.checked = keepSignedIn()
++  || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
++const keepRow = el('p', { class: 'gate-note',
++  style: 'display:flex;gap:8px;align-items:center;justify-content:center;margin-top:10px' },
++  keepBox, el('label', { for: 'gate-keep', style: 'cursor:pointer' }, 'Keep me signed in on this device'));
++const goBtn = $('gate-go');
++if (goBtn && goBtn.parentElement) goBtn.parentElement.insertBefore(keepRow, goBtn.nextSibling);
++
+ $('gate-go').addEventListener('click', doSignIn);
+ $('gate-email').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('gate-pass').focus(); });
+ $('gate-pass').addEventListener('keydown', (e) => { if (e.key === 'Enter') doSignIn(); });
