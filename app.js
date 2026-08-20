@@ -39,7 +39,7 @@ const CFG = Object.assign({
 let DEMO = false;                 // sample-data mode
 let session = null;               // { email, token }
 let pollTimer = null;
-const counts = { today: 0, approvals: 0, intake: 0, hfn: 0, tools: 0 };
+const counts = { today: 0, approvals: 0, opps: 0, intake: 0, hfn: 0, tools: 0 };
 // Survives a re-render, so filling a gap does not lose your place.
 let intakeView = 'all';
 // Today opens on what is still waiting; cleared notices are one click away.
@@ -116,6 +116,154 @@ function toast(msg, bad) {
    raw they come out as [object Object], or as nothing at all when empty. */
 /* Ticket sizes are the numbers people actually read on these screens, and
    100000 against 1000000 is genuinely hard to tell apart at a glance. */
+/* Any number a person reads. 1000000 and 1000000.00 are the same figure and
+   both are misread at a glance; 1,000,000 is not. Trailing zeros from a
+   Postgres numeric are dropped because they say nothing. */
+function num(v) {
+  if (v === null || v === undefined || v === '') return '';
+  const n = Number(v);
+  if (!isFinite(n)) return String(v);
+  const s = (Math.abs(n) < 1 || n % 1 !== 0) ? String(parseFloat(n.toFixed(4))) : String(Math.round(n));
+  const [i, f] = s.split('.');
+  return i.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (f ? '.' + f : '');
+}
+
+/* "0.85" tells you nothing unless you already know the range. "0.85 / 1" does,
+   which is the whole of the request. */
+function scoreText(v) {
+  if (v === null || v === undefined || v === '') return '';
+  const n = Number(v);
+  if (!isFinite(n)) return String(v);
+  return parseFloat(n.toFixed(2)) + ' / 1';
+}
+
+/* The six things WI 01 actually tests, in the order it tests them.
+   Deliberately built from what the workflow RECORDED rather than re-derived
+   here: hard_fail_reasons, missing_hard_fields and soft_flags are its own
+   verdict, so a card explaining a decision cannot disagree with the decision.
+   Re-checking the criteria in the browser would be a second implementation,
+   and the day the two differ is the day neither can be trusted. */
+const TARANIS_CRITERIA = [
+  { key: 'asset',    wants: 'Asset class includes hedge funds',
+    fail: /asset class/i,              missing: 'asset_class',
+    has: (m) => jsonArr(m.asset_classes).join(', ') },
+  { key: 'country',  wants: 'Investor based in the UK, Switzerland or the US',
+    fail: /outside GB\/CH\/US/i,       missing: 'investor_country',
+    has: (m) => [m.investor_city, m.investor_country].filter(Boolean).join(', ') },
+  { key: 'strategy', wants: 'An eligible strategy — equity long/short, market neutral, quant, systematic, CTA or macro',
+    fail: /no eligible strategy/i,     missing: 'strategies',  soft: /strategy is/i,
+    has: (m) => jsonArr(m.strategies).join(', ').replace(/_/g, ' ') },
+  { key: 'ticket',   wants: 'Ticket of USD 500,000 or more',
+    fail: /ticket below/i,             missing: 'ticket_size', soft: /minimum ticket/i,
+    has: (m) => money(m.ticket_max_usd) || money(m.ticket_min_usd) },
+  { key: 'emerging', wants: 'Open to emerging managers',
+    fail: /emerging managers/i,        missing: 'emerging_managers',
+    has: (m) => m.open_to_emerging_managers === true ? 'Yes'
+              : m.open_to_emerging_managers === false ? 'No' : '' },
+  { key: 'type',     wants: 'An allocator — family office, institution, endowment, pension, consultant or similar',
+    fail: /ineligible type/i,          missing: 'investor_type',
+    has: (m) => m.investor_type || '' }
+];
+
+/* met | failed | soft | unknown. "unknown" is its own state on purpose: an
+   alert that never stated a ticket size is not the same as one that stated a
+   ticket below the floor, and collapsing the two would make the card lie. */
+function taranisScorecard(m) {
+  const fails   = jsonArr(m.hard_fail_reasons).map(String);
+  const missing = jsonArr(m.missing_hard_fields).map(String);
+  const softs   = jsonArr(m.soft_flags).map(String);
+  return TARANIS_CRITERIA.map(c => {
+    const failed = fails.find(f => c.fail.test(f));
+    const soft   = c.soft ? softs.find(f => c.soft.test(f)) : null;
+    const gap    = missing.some(x => x === c.missing);
+    return {
+      wants: c.wants,
+      has:   String(c.has(m) || '').trim(),
+      state: failed ? 'failed' : gap ? 'unknown' : soft ? 'soft' : 'met',
+      note:  failed || soft || null
+    };
+  });
+}
+
+const MARK = {
+  met:     ['\u2713', 'var(--good)',   'Meets it'],
+  soft:    ['\u2713', 'var(--signal)', 'Plausible, not proven'],
+  failed:  ['\u2715', 'var(--bad)',    'Does not meet it'],
+  unknown: ['\u2013', 'var(--ink-3)',  'The alert never said']
+};
+
+/* "0.85" tells you nothing unless you already know the range. "0.85 / 1" does,
+   and clicking it says why. */
+function scoreText(v) {
+  if (v === null || v === undefined || v === '') return '';
+  const n = Number(v);
+  if (!isFinite(n)) return String(v);
+  return parseFloat(n.toFixed(2)) + ' / 1';
+}
+
+function scoreChip(v, m) {
+  const t = scoreText(v);
+  if (!t) return document.createTextNode('');
+  const b = el('button', { class: 'linkish', title: 'Why this score',
+    style: 'font:inherit;padding:0;text-decoration:underline dotted' }, t);
+
+  b.addEventListener('click', () => {
+    const box = el('div', { style: 'min-width:min(720px,80vw)' });
+
+    box.appendChild(el('p', { style: 'margin:0 0 4px;font-size:15px' },
+      m ? (m.investor_name || m.organization_name || 'This investor') : 'How the score works'));
+    box.appendChild(el('p', { class: 'mono',
+      style: 'color:var(--ink-3);font-size:12px;margin:0 0 18px' },
+      t + '   \u00B7   ' + (m ? String(m.qualification || '').replace(/_/g,' ') : 'scoring bands')));
+
+    if (m) {
+      const head = (a, bb) => el('div', { style: 'display:grid;grid-template-columns:26px 1fr 1fr;'
+        + 'gap:14px;padding:0 0 7px;border-bottom:1px solid var(--rule)' },
+        el('span', null, ''),
+        el('span', { class: 'mono', style: 'font-size:10px;letter-spacing:.14em;'
+          + 'text-transform:uppercase;color:var(--ink-3)' }, a),
+        el('span', { class: 'mono', style: 'font-size:10px;letter-spacing:.14em;'
+          + 'text-transform:uppercase;color:var(--ink-3)' }, bb));
+      box.appendChild(head('What Taranis needs', 'What this investor is'));
+
+      for (const row of taranisScorecard(m)) {
+        const [glyph, colour, label] = MARK[row.state];
+        box.appendChild(el('div', { title: label,
+          style: 'display:grid;grid-template-columns:26px 1fr 1fr;gap:14px;'
+               + 'padding:11px 0;border-bottom:1px solid var(--rule-2);align-items:start' },
+          el('span', { style: 'color:' + colour + ';font-weight:700;font-size:15px;line-height:1.3' }, glyph),
+          el('span', { style: 'font-size:13.5px;line-height:1.45' }, row.wants),
+          el('span', { style: 'font-size:13.5px;line-height:1.45;color:'
+            + (row.state === 'unknown' ? 'var(--ink-3)' : 'inherit') },
+            row.has || (row.state === 'unknown' ? 'Not stated in the alert' : '\u2014'))));
+        if (row.note) {
+          box.appendChild(el('p', { style: 'margin:-4px 0 0 40px;font-size:12.5px;color:' + colour }, row.note));
+        }
+      }
+
+      box.appendChild(el('p', { style: 'margin:18px 0 0;font-size:12.5px;color:var(--ink-3);line-height:1.55' },
+        'A dash means the alert never stated it, which is not the same as failing — '
+        + 'those are the gaps worth filling before a decision.'));
+    }
+
+    box.appendChild(el('p', { class: 'mono', style: 'font-size:10px;letter-spacing:.14em;'
+      + 'text-transform:uppercase;color:var(--ink-3);margin:22px 0 8px' }, 'What the number means'));
+    for (const [k, d] of [
+      ['0.75 and up',   'Published to the team automatically.'],
+      ['0.30 to 0.74',  'Sent to a person. Usually one criterion missed, or a field the alert never stated.'],
+      ['Below 0.30',    'Turned away.']
+    ]) {
+      box.appendChild(el('div', { style: 'display:flex;gap:14px;margin:0 0 8px;font-size:13.5px' },
+        el('span', { style: 'min-width:104px;color:var(--ink-3)' }, k),
+        el('span', null, d)));
+    }
+
+    sheet('Why this score', [box],
+      [el('button', { class: 'btn btn-sm btn-quiet', onclick: closeSheet }, 'Close')]);
+  });
+  return b;
+}
+
 function money(v) {
   if (v === null || v === undefined || v === '') return '';
   const n = Number(String(v).replace(/[^0-9.-]/g, ''));
@@ -616,25 +764,23 @@ function signOut() {
 const TABS = [
   { id: 'today',    icon: '\u25CF', label: 'Today',        title: 'Today',
     sub: 'What arrived while you were away, and what is waiting on you.' },
-  { id: 'intake',   icon: '\u25A7', label: 'Intake',       title: "Today's intake", group: 'wi',
-    sub: 'Every alert that arrived today and what was read out of it, forwarded or sent direct.' },
-  { id: 'approvals',icon: '\u25C6', label: 'Approvals',    title: 'Approvals', group: 'wi',
-    sub: 'Opportunities the screen could not settle on its own. Approve, correct, or reject.' },
-  { id: 'opps',     icon: '\u25B2', label: 'Opportunities',title: 'Opportunities', group: 'wi',
-    sub: 'Mandates worth a decision — matched outright, or missing on one point.' },
-  { id: 'rejected', icon: '\u25BD', label: 'Rejected',     title: 'Rejected mandates', group: 'wi',
+  { id: 'opps',     icon: '\u25B8', label: 'Opportunities', title: 'Opportunities', group: 'wi',
+    sub: 'The live pipeline. Filter by read and by approved rather than moving between queues.' },
+  { id: 'approvals',icon: '\u2192', label: 'Approved',      title: 'Approved opportunities', group: 'wi', sub2: true,
+    sub: 'The ones a person has approved. A subset of Opportunities, not a separate list.' },
+  { id: 'rejected', icon: '\u25BD', label: 'Rejected',      title: 'Rejected', group: 'wi',
     sub: 'Screened out on two or more criteria. Kept so you can see what was turned away, and why.' },
-  { id: 'hfn',      icon: '\u25A4', label: 'WI reports',   title: 'With Intelligence reports', group: 'wi',
-    sub: 'Filed by folder, each with a summary written beside it so you need not open the PDF.' },
+  { id: 'hfn',      icon: '\u25A4', label: 'HFA & FOC',     title: 'Hedge Fund Alert & Family Office Confidential', group: 'wi',
+    sub: 'Filed by publication, each with a summary written beside it so you need not open the PDF.' },
   { id: 'tools',    icon: '\u25A3', label: 'Tools & CPs',  title: 'Tools & counterparties',
     sub: 'Every tool, vendor and counterparty Taranis uses, and where each one stands.' },
-  { id: 'contacts', icon: '\u25A0', label: 'Contacts',     title: 'Contacts',
+  { id: 'contacts', archived: true, icon: '\u25A0', label: 'Contacts',     title: 'Contacts',
     sub: 'The fundraising book. Who knows Taranis, when you last emailed, and what is owed.' },
   { id: 'notes',    icon: '\u25A5', label: 'Notes',        title: 'Notes',
     sub: 'What was said, where, and with whom. Linked to the contact book when the person is in it.' },
-  { id: 'email',    icon: '\u2709', label: 'Email',        title: 'Email',
+  { id: 'email', archived: true,    icon: '\u2709', label: 'Email',        title: 'Email',
     sub: 'Draft to a contact, read it back, then send. Nothing leaves without you approving it.' },
-  { id: 'inbox',    icon: '\u25A4', label: 'Follow up',      title: 'Follow up',
+  { id: 'inbox', archived: true,    icon: '\u25A4', label: 'Follow up',      title: 'Follow up',
     sub: 'Who is owed a reply and who has gone quiet, clients first. Every message is still here if you need it.' },
   { id: 'meetings', icon: '\u25D0', label: 'Zoom meetings', title: 'Zoom meetings',
     sub: 'Scheduled, waiting on approval, or cancelled. The join link and passcode live here.' },
@@ -644,8 +790,11 @@ const TABS = [
     sub: 'The Friday dashboard, read from the stored snapshot rather than a Telegram attachment.' },
   { id: 'network',  icon: '\u25CB', label: 'Network',      title: 'LinkedIn network',
     sub: 'First-degree connections, separate from the contact book.' },
-  { id: 'search',   icon: '\u2315', label: 'Search',       title: 'Search everything',
-    sub: 'One box across people, email, notes, documents and mandates.' },
+  { id: 'find',     icon: '\u2317', label: 'Find an investor', foot: true,
+    title: 'Find an investor',
+    sub: 'Filter every screened mandate by date, type, geography, asset class, strategy or ticket.' },
+  { id: 'search',   icon: '\u2315', label: 'Filter & find', foot: true,       title: 'Filter and find',
+    sub: 'Narrow the whole mandate history by date, investor type, geography, asset class or strategy.' },
   { id: 'ask',      icon: '\u25C7', label: 'Ask',          title: 'Ask',
     sub: 'Anything you used to type into the bot. It queries before it answers.' }
 ];
@@ -661,6 +810,11 @@ function buildNav() {
   const GROUPS = { wi: 'With Intelligence' };
   let openGroup = null;
   for (const t of TABS) {
+    /* Archived, not removed. The entry stays in TABS so go() can still find it
+       and the pages keep working when something links to one — "Draft an email"
+       from a contact, a search result opening a thread. It simply stops taking
+       up a line in the nav. Reversible by deleting one flag. */
+    if (t.archived) continue;
     if (t.group && t.group !== openGroup) {
       list.appendChild(el('p', { class: 'mono',
         style: 'font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;'
@@ -674,7 +828,8 @@ function buildNav() {
       class: 'navbtn', type: 'button', 'data-tab': t.id,
       onclick: () => go(t.id)
     }, el('span', { class: 'ic' }, t.icon), el('span', null, t.label));
-    if (t.group) b.style.paddingLeft = '26px';
+    if (t.group) b.style.paddingLeft = t.sub2 ? '42px' : '26px';
+    if (t.foot) b.style.marginTop = '18px';
     list.appendChild(b);
   }
   paintCounts();
@@ -692,6 +847,9 @@ function paintCounts() {
 function go(id) {
   current = id;
   const t = TABS.find(x => x.id === id);
+  // Intake and the old Approvals queue were folded into Opportunities. Anything
+  // still holding a stale id lands somewhere real instead of throwing.
+  if (!t || !RENDER[id]) return go('opps');
   document.querySelectorAll('.navbtn').forEach(b =>
     b.setAttribute('aria-current', b.getAttribute('data-tab') === id ? 'page' : 'false'));
   $('pg-title').textContent = t.title;
@@ -709,17 +867,39 @@ function go(id) {
  * to answer: the action first, then the evidence for it, indented.
  */
 function entry(o) {
+  /* A dot the same colour on every row carries no information and still asks
+     to be read, so it is drawn only where the tone actually distinguishes
+     this row from its neighbours. The rail keeps its coloured edge either way.
+
+     The row id goes with it. "#485412" is how the database refers to a record,
+     not how a person does; it stays available on hover for when you need to
+     quote one, and out of the way the rest of the time. */
   const rail = el('div', { class: 'entry-rail' },
-    el('span', { class: 'dot ' + (o.tone || '') }),
-    o.rail ? el('span', { class: 'rail-n' }, o.rail) : null);
+    o.tone ? el('span', { class: 'dot ' + o.tone }) : null,
+    o.rail ? el('span', { class: 'rail-n', title: 'Record ' + o.rail,
+                          style: 'opacity:.32' }, o.rail) : null);
 
   const ev = el('div', { class: 'ev' });
   for (const [k, v] of (o.evidence || [])) {
     if (v === null || v === undefined || v === '') continue;
     const hot = /last email|email|starts|on\s/.test(k);
-    ev.appendChild(el('div', null,
-      el('span', { class: 'k' }, k + '  '),
-      hot ? el('span', { class: 'gold' }, String(v)) : document.createTextNode(String(v))));
+    /* Formatting belongs here rather than at forty call sites: every caller
+       passes a raw column value, and every reader wants a figure they can
+       read. A score additionally gets its scale and its explanation. */
+    const key = String(k).trim();
+    let node;
+    if (/^score$/i.test(key)) {
+      // o.record lets the card compare this investor against each criterion
+      // rather than only explaining the bands.
+      node = scoreChip(v, o.record);
+    } else if (typeof v === 'number' || (/^-?\d+(\.\d+)?$/.test(String(v)) && !/url|id$/i.test(key))) {
+      node = document.createTextNode(num(v));
+    } else if (hot) {
+      node = el('span', { class: 'gold' }, String(v));
+    } else {
+      node = document.createTextNode(String(v));
+    }
+    ev.appendChild(el('div', null, el('span', { class: 'k' }, k + '  '), node));
   }
 
   /* A callout: the one thing about this row you are meant to read before
@@ -1078,6 +1258,7 @@ RENDER.intake = function (body) {
         callout: g.join(', ').replace(/_/g, ' '),
         calloutLabel: g.length === 1 ? 'One field missing' : g.length + ' fields missing',
         calloutTone: 'signal',
+        record: m,
         evidence: [
           ['score     ', m.fit_score],
           ['published ', m.published_at ? fmtDate(m.published_at) : null],
@@ -1174,6 +1355,7 @@ RENDER.intake = function (body) {
           rail: '#' + m.id,
           action: m.investor_name || m.organization_name || ('Item #' + m.id),
           who: asText(m.intention_summary),
+          record: m,
           evidence: [
             ['WI filed as', asText(m.investor_tag)],
             ['country    ', asText(m.investor_country)],
@@ -1278,7 +1460,7 @@ RENDER.approvals = function (body) {
     const rows = await readRows('wi_mandates',
       'select=id,investor_name,organization_name,investor_country,investor_type,'
       + 'ticket_min_usd,fit_score,fit_reason'
-      + '&qualification=eq.uncertain&published_at=is.null'
+      + '&qualification=eq.matched'
       + '&order=fit_score.desc.nullslast&limit=60',
       'wi.reviews.pending', {});
     return { rows: rows.map(r => Object.assign({}, r, {
@@ -1288,15 +1470,22 @@ RENDER.approvals = function (body) {
     })) };
   }, (d) => {
     const rows = d.rows || [];
-    counts.approvals = rows.length;
+    /* No badge here. A count on this tab would be a tally of work already
+       done, and a nav badge should mean something is waiting. What is waiting
+       is counted on Opportunities instead. */
+    counts.approvals = 0;
     paintCounts();
-    if (!rows.length) return body.appendChild(empty('Nothing to approve', 'Screened opportunities that need a person appear here.'));
+    if (!rows.length) {
+      return body.appendChild(empty('Nothing approved yet',
+        'Approve an opportunity and it appears here. This is a view of Opportunities, not a queue of its own.'));
+    }
     for (const r of rows) {
       body.appendChild(entry({
         tone: 'signal',
         rail: r.review_id,
         action: r.contact_name || 'Unnamed investor',
         who: r.company || '',
+        record: r,
         evidence: [
           ['country ', asText(r.investor_country)],
           ['type    ', asText(r.investor_type)],
@@ -2493,11 +2682,49 @@ RENDER.inbox = function (body) {
   }
   run();
 };
+let oppsView = 'all';
+
 RENDER.opps = function (body) {
-  fill(body, () => readRows('wi_mandates',
+  clear(body);
+  const chips = el('div', { class: 'chips', style: 'margin-bottom:14px' });
+  const list  = el('div');
+  body.append(chips, list);
+
+  const VIEWS = [
+    ['all',      'Everything',    'accent'],
+    ['unread',   'Unread',        'signal'],
+    ['pending',  'Not approved',  'signal'],
+    ['approved', 'Approved',      'good']
+  ];
+  const seen = (m) => !!m.seen_at;
+  const inView = (m, k) =>
+      k === 'all'      ? true
+    : k === 'unread'   ? !seen(m)
+    : k === 'approved' ? m.qualification === 'matched'
+    :                    m.qualification !== 'matched';
+
+  fill(list, () => readRows('wi_mandates',
         'select=*&qualification=neq.rejected&order=id.desc&limit=200',
-        'wi.mandates.list', { limit: 40 }), (rows) => {
-    if (!rows.length) return body.appendChild(empty('No opportunities yet', 'Screened mandates from With Intelligence land here.'));
+        'wi.mandates.list', { limit: 40 }), (all) => {
+    for (const [k, lbl, tone] of VIEWS) {
+      const on = k === oppsView;
+      const n  = all.filter(m => inView(m, k)).length;
+      const c  = el('button', { class: 'chip',
+        onclick: () => { oppsView = k; go('opps'); } }, lbl + '  ' + n);
+      c.style.borderColor = on ? 'var(--' + tone + ')' : '';
+      c.style.color       = on ? 'var(--' + tone + ')' : '';
+      c.style.fontWeight  = on ? '600' : '';
+      c.style.opacity     = n ? '' : '.45';
+      chips.appendChild(c);
+    }
+
+    const rows = all.filter(m => inView(m, oppsView));
+    if (!rows.length) {
+      return list.appendChild(all.length
+        ? empty('Nothing under that filter', 'Try Everything.')
+        : empty('No opportunities yet', 'Screened mandates from With Intelligence land here.'));
+    }
+    const body = list;
     for (const m of rows) {
       const tone = m.qualification === 'matched' ? 'good' : m.qualification === 'uncertain' ? 'signal' : 'bad';
 
@@ -2540,6 +2767,7 @@ RENDER.opps = function (body) {
         callout: verdict.text,
         calloutLabel: verdict.label,
         calloutTone: verdict.tone,
+        record: m,
         evidence: [
           ['type      ', asText(m.investor_type)],
           ['strategy  ', asText(m.strategies)],
@@ -2551,10 +2779,12 @@ RENDER.opps = function (body) {
           ['note      ', (!m.investor_name && !m.organization_name && !m.fit_reason)
               ? 'This row has no investor details stored. WI 01 created it but never filled it in.' : null]
         ],
-        tags: [[m.qualification, tone]],
+        tags: [[m.qualification, tone]].concat(seen(m) ? [] : [['unread', 'signal']]),
         actions: [
-          { label: 'View the mandate', primary: true, run: () => openMandate(m) },
+          { label: 'View the mandate', primary: true, run: () => { markSeen(m); openMandate(m); } },
           { label: 'Fill a gap', run: () => fillSheet(m) },
+          seen(m) ? null : { label: 'Mark as read', run: async () => {
+              try { await markSeen(m); go('opps'); } catch (e) { toast(e.message, true); } } },
           m.linkedin_url ? { label: 'Check the network', run: () => act('li.check', { url: m.linkedin_url }, 'Checking') } : null
         ].filter(Boolean).concat(verdictActions(m, (to) => {
           go(to === 'rejected' ? 'rejected' : 'opps');
@@ -2794,6 +3024,16 @@ RENDER.notes = function (body) {
    recorded while n8n was out of executions -- which is most of the time at
    the moment. Publishing still belongs to WI 01; this only changes where a
    mandate sits in your queue. */
+/* Read state on the row, not in the browser. Kept locally it would be per
+   device and per person, so a mandate cleared at the desk would still be
+   unread on the phone and nobody could tell whether a colleague had seen it. */
+async function markSeen(m) {
+  if (m.seen_at) return;
+  m.seen_at = new Date().toISOString();
+  await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id),
+    { seen_at: m.seen_at, seen_by: (session && session.email) || null });
+}
+
 async function setQualification(m, to, said, after) {
   const from = String(m.qualification || '').toLowerCase();
   if (from === to) return toast('It is already there.');
@@ -4097,38 +4337,346 @@ RENDER.network = function (body) {
 
 /* ------------------------------------------------------------------- ask */
 
+/* A filter sheet rather than a search box. The Search tab answers "find the
+   thing I can already name"; this answers "show me everyone who fits", which
+   is a different question and the one that actually gets asked when deciding
+   who to approach next.
+
+   Filtering happens in the browser over one fetch rather than as a PostgREST
+   query per change. Strategies and asset classes are jsonb arrays, country is
+   sometimes a code and sometimes a name, and expressing that as URL parameters
+   would be both fragile and slower than reading the set once. */
+
+let findState = { from: '', to: '', type: '', country: '', asset: '', strategy: '',
+                  tmin: '', status: '', q: '' };
+
+RENDER.find = function (body) {
+  clear(body);
+
+  const F = findState;
+  const mk = (label, node, key) => {
+    node.value = F[key] || '';
+    node.addEventListener(node.tagName === 'SELECT' ? 'change' : 'input',
+      () => { F[key] = node.value; run(); });
+    return el('label', { class: 'field' }, el('span', null, label), node);
+  };
+  const sel = (opts) => {
+    const s = el('select', { class: 'search' });
+    for (const [v, l] of opts) s.appendChild(el('option', { value: v }, l));
+    return s;
+  };
+
+  const panel = el('div', { class: 'card', style: 'padding:16px;margin-bottom:16px' });
+  const out   = el('div');
+  body.append(panel, out);
+
+  const fFrom = el('input', { class: 'search', type: 'date' });
+  const fTo   = el('input', { class: 'search', type: 'date' });
+  const fType = sel([['', 'Any investor type'], ['family office', 'Family office'],
+    ['institutional', 'Institutional'], ['pension', 'Pension'], ['endowment', 'Endowment'],
+    ['foundation', 'Foundation'], ['consultant', 'Consultant'], ['wealth', 'Wealth / private bank'],
+    ['fund of funds', 'Fund of funds'], ['sovereign', 'Sovereign']]);
+  const fGeo  = sel([['', 'Anywhere'], ['GB', 'United Kingdom'], ['US', 'United States'],
+    ['CH', 'Switzerland'], ['SG', 'Singapore'], ['AE', 'UAE'], ['SA', 'Saudi Arabia'],
+    ['DE', 'Germany'], ['FR', 'France'], ['HK', 'Hong Kong'], ['CA', 'Canada'], ['AU', 'Australia']]);
+  const fAsset = sel([['', 'Any asset class'], ['hedge', 'Hedge funds'], ['equit', 'Equities'],
+    ['credit', 'Credit'], ['private', 'Private markets'], ['real', 'Real assets'],
+    ['multi', 'Multi-asset']]);
+  const fStrat = sel([['', 'Any strategy'], ['equity_long_short', 'Equity long/short'],
+    ['macro', 'Macro'], ['cta', 'CTA / managed futures'], ['market_neutral', 'Market neutral'],
+    ['quant', 'Quant / systematic'], ['multi_strategy', 'Multi-strategy'], ['event', 'Event driven']]);
+  const fTick = sel([['', 'Any ticket'], ['500000', 'USD 500k and up'],
+    ['1000000', 'USD 1m and up'], ['5000000', 'USD 5m and up'], ['10000000', 'USD 10m and up']]);
+  const fStat = sel([['', 'Any outcome'], ['matched', 'Approved'], ['uncertain', 'Not approved'],
+    ['rejected', 'Rejected'], ['unread', 'Unread']]);
+  const fQ    = el('input', { class: 'search', type: 'search',
+    placeholder: 'Name, organisation or what the alert said\u2026' });
+
+  panel.append(
+    mk('Name or wording', fQ, 'q'),
+    el('div', { class: 'grid2' }, mk('Alert dated from', fFrom, 'from'), mk('to', fTo, 'to')),
+    el('div', { class: 'grid2' }, mk('Investor type', fType, 'type'), mk('Geography', fGeo, 'country')),
+    el('div', { class: 'grid2' }, mk('Asset class', fAsset, 'asset'), mk('Strategy', fStrat, 'strategy')),
+    el('div', { class: 'grid2' }, mk('Minimum ticket', fTick, 'tmin'), mk('Outcome', fStat, 'status')));
+
+  const clearBtn = el('button', { class: 'btn btn-sm btn-quiet', style: 'margin-top:10px' }, 'Clear all');
+  clearBtn.addEventListener('click', () => {
+    findState = { from: '', to: '', type: '', country: '', asset: '', strategy: '',
+                  tmin: '', status: '', q: '' };
+    go('find');
+  });
+  panel.appendChild(clearBtn);
+
+  let all = null;
+  const jarr = (v) => {
+    let x = v;
+    for (let i = 0; i < 2 && typeof x === 'string'; i++) { try { x = JSON.parse(x); } catch (_) { x = []; } }
+    return Array.isArray(x) ? x.map(s => String(s).toLowerCase()) : [];
+  };
+
+  function matches(m) {
+    const F = findState;
+    const d = m.alert_date || (m.source_email_date || '').slice(0, 10) || (m.created_at || '').slice(0, 10);
+    if (F.from && (!d || d < F.from)) return false;
+    if (F.to   && (!d || d > F.to))   return false;
+    if (F.type && !String(m.investor_type || '').toLowerCase().includes(F.type)) return false;
+    if (F.country) {
+      const c = String(m.investor_country || '').toUpperCase();
+      if (c !== F.country) return false;
+    }
+    if (F.asset    && !jarr(m.asset_classes).some(a => a.includes(F.asset)))   return false;
+    if (F.strategy && !jarr(m.strategies).some(s => s.includes(F.strategy)))   return false;
+    if (F.tmin) {
+      /* Compared on the maximum where one is stated, because a minimum says
+         nothing about the largest cheque and filtering on it would hide the
+         investors most worth finding. */
+      const t = Number(m.ticket_max_usd || m.ticket_min_usd || 0);
+      if (!(t >= Number(F.tmin))) return false;
+    }
+    if (F.status === 'unread') { if (m.seen_at) return false; }
+    else if (F.status && m.qualification !== F.status) return false;
+    if (F.q) {
+      const hay = [m.investor_name, m.organization_name, m.contact_name,
+                   m.intention_summary, m.investor_city].join(' ').toLowerCase();
+      if (!hay.includes(F.q.toLowerCase())) return false;
+    }
+    return true;
+  }
+
+  function run() {
+    if (!all) return;
+    clear(out);
+    const rows = all.filter(matches);
+    const anyFilter = Object.values(findState).some(v => v);
+
+    out.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px;margin:0 0 12px' },
+      anyFilter ? rows.length + ' of ' + all.length + ' match'
+                : all.length + ' mandates \u2014 narrow them above'));
+
+    if (!rows.length) {
+      return out.appendChild(empty('Nothing matches',
+        'Widen a filter. Geography and asset class are the two that most often exclude everything.'));
+    }
+
+    for (const m of rows.slice(0, 200)) {
+      const q = String(m.qualification || '').toLowerCase();
+      const tone = q === 'matched' ? 'good' : q === 'rejected' ? 'bad' : 'signal';
+      out.appendChild(entry({
+        tone,
+        rail: '#' + m.id,
+        action: m.investor_name || m.organization_name || ('Mandate #' + m.id),
+        who: [m.organization_name, m.investor_country, m.investor_city].filter(Boolean).join('  \u00B7  '),
+        record: m,
+        evidence: [
+          ['type    ', asText(m.investor_type)],
+          ['strategy', asText(m.strategies)],
+          ['asset   ', asText(m.asset_classes)],
+          ['ticket  ', money(m.ticket_max_usd || m.ticket_min_usd)],
+          ['dated   ', m.alert_date ? fmtDate(m.alert_date) : null],
+          ['score   ', m.fit_score]
+        ],
+        tags: [[q, tone]].concat(m.seen_at ? [] : [['unread', 'signal']]),
+        actions: [{ label: 'View the mandate', primary: true,
+                    run: () => { markSeen(m); openMandate(m); } }]
+      }));
+    }
+    if (rows.length > 200) {
+      out.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px;margin-top:14px' },
+        'Showing the first 200. Narrow the filters to see the rest.'));
+    }
+  }
+
+  out.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading\u2026'));
+  fill(out, async () => {
+    if (DEMO) return [];
+    return await supaSelect('wi_mandates', 'select=*&order=id.desc&limit=1000');
+  }, (rows) => { all = rows; run(); });
+};
+
+/* The filter page. Distinct from Ask, which answers a question, and from the
+   old search box, which matched a string. This one narrows the whole mandate
+   history down by the things a person actually holds in their head: when, what
+   kind of investor, where, and which asset class.
+
+   Facets are read off the data rather than hardcoded. A fixed list of investor
+   types goes stale the first time WI writes one nobody anticipated, and the
+   symptom is a filter that silently cannot reach some of the records.
+
+   Filtering happens server-side where PostgREST can express it and in the
+   browser where it cannot — jsonb array containment on strategies and asset
+   classes is the awkward case, and one narrowed fetch is cheaper to reason
+   about than a query string nobody can debug. */
 RENDER.search = function (body) {
   clear(body);
 
-  /* The same engine Ask uses in its local mode, exposed as a plain search box.
-     Ask is for questions; this is for "where is that thing". Same reads, no
-     model, so it works whatever n8n is doing. */
+  const txt   = el('input', { class: 'search', type: 'search',
+    placeholder: 'Investor, firm, or anything in the summary\u2026' });
+  const from  = el('input', { class: 'search', type: 'date' });
+  const to    = el('input', { class: 'search', type: 'date' });
+  const fType = el('select', { class: 'search' });
+  const fGeo  = el('select', { class: 'search' });
+  const fAsset= el('select', { class: 'search' });
+  const fStrat= el('select', { class: 'search' });
+  const fQual = el('select', { class: 'search' });
+  const fTick = el('input', { class: 'search', type: 'number', placeholder: 'Minimum ticket, USD' });
 
-  const q = el('input', { class: 'search', type: 'search',
-    placeholder: 'A name, a firm, a subject line, a document\u2026' });
-  const out = el('div');
-  body.append(el('div', { class: 'toolbar' }, q,
-    el('button', { class: 'btn btn-sm', onclick: () => run() }, 'Search')), out);
-  q.addEventListener('keydown', (e) => { if (e.key === 'Enter') run(); });
+  const opt = (sel, list, blank) => {
+    clear(sel);
+    sel.appendChild(el('option', { value: '' }, blank));
+    for (const v of list) sel.appendChild(el('option', { value: v }, v));
+  };
+  opt(fQual, ['matched', 'uncertain', 'rejected'], 'Any outcome');
+
+  const field = (label, node) => el('label', { class: 'field' },
+    el('span', null, label), node);
+
+  const runBtn   = el('button', { class: 'btn btn-sm' }, 'Search');
+  const clearBtn = el('button', { class: 'btn btn-sm btn-quiet' }, 'Clear');
+  const out   = el('div', { style: 'margin-top:20px' });
+  const count = el('p', { class: 'mono',
+    style: 'color:var(--ink-3);font-size:12px;margin:14px 0 0' }, '');
+
+  body.append(
+    el('div', { class: 'grid2' },
+      field('Anything', txt),
+      field('Minimum ticket', fTick)),
+    el('div', { class: 'grid2' },
+      field('Alert date from', from),
+      field('to', to)),
+    el('div', { class: 'grid2' },
+      field('Investor type', fType),
+      field('Geography', fGeo)),
+    el('div', { class: 'grid2' },
+      field('Asset class', fAsset),
+      field('Strategy', fStrat)),
+    el('div', { class: 'grid2' },
+      field('Outcome', fQual),
+      el('div', { style: 'display:flex;gap:8px;align-items:flex-end' }, runBtn, clearBtn)),
+    count, out);
+
+  const jarr = (v) => {
+    let x = v;
+    for (let n = 0; n < 2 && typeof x === 'string'; n++) { try { x = JSON.parse(x); } catch (_) { x = []; } }
+    return Array.isArray(x) ? x.map(z => String(z).trim()).filter(Boolean) : [];
+  };
+
+  /* One pass over the facet columns to learn what values exist. Cheap, and it
+     keeps every dropdown honest about what is actually reachable. */
+  (async () => {
+    if (DEMO) return;
+    try {
+      const f = await supaSelect('wi_mandates',
+        'select=investor_type,investor_country,asset_classes,strategies&limit=2000');
+      const t = new Set(), g = new Set(), a = new Set(), st = new Set();
+      for (const r of f) {
+        if (r.investor_type)    t.add(String(r.investor_type).trim());
+        if (r.investor_country) g.add(String(r.investor_country).trim());
+        for (const x of jarr(r.asset_classes)) a.add(x);
+        for (const x of jarr(r.strategies))    st.add(x);
+      }
+      const sorted = (s) => [...s].filter(Boolean).sort((x, y) => x.localeCompare(y));
+      opt(fType,  sorted(t),  'Any type');
+      opt(fGeo,   sorted(g),  'Anywhere');
+      opt(fAsset, sorted(a),  'Any asset class');
+      opt(fStrat, sorted(st), 'Any strategy');
+    } catch (e) {
+      count.textContent = 'Could not read the filter options: ' + e.message;
+    }
+  })();
+
+  function reset() {
+    for (const n of [txt, from, to, fTick]) n.value = '';
+    for (const n of [fType, fGeo, fAsset, fStrat, fQual]) n.value = '';
+    clear(out); count.textContent = '';
+  }
+  clearBtn.addEventListener('click', reset);
 
   async function run() {
-    const term = q.value.trim();
+    if (DEMO) { count.textContent = 'Not in the sample. Sign in to search.'; return; }
     clear(out);
-    if (!term) return;
-    out.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Looking\u2026'));
-    const host = el('div');
+    count.textContent = 'Searching\u2026';
+
+    /* Anything PostgREST can filter is filtered before the rows travel. The
+       date range reads alert_date when WI stated one and falls back to when
+       the row was created, so a mandate without a printed date is still
+       reachable by roughly when it arrived. */
+    const parts = ['select=*', 'order=alert_date.desc.nullslast,id.desc', 'limit=400'];
+    if (fQual.value) parts.push('qualification=eq.' + encodeURIComponent(fQual.value));
+    if (fType.value) parts.push('investor_type=eq.' + encodeURIComponent(fType.value));
+    if (fGeo.value)  parts.push('investor_country=eq.' + encodeURIComponent(fGeo.value));
+    if (from.value)  parts.push('or=(alert_date.gte.' + from.value + ',and(alert_date.is.null,created_at.gte.' + from.value + '))');
+    if (to.value)    parts.push('or=(alert_date.lte.' + to.value + ',and(alert_date.is.null,created_at.lte.' + to.value + '))');
+    if (fTick.value) parts.push('ticket_min_usd=gte.' + encodeURIComponent(fTick.value));
+
+    let rows;
     try {
-      await answerLocally(host, term);
+      rows = await supaSelect('wi_mandates', parts.join('&'));
     } catch (e) {
-      clear(host);
-      host.appendChild(el('div', { class: 'banner' }, el('b', null, 'Could not search. '), e.message));
+      count.textContent = '';
+      return out.appendChild(el('div', { class: 'banner',
+        style: 'background:var(--bad-soft);border-color:var(--bad);color:var(--bad)' },
+        el('b', null, 'Could not search. '), e.message));
     }
-    clear(out);
-    out.appendChild(host);
+
+    // The rest in the browser: jsonb containment and free text across several
+    // columns are both clumsy to express in a query string and easy here.
+    const q = txt.value.trim().toLowerCase();
+    if (q) {
+      rows = rows.filter(m => [m.investor_name, m.organization_name, m.contact_name,
+                               m.intention_summary, m.fit_reason, m.investor_city]
+        .some(v => String(v || '').toLowerCase().includes(q)));
+    }
+    if (fAsset.value) rows = rows.filter(m => jarr(m.asset_classes).includes(fAsset.value));
+    if (fStrat.value) rows = rows.filter(m => jarr(m.strategies).includes(fStrat.value));
+
+    count.textContent = rows.length
+      ? rows.length + (rows.length === 1 ? ' match' : ' matches')
+        + (rows.length === 400 ? ' (capped \u2014 narrow the dates)' : '')
+      : '';
+
+    if (!rows.length) {
+      return out.appendChild(empty('Nothing matched',
+        'Widen a filter, or clear them all and start from the text box.'));
+    }
+
+    for (const m of rows) {
+      const tone = m.qualification === 'matched' ? 'good'
+                 : m.qualification === 'uncertain' ? 'signal' : 'bad';
+      out.appendChild(entry({
+        tone,
+        rail: '#' + m.id,
+        action: m.investor_name || m.organization_name || ('Mandate #' + m.id),
+        who: asText(m.intention_summary),
+        record: m,
+        evidence: [
+          ['type      ', asText(m.investor_type)],
+          ['where     ', [m.investor_city, m.investor_country].filter(Boolean).join(', ')],
+          ['asset     ', jarr(m.asset_classes).join(', ')],
+          ['strategy  ', jarr(m.strategies).join(', ')],
+          ['ticket    ', money(m.ticket_min_usd)],
+          ['score     ', m.fit_score],
+          ['alert date', m.alert_date ? fmtDate(m.alert_date) : null]
+        ],
+        tags: [[m.qualification, tone]].concat(m.seen_at ? [] : [['unread', 'signal']]),
+        actions: [
+          { label: 'View the mandate', primary: true, run: () => openMandate(m) },
+          { label: 'Fill a gap', run: () => fillSheet(m) }
+        ]
+      }));
+    }
   }
 
-  if (PENDING.q) { const v = PENDING.q; PENDING.q = null; PENDING.qmode = null; q.value = v; run(); }
-  setTimeout(() => q.focus(), 60);
+  runBtn.addEventListener('click', run);
+  for (const n of [txt, fTick]) {
+    n.addEventListener('keydown', (e) => { if (e.key === 'Enter') run(); });
+  }
+  for (const n of [fType, fGeo, fAsset, fStrat, fQual, from, to]) {
+    n.addEventListener('change', run);
+  }
+
+  // Ask hands over a phrase when it would rather this page answered it.
+  if (PENDING.q) { const v = PENDING.q; PENDING.q = null; PENDING.qmode = null; txt.value = v; run(); }
+  setTimeout(() => txt.focus(), 60);
 };
 
 RENDER.ask = function (body) {
@@ -5569,7 +6117,10 @@ async function poll() {
         'select=id&received_at=gte.' + encodeURIComponent(dayStart.toISOString()) + '&limit=50')
     ]);
     counts.today = n.length;
-    counts.approvals = m.length;
+    // Things still waiting on a person. Shown against Opportunities, which is
+    // where the decision is now taken.
+    counts.opps = m.length;
+    counts.approvals = 0;
 
     if (raw.length) {
       const seen = await supaSelect('wi_mandates',
