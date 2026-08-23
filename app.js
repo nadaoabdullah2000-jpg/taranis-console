@@ -253,11 +253,49 @@ function legalName(v) {
   return LEGAL_NAMES[s.toLowerCase().replace(/[.,]/g, '')] || s;
 }
 
+/* ---- the manager is not the investor -------------------------------------
+   Every one of these alerts names two firms: the allocator putting money out
+   and the manager taking it in. Nothing in the text marks which is which, and
+   when the extractor picks the wrong one the record inverts -- the card is
+   titled with a fund nobody would ever raise from, and the actual investor is
+   demoted to a subtitle.
+
+   The row usually still holds both names, so this is a READING problem before
+   it is a data problem, and it can be corrected here without waiting for a
+   database repair or a reprocessing run.
+
+   The list is explicit firm names on purpose. A pattern like /capital/ would
+   catch half the allocators in the book -- a great many family offices are
+   called something Capital -- so every entry here is a decision somebody
+   made, and a manager not on the list is left alone rather than guessed at. */
+const KNOWN_MANAGERS = /(^|\b)(bridgewater|citadel|millennium management|point ?72|two sigma|renaissance technologies|d\.? ?e\.? shaw|aqr capital|man group|brevan howard|elliott management|baupost|pershing square|third point|tiger global|coatue|marshall wace|capula|winton|bluecrest|balyasny|exodus ?point|schonfeld|\bkkr\b|blackstone|apollo global|carlyle|\btpg\b|ares management|plettenberg|hippocampus)(\b|$)/i;
+
+/* Which of the two names is the investor, and which was the other firm.
+   Only swaps when it is unambiguous: the stored investor is a known manager
+   AND the organisation is not. Where both look like managers, or neither
+   does, the record is left exactly as stored -- a wrong correction is harder
+   to notice than a wrong original. */
+function resolvedInvestor(m) {
+  const inv = legalName(m && m.investor_name);
+  const org = legalName(m && m.organization_name);
+  if (inv && org && inv !== org && KNOWN_MANAGERS.test(inv) && !KNOWN_MANAGERS.test(org)) {
+    return { name: org, otherFirm: inv, corrected: true };
+  }
+  return { name: inv || org, otherFirm: null, corrected: false };
+}
+
 /* The investor on a card, in full, with the fallback chain every list used to
    repeat by hand. */
 function investorLabel(m) {
-  return legalName(m.investor_name) || legalName(m.organization_name)
-      || ('Mandate #' + m.id);
+  return resolvedInvestor(m).name || ('Mandate #' + (m && m.id));
+}
+
+/* The organisation line under the title. Empty when it would only repeat the
+   title, which is what happens once a swapped record is read correctly. */
+function orgLabel(m) {
+  const r = resolvedInvestor(m);
+  const org = legalName(m && m.organization_name);
+  return (!org || org === r.name) ? '' : org;
 }
 
 /* ---- has a person approved this? ----------------------------------------
@@ -1364,8 +1402,8 @@ RENDER.intake = function (body) {
       list.appendChild(entry({
         tone: 'signal',
         rail: '#' + m.id,
-        action: m.investor_name || m.organization_name || ('Mandate #' + m.id),
-        who: [m.organization_name, m.investor_country, m.investor_city].filter(Boolean).join('  \u00B7  '),
+        action: investorLabel(m),
+        who: [orgLabel(m), m.investor_country, m.investor_city].filter(Boolean).join('  \u00B7  '),
         callout: g.join(', ').replace(/_/g, ' '),
         calloutLabel: g.length === 1 ? 'One field missing' : g.length + ' fields missing',
         calloutTone: 'signal',
@@ -1596,7 +1634,7 @@ RENDER.approvals = function (body) {
         tone: 'good',
         rail: r.review_id,
         action: investorLabel(r),
-        who: legalName(r.company) || '',
+        who: orgLabel(r) || '',
         record: r,
         evidence: [
           ['country  ', asText(r.investor_country)],
@@ -2885,7 +2923,7 @@ RENDER.opps = function (body) {
         tone,
         rail: '#' + m.id,
         action: investorLabel(m),
-        who: [legalName(m.organization_name), m.investor_country, m.investor_city]
+        who: [orgLabel(m), m.investor_country, m.investor_city]
                .filter(Boolean).join(' · '),
         callout: verdict.text,
         calloutLabel: verdict.label,
@@ -3452,8 +3490,8 @@ RENDER.rejected = function (body) {
       out.appendChild(entry({
         tone: 'bad',
         rail: '#' + m.id,
-        action: m.investor_name || m.organization_name || ('Mandate #' + m.id),
-        who: [m.organization_name, asText(m.investor_country), asText(m.investor_type)]
+        action: investorLabel(m),
+        who: [orgLabel(m), asText(m.investor_country), asText(m.investor_type)]
           .filter(Boolean).join('  \u00B7  '),
         // Whatever it was turned away for, that is the line to read first --
         // one reason or four. Amber where a single miss makes it worth
@@ -4840,7 +4878,7 @@ RENDER.find = function (body) {
         tone,
         rail: '#' + m.id,
         action: investorLabel(m),
-        who: [legalName(m.organization_name), m.investor_country, m.investor_city]
+        who: [orgLabel(m), m.investor_country, m.investor_city]
                .filter(Boolean).join('  \u00B7  '),
         record: m,
         evidence: [
@@ -5401,8 +5439,16 @@ async function openMandate(m) {
   const c1 = el('div'), c2 = el('div');
   grid.append(c1, c2);
   c1.append(...[
-    field('Organisation', legalName(full.organization_name), true),
-    field('Investor', legalName(full.investor_name), true),
+    field('Investor', investorLabel(full), true),
+    field('Organisation', orgLabel(full), true),
+    /* A silent correction is a correction nobody can check. Where the stored
+       investor was a manager, the record says so and names it, so the reading
+       can be disagreed with rather than merely trusted. */
+    resolvedInvestor(full).corrected
+      ? field('Corrected', 'The alert stored ' + resolvedInvestor(full).otherFirm
+          + ' as the investor. That firm receives allocations rather than making them, '
+          + 'so the organisation is shown as the investor instead.')
+      : null,
     field('Where', [full.investor_city, full.investor_country].filter(Boolean).join(', '), true),
     field('Type', full.investor_type),
     field('Strategies', full.strategies)
@@ -6184,8 +6230,8 @@ async function answerLocally(host, question) {
     for (const m of mandates) {
       host.appendChild(entry({
         tone: 'accent', rail: m.fit_score !== null && m.fit_score !== undefined ? String(m.fit_score) : '',
-        action: m.investor_name || m.organization_name,
-        who: [m.organization_name, m.investor_country, m.investor_type].filter(Boolean).join('  \u00B7  '),
+        action: investorLabel(m),
+        who: [orgLabel(m), m.investor_country, m.investor_type].filter(Boolean).join('  \u00B7  '),
         evidence: [['why  ', m.fit_reason]]
       }));
     }
