@@ -96,9 +96,14 @@ function providerLabel(v) {
   return hit ? hit[1] : (v ? String(v) : '');
 }
 
+/* The publications' own names. "Hedge fund newsletters" and "Family office
+   reports" were descriptions of what they are; these are what they are called,
+   which is what somebody looking for one will have in mind. The third value is
+   the storage folder and must not change - the PDFs already filed live under
+   those paths. */
 const HFN_FOLDERS = [
-  ['hedge_fund',    'Hedge fund newsletters', 'hedge-fund'],
-  ['family_office', 'Family office reports',  'family-office']
+  ['hedge_fund',    'Hedge Fund Alert',           'hedge-fund'],
+  ['family_office', 'Family Office Confidential', 'family-office']
 ];
 const PENDING = { q: null, qmode: null, draft: null, meet: null };   // a question handed from one tab to another
 
@@ -6300,17 +6305,34 @@ function fillSheet(m) {
   for (const [key, label, kind] of FILLABLE) {
     if (!(key in m)) continue;                 // the column does not exist here
     const cur = m[key];
-    const shown = kind === 'list' ? asText(cur) : (cur == null ? '' : String(cur));
+    /* A ticket of 25000000 is a number nobody can read at a glance, and this
+       panel is where somebody checks a figure before acting on it. It is shown
+       grouped - 25,000,000 - which a type="number" input cannot hold, so these
+       are text inputs with a numeric keypad on mobile instead. Whatever is
+       typed is stripped back to digits on save, so pasting "USD 1.5m" or
+       "2,500,000" both work. */
+    const shown = kind === 'list'   ? asText(cur)
+                : kind === 'number' ? num(cur)
+                : (cur == null ? '' : String(cur));
     const empty = shown === '';
     if (empty) emptyCount++;
     was[key] = shown;
 
     const input = el('input', {
       class: 'search',
-      type: kind === 'number' ? 'number' : 'text',
+      type: 'text',
+      inputmode: kind === 'number' ? 'numeric' : 'text',
       value: shown,
-      placeholder: kind === 'list' ? 'comma separated' : (empty ? 'not stated in the alert' : '')
+      placeholder: kind === 'list' ? 'comma separated'
+                 : (empty ? 'not stated in the alert' : '')
     });
+    if (kind === 'number') {
+      // Regroup as they type, so the field reads the way it will be stored.
+      input.addEventListener('blur', () => {
+        const digits = input.value.replace(/[^0-9.-]/g, '');
+        input.value = digits === '' ? '' : num(digits);
+      });
+    }
     F[key] = { input, kind };
 
     rows.push(el('label', { class: 'field' },
