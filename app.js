@@ -76,6 +76,20 @@ let toolsView = 'all';
 // report re-renders the tab, and landing back in the other folder each time
 // would be its own small annoyance.
 let hfnFolder = 'hedge_fund';
+/* The three platforms a meeting can be issued on. The value is what the
+   gateway switches on; nothing else in the app cares which one is chosen.
+   Adding a fourth is one line here and one branch in the workflow. */
+const MEETING_PROVIDERS = [
+  ['zoom',   'Zoom'],
+  ['teams',  'Microsoft Teams'],
+  ['meet',   'Google Meet']
+];
+let meetingProvider = 'zoom';
+function providerLabel(v) {
+  const hit = MEETING_PROVIDERS.find(p => p[0] === String(v || '').toLowerCase());
+  return hit ? hit[1] : (v ? String(v) : '');
+}
+
 const HFN_FOLDERS = [
   ['hedge_fund',    'Hedge fund newsletters', 'hedge-fund'],
   ['family_office', 'Family office reports',  'family-office']
@@ -194,11 +208,59 @@ const MARK = {
 
 /* "0.85" tells you nothing unless you already know the range. "0.85 / 1" does,
    and clicking it says why. */
-function scoreText(v) {
-  if (v === null || v === undefined || v === '') return '';
-  const n = Number(v);
-  if (!isFinite(n)) return String(v);
-  return parseFloat(n.toFixed(2)) + ' / 1';
+
+/* ---- full legal names ----------------------------------------------------
+   With Intelligence writes headlines, and headlines use short names: "Texas
+   Teachers", "CalPERS", "GIC". The record should carry the name a person
+   would put in a letter. WI 01 expands these at write time for new rows;
+   this does the same at read time so the rows already in the table read
+   correctly without a backfill.
+
+   Every entry is a decision somebody made. Nothing is guessed: a name that
+   is not on this list is shown exactly as WI wrote it. */
+const LEGAL_NAMES = {
+  'texas teachers': 'Teacher Retirement System of Texas',
+  'trs': 'Teacher Retirement System of Texas',
+  'texas trs': 'Teacher Retirement System of Texas',
+  'calpers': 'California Public Employees Retirement System',
+  'calstrs': 'California State Teachers Retirement System',
+  'gic': 'GIC Private Limited',
+  'adia': 'Abu Dhabi Investment Authority',
+  'cppib': 'Canada Pension Plan Investment Board',
+  'cpp investments': 'Canada Pension Plan Investment Board',
+  'nbim': 'Norges Bank Investment Management',
+  'apg': 'APG Asset Management',
+  'pggm': 'PGGM Investments',
+  'ontario teachers': 'Ontario Teachers Pension Plan',
+  'omers': 'Ontario Municipal Employees Retirement System',
+  'wellcome': 'Wellcome Trust',
+  'ge pension': 'General Electric Pension Trust',
+  'nystrs': 'New York State Teachers Retirement System',
+  'nycers': 'New York City Employees Retirement System',
+  'fsba': 'Florida State Board of Administration',
+  'lacera': 'Los Angeles County Employees Retirement Association'
+};
+
+function legalName(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (!s) return s;
+  return LEGAL_NAMES[s.toLowerCase().replace(/[.,]/g, '')] || s;
+}
+
+/* The investor on a card, in full, with the fallback chain every list used to
+   repeat by hand. */
+function investorLabel(m) {
+  return legalName(m.investor_name) || legalName(m.organization_name)
+      || ('Mandate #' + m.id);
+}
+
+/* ---- has a person approved this? ----------------------------------------
+   qualification === 'matched' is the SCORER's opinion, written by GPT before
+   anybody looked. Treating it as approval is what put investors nobody had
+   seen into the Approved list. Approval is a person clicking Approve, and
+   the only evidence of that is approved_at. */
+function isApproved(m) {
+  return !!(m && m.approved_at);
 }
 
 function scoreChip(v, m) {
@@ -766,7 +828,7 @@ const TABS = [
     sub: 'What arrived while you were away, and what is waiting on you.' },
   { id: 'opps',     icon: '\u25B8', label: 'Opportunities', title: 'Opportunities', group: 'wi',
     sub: 'The live pipeline. Filter by read and by approved rather than moving between queues.' },
-  { id: 'approvals',icon: '\u2192', label: 'Approved',      title: 'Approved opportunities', group: 'wi', sub2: true,
+  { id: 'approvals',icon: '\u2192', label: 'Approved',      title: 'Approved Opportunities', group: 'wi', sub2: true,
     sub: 'The ones a person has approved. A subset of Opportunities, not a separate list.' },
   { id: 'rejected', icon: '\u25BD', label: 'Rejected',      title: 'Rejected', group: 'wi',
     sub: 'Screened out on two or more criteria. Kept so you can see what was turned away, and why.' },
@@ -782,19 +844,22 @@ const TABS = [
     sub: 'Draft to a contact, read it back, then send. Nothing leaves without you approving it.' },
   { id: 'inbox', archived: true,    icon: '\u25A4', label: 'Follow up',      title: 'Follow up',
     sub: 'Who is owed a reply and who has gone quiet, clients first. Every message is still here if you need it.' },
-  { id: 'meetings', icon: '\u25D0', label: 'Zoom meetings', title: 'Zoom meetings',
-    sub: 'Scheduled, waiting on approval, or cancelled. The join link and passcode live here.' },
+  { id: 'meetings', icon: '\u25D0', label: 'Meetings',      title: 'Meetings',
+    sub: 'Book on Zoom, Teams or Google Meet. The link comes back on the row as soon as it is issued.' },
   { id: 'docs',     icon: '\u25AC', label: 'Documents',    title: 'Documents',
     sub: 'Upload a deck or report, and it is versioned, stored and announced to the team.' },
   { id: 'reports',  icon: '\u25F0', label: 'Reports',      title: 'Weekly report',
     sub: 'The Friday dashboard, read from the stored snapshot rather than a Telegram attachment.' },
   { id: 'network',  icon: '\u25CB', label: 'Network',      title: 'LinkedIn network',
     sub: 'First-degree connections, separate from the contact book.' },
+  /* One filter page, not two. "Find an investor" and "Filter & find" were
+     built at different times against the same table and ended up asking the
+     same question with different widgets, which left nobody sure which one
+     to open. This is the survivor: every filter either page had, on one
+     screen, at the foot of the nav where a search page belongs. */
   { id: 'find',     icon: '\u2317', label: 'Find an investor', foot: true,
     title: 'Find an investor',
-    sub: 'Filter every screened mandate by date, type, geography, asset class, strategy or ticket.' },
-  { id: 'search',   icon: '\u2315', label: 'Filter & find', foot: true,       title: 'Filter and find',
-    sub: 'Narrow the whole mandate history by date, investor type, geography, asset class or strategy.' },
+    sub: 'Every screened mandate, narrowed by date, investor type, geography, asset class, strategy, ticket or outcome.' },
   { id: 'ask',      icon: '\u25C7', label: 'Ask',          title: 'Ask',
     sub: 'Anything you used to type into the bot. It queries before it answers.' }
 ];
@@ -1459,9 +1524,10 @@ RENDER.approvals = function (body) {
   fill(body, async () => {
     const rows = await readRows('wi_mandates',
       'select=id,investor_name,organization_name,investor_country,investor_type,'
-      + 'ticket_min_usd,fit_score,fit_reason'
-      + '&qualification=eq.matched'
-      + '&order=fit_score.desc.nullslast&limit=60',
+      + 'ticket_min_usd,fit_score,fit_reason,approved_at,approved_by,seen_at,qualification'
+      // approved_at, not qualification. See isApproved().
+      + '&approved_at=not.is.null'
+      + '&order=approved_at.desc.nullslast&limit=200',
       'wi.reviews.pending', {});
     return { rows: rows.map(r => Object.assign({}, r, {
       review_id: String(r.id),
@@ -1481,19 +1547,21 @@ RENDER.approvals = function (body) {
     }
     for (const r of rows) {
       body.appendChild(entry({
-        tone: 'signal',
+        tone: 'good',
         rail: r.review_id,
-        action: r.contact_name || 'Unnamed investor',
-        who: r.company || '',
+        action: investorLabel(r),
+        who: legalName(r.company) || '',
         record: r,
         evidence: [
-          ['country ', asText(r.investor_country)],
-          ['type    ', asText(r.investor_type)],
-          ['ticket  ', money(r.ticket_min_usd)],
-          ['score   ', r.fit_score],
-          ['reason  ', asText(r.fit_reason)]
+          ['country  ', asText(r.investor_country)],
+          ['type     ', asText(r.investor_type)],
+          ['ticket   ', money(r.ticket_min_usd)],
+          ['score    ', r.fit_score],
+          ['approved ', r.approved_at ? fmtDate(r.approved_at) : null],
+          ['by       ', r.approved_by],
+          ['reason   ', asText(r.fit_reason)]
         ],
-        tags: [['pending', 'signal']],
+        tags: [['approved', 'good']],
         // These went through the gateway to wi.review.approve, an action the
         // gateway has no route for -- so the one screen named for making
         // decisions was the only one where a decision did nothing. Same
@@ -2697,11 +2765,15 @@ RENDER.opps = function (body) {
     ['approved', 'Approved',      'good']
   ];
   const seen = (m) => !!m.seen_at;
+  /* Approved means a person pressed Approve. It used to mean the scorer
+     returned 'matched', which is a machine's opinion formed before anyone
+     had read the alert -- so the Approved list filled up on its own and the
+     word stopped meaning anything. */
   const inView = (m, k) =>
       k === 'all'      ? true
     : k === 'unread'   ? !seen(m)
-    : k === 'approved' ? m.qualification === 'matched'
-    :                    m.qualification !== 'matched';
+    : k === 'approved' ? isApproved(m)
+    :                    !isApproved(m);
 
   fill(list, () => readRows('wi_mandates',
         'select=*&qualification=neq.rejected&order=id.desc&limit=200',
@@ -2762,8 +2834,9 @@ RENDER.opps = function (body) {
       body.appendChild(entry({
         tone,
         rail: '#' + m.id,
-        action: m.investor_name || m.organization_name || ('Mandate #' + m.id),
-        who: [m.organization_name, m.investor_country, m.investor_city].filter(Boolean).join(' · '),
+        action: investorLabel(m),
+        who: [legalName(m.organization_name), m.investor_country, m.investor_city]
+               .filter(Boolean).join(' · '),
         callout: verdict.text,
         calloutLabel: verdict.label,
         calloutTone: verdict.tone,
@@ -2779,7 +2852,9 @@ RENDER.opps = function (body) {
           ['note      ', (!m.investor_name && !m.organization_name && !m.fit_reason)
               ? 'This row has no investor details stored. WI 01 created it but never filled it in.' : null]
         ],
-        tags: [[m.qualification, tone]].concat(seen(m) ? [] : [['unread', 'signal']]),
+        tags: [[m.qualification, tone]]
+                .concat(seen(m) ? [] : [['unread', 'signal']])
+                .concat(isApproved(m) ? [['approved', 'good']] : []),
         actions: [
           { label: 'View the mandate', primary: true, run: () => { markSeen(m); openMandate(m); } },
           { label: 'Fill a gap', run: () => fillSheet(m) },
@@ -3034,6 +3109,31 @@ async function markSeen(m) {
     { seen_at: m.seen_at, seen_by: (session && session.email) || null });
 }
 
+/* Approving, and taking it back. Separate from setQualification on purpose:
+   qualification is what the screening decided, approved_at is what a person
+   decided, and collapsing the two is what made "Approved" untrustworthy.
+   Both are kept, so you can still see that the scorer and the person agreed
+   -- or that they did not. */
+async function setApproved(m, on, after) {
+  if (on && isApproved(m)) return toast('Already approved.');
+  if (!on && !isApproved(m)) return toast('It is not approved.');
+  const ask = on
+    ? 'Approve this opportunity? It moves into Approved opportunities and stops asking for a decision.'
+    : 'Take the approval back? It returns to Opportunities as not approved.';
+  if (!confirm(ask)) return;
+  const patch = on
+    ? { approved_at: new Date().toISOString(), approved_by: (session && session.email) || null }
+    : { approved_at: null, approved_by: null };
+  try {
+    await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), patch);
+    Object.assign(m, patch);
+    toast(on ? 'Approved.' : 'Approval withdrawn.');
+    if (typeof after === 'function') after(on ? 'approved' : 'opps');
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
 async function setQualification(m, to, said, after) {
   const from = String(m.qualification || '').toLowerCase();
   if (from === to) return toast('It is already there.');
@@ -3058,8 +3158,13 @@ async function setQualification(m, to, said, after) {
 function verdictActions(m, after) {
   const q = String(m.qualification || '').toLowerCase();
   const acts = [];
+  /* The approval sits first and is the only primary action, because it is
+     the one that moves a record between lists in the way the team means it. */
+  acts.push(isApproved(m)
+    ? { label: 'Withdraw approval', run: () => setApproved(m, false, after) }
+    : { label: 'Approve',           run: () => setApproved(m, true,  after) });
   if (q !== 'matched') {
-    acts.push({ label: 'Matched', run: () => setQualification(m, 'matched', 'Marked as matched.', after) });
+    acts.push({ label: 'Mark as matched', run: () => setQualification(m, 'matched', 'Marked as matched.', after) });
   }
   if (q !== 'uncertain') {
     acts.push({ label: q === 'rejected' ? 'Reconsider' : 'Send to review',
@@ -3351,16 +3456,21 @@ RENDER.rejected = function (body) {
 RENDER.meetings = function (body) {
   clear(body);
 
-  /* crm_meetings is written by the meeting branch of CRM 02+03. A row starts
-     as 'pending' when the request is parsed, and becomes 'scheduled' only
-     once Zoom has actually issued a meeting, at which point meet_url and
-     passcode are filled in. The app reads the table directly, so this list
-     is accurate whether the request came from Telegram or from here. */
+  /* crm_meetings is written by the meeting branch of CRM 02+03 and now by
+     this tab as well. Pressing Schedule calls the gateway, which creates the
+     meeting with whichever provider was chosen and returns the join link in
+     the same response -- so the link is on screen before the page reloads,
+     rather than appearing on the row some minutes later.
+
+     If the gateway cannot be reached, or that provider has no credential
+     configured yet, the row is still written as 'pending' and says so. A
+     meeting half-booked is better than a meeting lost, and the row is picked
+     up by the workflow when the connection is fixed. */
 
   let filter = 'live';
   const chips = el('div', { class: 'chips' });
   for (const [k, lbl] of [['live', 'Upcoming'], ['scheduled', 'Scheduled'],
-                          ['pending', 'Waiting on approval'], ['cancelled', 'Cancelled'],
+                          ['pending', 'Not issued yet'], ['cancelled', 'Cancelled'],
                           ['all', 'Everything']]) {
     chips.appendChild(el('button', { class: 'chip', onclick: () => { filter = k; run(); } }, lbl));
   }
@@ -3378,6 +3488,14 @@ RENDER.meetings = function (body) {
   const mWhen  = el('input', { class: 'search', type: 'datetime-local' });
   const mMins  = el('input', { class: 'search', type: 'number', value: '30', min: '15', step: '15' });
   const mTz    = el('input', { class: 'search', value: 'Africa/Cairo' });
+
+  /* Which platform issues the meeting. The choice is remembered between
+     bookings, because in practice a firm uses one of these almost always and
+     re-picking it every time is friction for no gain. */
+  const mProv  = el('select', { class: 'search' });
+  for (const [v, l] of MEETING_PROVIDERS) mProv.appendChild(el('option', { value: v }, l));
+  mProv.value = meetingProvider;
+  mProv.addEventListener('change', () => { meetingProvider = mProv.value; });
   const mLook  = el('input', { class: 'search', placeholder: 'Search the contact book to add someone' });
   const mSugg  = el('div', { class: 'chips' });
   const mList  = el('div');
@@ -3432,38 +3550,92 @@ RENDER.meetings = function (body) {
     add({ id: null, name: v, email: v });
   } }, 'Add');
 
-  const bookBtn = el('button', { class: 'btn', onclick: () => book() }, 'Put it in the diary');
+  const bookBtn = el('button', { class: 'btn', onclick: () => book() }, 'Schedule it');
+  /* Where the link lands the moment it exists. Sits directly under the button
+     rather than in a toast, because a join link is something you copy, and a
+     toast disappears while you are still reaching for it. */
+  const issued = el('div');
 
   async function book() {
     if (!mTitle.value.trim()) return toast('Give the meeting a title.', true);
     if (!mWhen.value) return toast('Pick a date and time.', true);
     if (!invited.length) return toast('Add at least one person.', true);
-    bookBtn.disabled = true; bookBtn.textContent = 'Saving\u2026';
+
+    const provider = mProv.value || 'zoom';
+    const label = (MEETING_PROVIDERS.find(p => p[0] === provider) || ['', provider])[1];
+    const payload = {
+      provider:     provider,
+      title:        mTitle.value.trim(),
+      start_utc:    new Date(mWhen.value).toISOString(),
+      duration_min: Number(mMins.value) || 30,
+      tz:           mTz.value.trim() || 'Africa/Cairo',
+      to_people:    invited
+    };
+
+    bookBtn.disabled = true; bookBtn.textContent = 'Creating the meeting\u2026';
+    clear(issued);
     try {
-      await supaInsert('crm_meetings', {
-        title:        mTitle.value.trim(),
-        start_utc:    new Date(mWhen.value).toISOString(),
-        duration_min: Number(mMins.value) || 30,
-        tz:           mTz.value.trim() || 'Africa/Cairo',
-        to_people:    invited,
-        status:       'pending'
-      });
-      toast('Saved as pending. Approve it to issue the Zoom link.');
+      /* One call. The gateway creates the meeting with the chosen provider,
+         writes the row, sends the invitations, and returns the join link. */
+      const r = await callGateway('meeting.create', payload) || {};
+      const url = r.join_url || r.meet_url || r.url || null;
+      if (url) {
+        showLink(label, url, r.passcode);
+        toast(label + ' meeting created.');
+      } else {
+        /* The gateway answered but has no link for us -- almost always a
+           provider whose credential is not connected yet. Say which one. */
+        showPending(label, r.message || 'The gateway did not return a join link.');
+        toast('Booked, but no link came back.', true);
+      }
       mTitle.value = ''; mWhen.value = ''; invited = []; drawInvited();
       run();
     } catch (e) {
-      toast(e.message, true);
+      /* Gateway unreachable. Keep the booking rather than lose it. */
+      try {
+        await supaInsert('crm_meetings', Object.assign({}, payload, { status: 'pending' }));
+        showPending(label, e.message);
+        toast('Saved without a link \u2014 ' + e.message, true);
+        mTitle.value = ''; mWhen.value = ''; invited = []; drawInvited();
+        run();
+      } catch (e2) {
+        toast(e2.message, true);
+      }
     } finally {
-      bookBtn.disabled = false; bookBtn.textContent = 'Put it in the diary';
+      bookBtn.disabled = false; bookBtn.textContent = 'Schedule it';
     }
+  }
+
+  function showLink(label, url, passcode) {
+    clear(issued);
+    issued.appendChild(el('div', { class: 'callout good', style: 'margin-top:14px' },
+      el('span', { class: 'callout-k' }, label),
+      el('span', { class: 'callout-v', style: 'word-break:break-all' }, url)));
+    if (passcode) {
+      issued.appendChild(el('p', { style: 'margin:6px 0 0;font-size:13px;color:var(--ink-2)' },
+        'Passcode ' + passcode));
+    }
+    issued.appendChild(el('div', { class: 'acts' },
+      el('button', { class: 'btn btn-sm', onclick: () => copy(url) }, 'Copy the link'),
+      el('button', { class: 'btn btn-sm btn-quiet',
+        onclick: () => window.open(url, '_blank', 'noopener,noreferrer') }, 'Open it')));
+  }
+
+  function showPending(label, why) {
+    clear(issued);
+    issued.appendChild(el('div', { class: 'callout signal', style: 'margin-top:14px' },
+      el('span', { class: 'callout-k' }, 'No link yet'),
+      el('span', { class: 'callout-v' },
+        'The meeting is in the diary, but ' + label + ' did not issue a link. ' + (why || ''))));
   }
 
   const lbl = (t, n) => el('label', { class: 'field' }, el('span', null, t), n);
   body.appendChild(el('div', { style: 'max-width:900px;margin:0 0 24px' },
     el('div', { class: 'grid2' }, lbl('Title', mTitle), lbl('When', mWhen)),
     el('div', { class: 'grid2' }, lbl('Minutes', mMins), lbl('Timezone', mTz)),
+    lbl('Platform', mProv),
     lbl('Who is coming?', el('div', { class: 'toolbar' }, mLook, addTyped)),
-    mSugg, mList, bookBtn));
+    mSugg, mList, bookBtn, issued));
 
   const out = el('div');
   body.appendChild(out);
@@ -3500,6 +3672,7 @@ RENDER.meetings = function (body) {
           action: m.title || 'Meeting',
           who: people(m),
           evidence: [
+            ['platform ', providerLabel(m.provider)],
             ['starts   ', m.start_utc ? fmtDate(m.start_utc) : null],
             ['minutes  ', m.duration_min],
             ['zone     ', m.tz],
@@ -3515,13 +3688,19 @@ RENDER.meetings = function (body) {
             m.meet_url ? { label: 'Join the meeting', primary: true,
               run: () => window.open(m.meet_url, '_blank', 'noopener,noreferrer') } : null,
             m.meet_url ? { label: 'Copy the link', run: () => copy(m.meet_url) } : null,
-            st === 'pending' ? { label: 'Approve and issue the Zoom', primary: true,
+            /* Only for rows that never got a link -- a booking made while the
+               gateway was down, or one that arrived from Telegram. */
+            (st === 'pending' || !m.meet_url) ? { label: 'Issue the link', primary: true,
               run: async () => {
-                if (!confirm('Issue the Zoom meeting and email the invite to everyone on it?')) return;
-                toast('Creating the Zoom\u2026');
+                const label = providerLabel(m.provider) || 'the meeting';
+                if (!confirm('Create ' + label + ' and email the invitation to everyone on it?')) return;
+                toast('Creating\u2026');
                 try {
-                  await callGateway('meeting.approve', { meeting_id: String(m.id) });
-                  toast('Zoom issued and the invite is on its way.');
+                  const r = await callGateway('meeting.create',
+                    { meeting_id: String(m.id), provider: m.provider || meetingProvider }) || {};
+                  const url = r.join_url || r.meet_url || r.url;
+                  toast(url ? 'Created. The invitation is on its way.'
+                            : 'Booked, but no link came back.', !url);
                   run();
                 } catch (e) { toast(e.message, true); }
               } } : null
@@ -4372,13 +4551,36 @@ RENDER.find = function (body) {
 
   const fFrom = el('input', { class: 'search', type: 'date' });
   const fTo   = el('input', { class: 'search', type: 'date' });
-  const fType = sel([['', 'Any investor type'], ['family office', 'Family office'],
-    ['institutional', 'Institutional'], ['pension', 'Pension'], ['endowment', 'Endowment'],
-    ['foundation', 'Foundation'], ['consultant', 'Consultant'], ['wealth', 'Wealth / private bank'],
-    ['fund of funds', 'Fund of funds'], ['sovereign', 'Sovereign']]);
-  const fGeo  = sel([['', 'Anywhere'], ['GB', 'United Kingdom'], ['US', 'United States'],
-    ['CH', 'Switzerland'], ['SG', 'Singapore'], ['AE', 'UAE'], ['SA', 'Saudi Arabia'],
-    ['DE', 'Germany'], ['FR', 'France'], ['HK', 'Hong Kong'], ['CA', 'Canada'], ['AU', 'Australia']]);
+  /* Investor type and geography are filled in from the rows themselves once
+     they load. A hardcoded list goes stale the first time With Intelligence
+     writes a type nobody anticipated, and the symptom is a filter that
+     silently cannot reach some of the records. */
+  const fType = sel([['', 'Any investor type']]);
+  const fGeo  = sel([['', 'Anywhere']]);
+  const COUNTRY_NAMES = { GB: 'United Kingdom', US: 'United States', CH: 'Switzerland',
+    SG: 'Singapore', AE: 'UAE', SA: 'Saudi Arabia', DE: 'Germany', FR: 'France',
+    HK: 'Hong Kong', CA: 'Canada', AU: 'Australia', IE: 'Ireland', NL: 'Netherlands',
+    SE: 'Sweden', NO: 'Norway', DK: 'Denmark', IT: 'Italy', ES: 'Spain', LU: 'Luxembourg',
+    IL: 'Israel', JP: 'Japan', CN: 'China', IN: 'India' };
+
+  function fillFacets(rows) {
+    const types = new Map(), geos = new Map();
+    for (const r of rows) {
+      const t = String(r.investor_type || '').trim().toLowerCase();
+      if (t) types.set(t, (types.get(t) || 0) + 1);
+      const c = String(r.investor_country || '').trim().toUpperCase();
+      if (c) geos.set(c, (geos.get(c) || 0) + 1);
+    }
+    const add = (node, entries, name) => {
+      const keep = node.value;
+      for (const [v, n] of [...entries].sort((a, b) => b[1] - a[1])) {
+        node.appendChild(el('option', { value: v }, name(v) + '  (' + n + ')'));
+      }
+      node.value = keep;
+    };
+    add(fType, types, (v) => v.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()));
+    add(fGeo,  geos,  (v) => COUNTRY_NAMES[v] || v);
+  }
   const fAsset = sel([['', 'Any asset class'], ['hedge', 'Hedge funds'], ['equit', 'Equities'],
     ['credit', 'Credit'], ['private', 'Private markets'], ['real', 'Real assets'],
     ['multi', 'Multi-asset']]);
@@ -4387,8 +4589,9 @@ RENDER.find = function (body) {
     ['quant', 'Quant / systematic'], ['multi_strategy', 'Multi-strategy'], ['event', 'Event driven']]);
   const fTick = sel([['', 'Any ticket'], ['500000', 'USD 500k and up'],
     ['1000000', 'USD 1m and up'], ['5000000', 'USD 5m and up'], ['10000000', 'USD 10m and up']]);
-  const fStat = sel([['', 'Any outcome'], ['matched', 'Approved'], ['uncertain', 'Not approved'],
-    ['rejected', 'Rejected'], ['unread', 'Unread']]);
+  const fStat = sel([['', 'Any outcome'], ['approved', 'Approved by a person'],
+    ['notapproved', 'Not approved yet'], ['matched', 'Scored as matched'],
+    ['uncertain', 'Sent to review'], ['rejected', 'Rejected'], ['unread', 'Unread']]);
   const fQ    = el('input', { class: 'search', type: 'search',
     placeholder: 'Name, organisation or what the alert said\u2026' });
 
@@ -4433,7 +4636,9 @@ RENDER.find = function (body) {
       const t = Number(m.ticket_max_usd || m.ticket_min_usd || 0);
       if (!(t >= Number(F.tmin))) return false;
     }
-    if (F.status === 'unread') { if (m.seen_at) return false; }
+    if (F.status === 'unread')           { if (m.seen_at) return false; }
+    else if (F.status === 'approved')    { if (!isApproved(m)) return false; }
+    else if (F.status === 'notapproved') { if (isApproved(m)) return false; }
     else if (F.status && m.qualification !== F.status) return false;
     if (F.q) {
       const hay = [m.investor_name, m.organization_name, m.contact_name,
@@ -4464,8 +4669,9 @@ RENDER.find = function (body) {
       out.appendChild(entry({
         tone,
         rail: '#' + m.id,
-        action: m.investor_name || m.organization_name || ('Mandate #' + m.id),
-        who: [m.organization_name, m.investor_country, m.investor_city].filter(Boolean).join('  \u00B7  '),
+        action: investorLabel(m),
+        who: [legalName(m.organization_name), m.investor_country, m.investor_city]
+               .filter(Boolean).join('  \u00B7  '),
         record: m,
         evidence: [
           ['type    ', asText(m.investor_type)],
@@ -4475,9 +4681,12 @@ RENDER.find = function (body) {
           ['dated   ', m.alert_date ? fmtDate(m.alert_date) : null],
           ['score   ', m.fit_score]
         ],
-        tags: [[q, tone]].concat(m.seen_at ? [] : [['unread', 'signal']]),
+        tags: [[q, tone]]
+                .concat(m.seen_at ? [] : [['unread', 'signal']])
+                .concat(isApproved(m) ? [['approved', 'good']] : []),
         actions: [{ label: 'View the mandate', primary: true,
                     run: () => { markSeen(m); openMandate(m); } }]
+                 .concat(verdictActions(m, () => go('find')))
       }));
     }
     if (rows.length > 200) {
@@ -4490,194 +4699,20 @@ RENDER.find = function (body) {
   fill(out, async () => {
     if (DEMO) return [];
     return await supaSelect('wi_mandates', 'select=*&order=id.desc&limit=1000');
-  }, (rows) => { all = rows; run(); });
+  }, (rows) => { all = rows; fillFacets(rows); run(); });
 };
 
-/* The filter page. Distinct from Ask, which answers a question, and from the
-   old search box, which matched a string. This one narrows the whole mandate
-   history down by the things a person actually holds in their head: when, what
-   kind of investor, where, and which asset class.
+/* The second filter page is gone. It and "Find an investor" were built at
+   different times against wi_mandates and converged on the same job, so the
+   console offered two doors into one room and no way to tell which was
+   which. Find an investor is the survivor and now carries the one thing
+   this page did better: facets read off the data instead of hardcoded, so
+   an investor type WI invents next month is reachable without a deploy.
 
-   Facets are read off the data rather than hardcoded. A fixed list of investor
-   types goes stale the first time WI writes one nobody anticipated, and the
-   symptom is a filter that silently cannot reach some of the records.
-
-   Filtering happens server-side where PostgREST can express it and in the
-   browser where it cannot — jsonb array containment on strategies and asset
-   classes is the awkward case, and one narrowed fetch is cheaper to reason
-   about than a query string nobody can debug. */
-RENDER.search = function (body) {
-  clear(body);
-
-  const txt   = el('input', { class: 'search', type: 'search',
-    placeholder: 'Investor, firm, or anything in the summary\u2026' });
-  const from  = el('input', { class: 'search', type: 'date' });
-  const to    = el('input', { class: 'search', type: 'date' });
-  const fType = el('select', { class: 'search' });
-  const fGeo  = el('select', { class: 'search' });
-  const fAsset= el('select', { class: 'search' });
-  const fStrat= el('select', { class: 'search' });
-  const fQual = el('select', { class: 'search' });
-  const fTick = el('input', { class: 'search', type: 'number', placeholder: 'Minimum ticket, USD' });
-
-  const opt = (sel, list, blank) => {
-    clear(sel);
-    sel.appendChild(el('option', { value: '' }, blank));
-    for (const v of list) sel.appendChild(el('option', { value: v }, v));
-  };
-  opt(fQual, ['matched', 'uncertain', 'rejected'], 'Any outcome');
-
-  const field = (label, node) => el('label', { class: 'field' },
-    el('span', null, label), node);
-
-  const runBtn   = el('button', { class: 'btn btn-sm' }, 'Search');
-  const clearBtn = el('button', { class: 'btn btn-sm btn-quiet' }, 'Clear');
-  const out   = el('div', { style: 'margin-top:20px' });
-  const count = el('p', { class: 'mono',
-    style: 'color:var(--ink-3);font-size:12px;margin:14px 0 0' }, '');
-
-  body.append(
-    el('div', { class: 'grid2' },
-      field('Anything', txt),
-      field('Minimum ticket', fTick)),
-    el('div', { class: 'grid2' },
-      field('Alert date from', from),
-      field('to', to)),
-    el('div', { class: 'grid2' },
-      field('Investor type', fType),
-      field('Geography', fGeo)),
-    el('div', { class: 'grid2' },
-      field('Asset class', fAsset),
-      field('Strategy', fStrat)),
-    el('div', { class: 'grid2' },
-      field('Outcome', fQual),
-      el('div', { style: 'display:flex;gap:8px;align-items:flex-end' }, runBtn, clearBtn)),
-    count, out);
-
-  const jarr = (v) => {
-    let x = v;
-    for (let n = 0; n < 2 && typeof x === 'string'; n++) { try { x = JSON.parse(x); } catch (_) { x = []; } }
-    return Array.isArray(x) ? x.map(z => String(z).trim()).filter(Boolean) : [];
-  };
-
-  /* One pass over the facet columns to learn what values exist. Cheap, and it
-     keeps every dropdown honest about what is actually reachable. */
-  (async () => {
-    if (DEMO) return;
-    try {
-      const f = await supaSelect('wi_mandates',
-        'select=investor_type,investor_country,asset_classes,strategies&limit=2000');
-      const t = new Set(), g = new Set(), a = new Set(), st = new Set();
-      for (const r of f) {
-        if (r.investor_type)    t.add(String(r.investor_type).trim());
-        if (r.investor_country) g.add(String(r.investor_country).trim());
-        for (const x of jarr(r.asset_classes)) a.add(x);
-        for (const x of jarr(r.strategies))    st.add(x);
-      }
-      const sorted = (s) => [...s].filter(Boolean).sort((x, y) => x.localeCompare(y));
-      opt(fType,  sorted(t),  'Any type');
-      opt(fGeo,   sorted(g),  'Anywhere');
-      opt(fAsset, sorted(a),  'Any asset class');
-      opt(fStrat, sorted(st), 'Any strategy');
-    } catch (e) {
-      count.textContent = 'Could not read the filter options: ' + e.message;
-    }
-  })();
-
-  function reset() {
-    for (const n of [txt, from, to, fTick]) n.value = '';
-    for (const n of [fType, fGeo, fAsset, fStrat, fQual]) n.value = '';
-    clear(out); count.textContent = '';
-  }
-  clearBtn.addEventListener('click', reset);
-
-  async function run() {
-    if (DEMO) { count.textContent = 'Not in the sample. Sign in to search.'; return; }
-    clear(out);
-    count.textContent = 'Searching\u2026';
-
-    /* Anything PostgREST can filter is filtered before the rows travel. The
-       date range reads alert_date when WI stated one and falls back to when
-       the row was created, so a mandate without a printed date is still
-       reachable by roughly when it arrived. */
-    const parts = ['select=*', 'order=alert_date.desc.nullslast,id.desc', 'limit=400'];
-    if (fQual.value) parts.push('qualification=eq.' + encodeURIComponent(fQual.value));
-    if (fType.value) parts.push('investor_type=eq.' + encodeURIComponent(fType.value));
-    if (fGeo.value)  parts.push('investor_country=eq.' + encodeURIComponent(fGeo.value));
-    if (from.value)  parts.push('or=(alert_date.gte.' + from.value + ',and(alert_date.is.null,created_at.gte.' + from.value + '))');
-    if (to.value)    parts.push('or=(alert_date.lte.' + to.value + ',and(alert_date.is.null,created_at.lte.' + to.value + '))');
-    if (fTick.value) parts.push('ticket_min_usd=gte.' + encodeURIComponent(fTick.value));
-
-    let rows;
-    try {
-      rows = await supaSelect('wi_mandates', parts.join('&'));
-    } catch (e) {
-      count.textContent = '';
-      return out.appendChild(el('div', { class: 'banner',
-        style: 'background:var(--bad-soft);border-color:var(--bad);color:var(--bad)' },
-        el('b', null, 'Could not search. '), e.message));
-    }
-
-    // The rest in the browser: jsonb containment and free text across several
-    // columns are both clumsy to express in a query string and easy here.
-    const q = txt.value.trim().toLowerCase();
-    if (q) {
-      rows = rows.filter(m => [m.investor_name, m.organization_name, m.contact_name,
-                               m.intention_summary, m.fit_reason, m.investor_city]
-        .some(v => String(v || '').toLowerCase().includes(q)));
-    }
-    if (fAsset.value) rows = rows.filter(m => jarr(m.asset_classes).includes(fAsset.value));
-    if (fStrat.value) rows = rows.filter(m => jarr(m.strategies).includes(fStrat.value));
-
-    count.textContent = rows.length
-      ? rows.length + (rows.length === 1 ? ' match' : ' matches')
-        + (rows.length === 400 ? ' (capped \u2014 narrow the dates)' : '')
-      : '';
-
-    if (!rows.length) {
-      return out.appendChild(empty('Nothing matched',
-        'Widen a filter, or clear them all and start from the text box.'));
-    }
-
-    for (const m of rows) {
-      const tone = m.qualification === 'matched' ? 'good'
-                 : m.qualification === 'uncertain' ? 'signal' : 'bad';
-      out.appendChild(entry({
-        tone,
-        rail: '#' + m.id,
-        action: m.investor_name || m.organization_name || ('Mandate #' + m.id),
-        who: asText(m.intention_summary),
-        record: m,
-        evidence: [
-          ['type      ', asText(m.investor_type)],
-          ['where     ', [m.investor_city, m.investor_country].filter(Boolean).join(', ')],
-          ['asset     ', jarr(m.asset_classes).join(', ')],
-          ['strategy  ', jarr(m.strategies).join(', ')],
-          ['ticket    ', money(m.ticket_min_usd)],
-          ['score     ', m.fit_score],
-          ['alert date', m.alert_date ? fmtDate(m.alert_date) : null]
-        ],
-        tags: [[m.qualification, tone]].concat(m.seen_at ? [] : [['unread', 'signal']]),
-        actions: [
-          { label: 'View the mandate', primary: true, run: () => openMandate(m) },
-          { label: 'Fill a gap', run: () => fillSheet(m) }
-        ]
-      }));
-    }
-  }
-
-  runBtn.addEventListener('click', run);
-  for (const n of [txt, fTick]) {
-    n.addEventListener('keydown', (e) => { if (e.key === 'Enter') run(); });
-  }
-  for (const n of [fType, fGeo, fAsset, fStrat, fQual, from, to]) {
-    n.addEventListener('change', run);
-  }
-
-  // Ask hands over a phrase when it would rather this page answered it.
-  if (PENDING.q) { const v = PENDING.q; PENDING.q = null; PENDING.qmode = null; txt.value = v; run(); }
-  setTimeout(() => txt.focus(), 60);
-};
+   The id stays mapped so an old bookmark, or anything still calling
+   go('search'), lands on the real page rather than being bounced to
+   Opportunities by the fallback in go(). */
+RENDER.search = function (body) { return RENDER.find(body); };
 
 RENDER.ask = function (body) {
   const host = body.parentElement;
@@ -5092,7 +5127,7 @@ async function openMandate(m) {
   // Replay the arrival animation: these open in place, so without this
   // the page changes with no sign that anything happened.
   body.style.animation = 'none'; void body.offsetWidth; body.style.animation = '';
-  $('pg-title').textContent = m.investor_name || m.organization_name || ('Mandate #' + m.id);
+  $('pg-title').textContent = investorLabel(m);
   $('pg-sub').textContent = 'With Intelligence mandate';
   const host = el('div');
   body.appendChild(host);
@@ -5149,16 +5184,26 @@ async function openMandate(m) {
   const c1 = el('div'), c2 = el('div');
   grid.append(c1, c2);
   c1.append(...[
-    field('Organisation', full.organization_name, true),
-    field('Investor', full.investor_name, true),
+    field('Organisation', legalName(full.organization_name), true),
+    field('Investor', legalName(full.investor_name), true),
     field('Where', [full.investor_city, full.investor_country].filter(Boolean).join(', '), true),
     field('Type', full.investor_type),
     field('Strategies', full.strategies)
   ].filter(Boolean));
   c2.append(...[
     field('Minimum ticket', money(full.ticket_min_usd), true),
-    field('Fit score', full.fit_score, true),
+    /* The same chip the lists carry: the score on its scale, and the
+       scorecard behind it on click. It was only ever on the cards, so
+       opening a record lost the one explanation of the number. */
+    el('div', { style: 'margin-bottom:14px' },
+      el('div', { style: 'font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;'
+        + 'color:var(--ink-3);margin-bottom:3px' }, 'Fit score'),
+      el('div', { style: 'font-size:16px;font-weight:600;line-height:1.5' },
+        scoreChip(full.fit_score, full))),
     field('Qualification', full.qualification),
+    field('Approved', full.approved_at
+      ? (fmtDate(full.approved_at) + (full.approved_by ? '  by ' + full.approved_by : ''))
+      : 'not approved yet'),
     field('Not stated', full.missing_hard_fields),
     field('Hard failures', full.hard_fail_reasons),
     field('Published', full.published_at ? fmtDate(full.published_at) : 'not published')
@@ -5169,6 +5214,7 @@ async function openMandate(m) {
   const shown = ['id','investor_name','organization_name','investor_city','investor_country',
     'investor_type','strategies','ticket_min_usd','fit_score','fit_reason','qualification',
     'missing_hard_fields','hard_fail_reasons','published_at','linkedin_url',
+    'approved_at','approved_by',
     'view_article_url','view_intention_url','view_investor_url'];
 
   /* Plumbing, not intelligence. These identify the row and the email it came
