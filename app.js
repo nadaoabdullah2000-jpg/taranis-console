@@ -947,8 +947,14 @@ function entry(o) {
      quote one, and out of the way the rest of the time. */
   const rail = el('div', { class: 'entry-rail' },
     o.tone ? el('span', { class: 'dot ' + o.tone }) : null,
-    o.rail ? el('span', { class: 'rail-n', title: 'Record ' + o.rail,
-                          style: 'opacity:.32' }, o.rail) : null);
+    /* Database row ids are not user-facing. "#566" is how the table refers to
+       a record, never how a person does, and a column of them down the side of
+       every card is noise you learn to ignore -- which is the worst thing a
+       piece of interface can be. Rails that say something ("wait", "past",
+       "WI") are kept; the numbers are gone. */
+    (o.rail && !/^#\d+$/.test(String(o.rail)))
+      ? el('span', { class: 'rail-n', title: String(o.rail), style: 'opacity:.32' }, o.rail)
+      : null);
 
   const ev = el('div', { class: 'ev' });
   for (const [k, v] of (o.evidence || [])) {
@@ -3560,8 +3566,35 @@ RENDER.meetings = function (body) {
      the common case is booking a slot and sending the details by hand to one
      person, without putting anybody on the calendar invitation. */
   const mFor = el('input', { class: 'search',
-    placeholder: 'Address the message to someone, e.g. Marie' });
-  const mLook  = el('input', { class: 'search', placeholder: 'Search the contact book to add someone' });
+    placeholder: 'Start typing a name, or write one that is not in the book' });
+  const mForSugg = el('div', { class: 'chips' });
+
+  /* Suggests out of the contact book as you type, but never insists. The
+     person you are writing to is often not in the book yet -- that is half of
+     what fundraising is -- so a free-typed name is a first-class answer and
+     the suggestions are only there to save the keystrokes when they are. */
+  let ft = null;
+  mFor.addEventListener('input', () => { clearTimeout(ft); ft = setTimeout(nameLookup, 250); });
+
+  async function nameLookup() {
+    const q = mFor.value.trim();
+    clear(mForSugg);
+    if (q.length < 2 || DEMO) return;
+    try {
+      const t = lk(q);
+      const rows = await readRows('contacts_app',
+        'select=id,name,company&limit=6&or=(name.ilike.' + t + ',company.ilike.' + t + ')',
+        'contacts.search', { q: q, filter: 'all' });
+      for (const c of rows) {
+        if (!c.name) continue;
+        mForSugg.appendChild(el('button', { class: 'chip',
+          onclick: () => { mFor.value = c.name; clear(mForSugg); } },
+          c.name + (c.company ? '  \u00B7  ' + c.company : '')));
+      }
+    } catch (_) { /* suggestions are a convenience; typing still works */ }
+  }
+  const mLook  = el('input', { class: 'search',
+    placeholder: 'Type a name or an address \u2014 anyone added here is emailed the invitation' });
   const mSugg  = el('div', { class: 'chips' });
   const mList  = el('div');
   let invited  = [];
@@ -3579,13 +3612,22 @@ RENDER.meetings = function (body) {
         'select=id,name,company,email&limit=6&or=(name.ilike.' + t + ',company.ilike.' + t + ')',
         'contacts.search', { q: q, filter: 'all' });
       if (!rows.length) {
-        return mSugg.appendChild(el('span', { class: 'mono', style: 'font-size:12px;color:var(--ink-3)' },
-          'Nobody by that name. Type a full email address instead and press Add.'));
+        return mSugg.appendChild(el('span', { style: 'font-size:12px;color:var(--ink-3)' },
+          'Nobody by that name. Type the address itself and press Add.'));
       }
+      /* The address is the point here, not the person -- this list decides
+         who receives an email -- so it is what the suggestion shows. A contact
+         with no address on file cannot be invited and is not offered. */
+      let offered = 0;
       for (const c of rows) {
         if (!c.email) continue;
+        offered++;
         mSugg.appendChild(el('button', { class: 'chip', onclick: () => add(c) },
-          c.name + (c.company ? '  \u00B7  ' + c.company : '')));
+          c.email + (c.name ? '  \u00B7  ' + c.name : '')));
+      }
+      if (!offered) {
+        mSugg.appendChild(el('span', { style: 'font-size:12px;color:var(--ink-3)' },
+          'Nobody by that name has an address on file. Type the address itself and press Add.'));
       }
     } catch (e) {
       mSugg.appendChild(el('span', { class: 'mono', style: 'font-size:12px;color:var(--ink-3)' }, e.message));
@@ -3615,13 +3657,20 @@ RENDER.meetings = function (body) {
     add({ id: null, name: v, email: v });
   } }, 'Add');
 
-  const bookBtn = el('button', { class: 'btn', onclick: () => book() }, 'Schedule it');
+  /* Two different intentions, so two buttons rather than one button and a
+     rule about leaving a field empty. Booking a slot to send on by hand is
+     not a degraded version of inviting people; it is the other half of what
+     this tab is for, and it should not be reachable only by omission. */
+  const bookBtn = el('button', { class: 'btn', onclick: () => book(true) },
+    'Schedule and send the invitation');
+  const linkBtn = el('button', { class: 'btn btn-quiet', onclick: () => book(false) },
+    'Just get me a link');
   /* Where the link lands the moment it exists. Sits directly under the button
      rather than in a toast, because a join link is something you copy, and a
      toast disappears while you are still reaching for it. */
   const issued = el('div');
 
-  async function book() {
+  async function book(sendInvites) {
     if (!mTitle.value.trim()) return toast('Give the meeting a title.', true);
     if (!mWhen.value) return toast('Pick a date and time.', true);
     // No guest list required. Booking a slot to send on by hand is a normal
@@ -3637,11 +3686,18 @@ RENDER.meetings = function (body) {
       duration_min: Number(mMins.value) || 30,
       tz:           mTz.value.trim() || 'Africa/Cairo',
       to_people:    invited,
+      // Recorded either way -- who a meeting is with is worth knowing even
+      // when the invitation went out by hand. This only decides whether the
+      // workflow sends it.
+      send_invitations: sendInvites !== false && invited.length > 0,
       language:     mLang.value || 'en',
       invitee_name: mFor.value.trim()
     };
 
-    bookBtn.disabled = true; bookBtn.textContent = 'Creating the meeting\u2026';
+    const pressed = sendInvites === false ? linkBtn : bookBtn;
+    const pressedLabel = pressed.textContent;
+    bookBtn.disabled = true; linkBtn.disabled = true;
+    pressed.textContent = 'Creating the meeting\u2026';
     clear(issued);
     try {
       /* One call. The gateway creates the meeting with the chosen provider,
@@ -3657,12 +3713,26 @@ RENDER.meetings = function (body) {
         showPending(label, r.message || 'The gateway did not return a join link.');
         toast('Booked, but no link came back.', true);
       }
-      mTitle.value = ''; mWhen.value = ''; mFor.value = ''; invited = []; drawInvited();
+      mTitle.value = ''; mWhen.value = ''; mFor.value = '';
+      clear(mForSugg); invited = []; drawInvited();
       run();
     } catch (e) {
       /* Gateway unreachable. Keep the booking rather than lose it. */
       try {
-        await supaInsert('crm_meetings', Object.assign({}, payload, { status: 'pending' }));
+        /* Only the columns crm_meetings actually has. The payload also carries
+           language and invitee_name, which tell the workflow how to WRITE the
+           invitation and are not properties of a meeting -- posting them to
+           PostgREST fails the whole insert on a schema-cache miss, which is
+           how a gateway problem turned into "column does not exist". */
+        await supaInsert('crm_meetings', {
+          title:        payload.title,
+          start_utc:    payload.start_utc,
+          duration_min: payload.duration_min,
+          tz:           payload.tz,
+          to_people:    payload.to_people,
+          provider:     payload.provider,
+          status:       'pending'
+        });
         showPending(label, e.message);
         toast('Saved without a link \u2014 ' + e.message, true);
         mTitle.value = ''; mWhen.value = ''; invited = []; drawInvited();
@@ -3671,7 +3741,8 @@ RENDER.meetings = function (body) {
         toast(e2.message, true);
       }
     } finally {
-      bookBtn.disabled = false; bookBtn.textContent = 'Schedule it';
+      bookBtn.disabled = false; linkBtn.disabled = false;
+      pressed.textContent = pressedLabel;
     }
   }
 
@@ -3725,10 +3796,11 @@ RENDER.meetings = function (body) {
     el('div', { class: 'grid2' }, lbl('Title', mTitle), lbl('When', mWhen)),
     el('div', { class: 'grid2' }, lbl('Minutes', mMins), lbl('Timezone', mTz)),
     el('div', { class: 'grid2' }, lbl('Platform', mProv), lbl('Invitation language', mLang)),
-    lbl('Address the message to (optional)', mFor),
-    lbl('Who is coming? (optional \u2014 leave empty to just get a link)',
-        el('div', { class: 'toolbar' }, mLook, addTyped)),
-    mSugg, mList, bookBtn, issued));
+    lbl('Address the message to', mFor), mForSugg,
+    lbl('Email the invitation to', el('div', { class: 'toolbar' }, mLook, addTyped)),
+    mSugg, mList,
+    el('div', { class: 'acts', style: 'margin-top:16px' }, bookBtn, linkBtn),
+    issued));
 
   const out = el('div');
   body.appendChild(out);
@@ -5284,9 +5356,14 @@ async function openMandate(m) {
     el('button', { class: 'btn btn-sm btn-quiet', onclick: () => go(PROFILE_BACK || 'opps') }, '\u2190 Back'),
     // With Intelligence's own pages. Deterministic Extraction pulls these out
     // of the alert email and they were stored all along, just never shown.
+    /* The stored URL already carries #page=N when HFN 02 could find the
+       investor's name in the PDF's text, so the button needs to do nothing
+       clever -- it only says which page it is about to open, because a link
+       that jumps somewhere unannounced reads as a glitch. */
     full.view_article_url
       ? el('button', { class: 'btn btn-sm',
-          onclick: () => window.open(full.view_article_url, '_blank', 'noopener,noreferrer') }, 'View article')
+          onclick: () => window.open(full.view_article_url, '_blank', 'noopener,noreferrer') },
+          full.source_page ? 'View article  \u00B7  p.' + full.source_page : 'View article')
       : null,
     full.view_intention_url
       ? el('button', { class: 'btn btn-sm btn-quiet',
@@ -5354,7 +5431,7 @@ async function openMandate(m) {
   const shown = ['id','investor_name','organization_name','investor_city','investor_country',
     'investor_type','strategies','ticket_min_usd','fit_score','fit_reason','qualification',
     'missing_hard_fields','hard_fail_reasons','published_at','linkedin_url',
-    'approved_at','approved_by',
+    'approved_at','approved_by','source_page',
     'view_article_url','view_intention_url','view_investor_url'];
 
   /* Plumbing, not intelligence. These identify the row and the email it came
