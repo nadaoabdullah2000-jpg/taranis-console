@@ -85,6 +85,12 @@ const MEETING_PROVIDERS = [
   ['meet',   'Google Meet']
 ];
 let meetingProvider = 'zoom';
+
+/* The invitation is written in the workflow, not here, so the app only ever
+   says which language it wants. Keeping the wording in one place is why the
+   emailed invitation and the copyable one cannot disagree. */
+const MEETING_LANGUAGES = [['en', 'English'], ['fr', 'Français']];
+let meetingLanguage = 'en';
 function providerLabel(v) {
   const hit = MEETING_PROVIDERS.find(p => p[0] === String(v || '').toLowerCase());
   return hit ? hit[1] : (v ? String(v) : '');
@@ -1092,11 +1098,38 @@ async function wiStrip(host) {
       box.appendChild(list);
       box.appendChild(el('div', { class: 'acts' },
         el('button', { class: 'btn btn-sm btn-quiet', onclick: () => go('opps') }, 'See the mandates'),
-        by.uncertain ? el('button', { class: 'btn btn-sm', onclick: () => go('approvals') },
-          by.uncertain + ' waiting on you') : null));
+        by.uncertain ? el('button', { class: 'btn btn-sm', onclick: () => {
+          // What is waiting sits in Opportunities under 'Not approved'.
+          // Approved holds what has been decided, so it was the wrong tab.
+          oppsView = 'pending'; go('opps');
+        } }, by.uncertain + ' waiting on you') : null));
     }
     host.insertBefore(box, host.firstChild);
   } catch (_) { /* the feed still shows without it */ }
+}
+
+/* The record a notification is about.
+   mandate_id is the column CONSOLE 02 fills. Where an older row has only a
+   review_id, the mandate is still recoverable: WI 01 builds those as
+   'wi-<mandate id>-<timestamp>', so the number between the dashes is the id.
+   Reading it back is better than sending somebody to a tab to hunt. */
+function notificationMandateId(n) {
+  if (n && n.mandate_id) return String(n.mandate_id);
+  const m = String((n && n.review_id) || '').match(/^wi-(\d+)-/);
+  return m ? m[1] : null;
+}
+
+/** Open a mandate by id, fetching it first. Used where only an id is held. */
+async function openMandateById(id, fallbackTab) {
+  try {
+    const rows = await supaSelect('wi_mandates',
+      'select=*&limit=1&id=eq.' + encodeURIComponent(id));
+    if (rows && rows[0]) return openMandate(rows[0]);
+    toast('That opportunity is no longer in the table.', true);
+  } catch (e) {
+    toast(e.message, true);
+  }
+  if (fallbackTab) go(fallbackTab);
 }
 
 RENDER.today = function (body) {
@@ -1115,7 +1148,8 @@ RENDER.today = function (body) {
   fill(body, async () => {
     if (DEMO) { const d = await demoResponse('today.feed'); return { items: d.items || [] }; }
     const rows = await readRows('app_notifications',
-      'select=id,kind,source,title,subtitle,fields,review_id,created_at,read_at'
+      'select=id,kind,source,title,subtitle,fields,review_id,mandate_id,contact_id,'
+      + 'created_at,read_at'
       + '&order=created_at.desc&limit=40', 'today.feed', {});
     return { items: rows.map(r => Object.assign({}, r, {
       at: r.created_at, read: r.read_at !== null && r.read_at !== undefined
@@ -1162,8 +1196,14 @@ RENDER.today = function (body) {
         evidence: (i.fields || []).map(f => [f.label, f.value]),
         tags: [[i.kind, i.kind === 'review' ? 'signal' : i.kind === 'matched' ? 'good' : 'accent'],
                [fmtDate(i.at), '']],
-        actions: (i.review_id ? [
-          { label: 'Review', primary: true, run: () => go('approvals') }
+        /* Straight to the record the notice is about. This used to jump to
+           the Approved tab regardless of which opportunity was named, which
+           was wrong before and became visibly wrong once Approved started
+           meaning 'a person approved this' -- the button led to a list the
+           record could not be in. */
+        actions: (notificationMandateId(i) ? [
+          { label: 'Open the opportunity', primary: true,
+            run: () => openMandateById(notificationMandateId(i), 'opps') }
         ] : []).concat(i.read ? [] : [
           // Anything you cannot clear stops being read. app_notifications
           // already carries read_at and has an update policy for the console.
@@ -1566,13 +1606,17 @@ RENDER.approvals = function (body) {
         // gateway has no route for -- so the one screen named for making
         // decisions was the only one where a decision did nothing. Same
         // write as Opportunities and Rejected: straight to Supabase.
+        /* Everything on this tab is already approved -- that is the query.
+           So the actions are the ones that make sense AFTER a decision, not
+           the ones that make it. Offering 'Approve' here was left over from
+           when this screen was the pending queue. */
         actions: [
-          { label: 'View the mandate', run: () => openMandate(r) },
-          { label: 'Approve', primary: true,
-            run: () => setQualification(r, 'matched', 'Approved.', () => go('approvals')) },
+          { label: 'View the mandate', primary: true, run: () => openMandate(r) },
           { label: 'Fill the gaps', run: () => fillSheet(r) },
+          { label: 'Withdraw approval',
+            run: () => setApproved(r, false, () => go('approvals')) },
           { label: 'Reject',
-            run: () => setQualification(r, 'rejected', 'Rejected.', () => go('approvals')) }
+            run: () => setQualification(r, 'rejected', 'Moved to Rejected.', () => go('rejected')) }
         ]
       }));
     }
@@ -3200,7 +3244,7 @@ RENDER.rejected = function (body) {
   const CHIPS = [
     ['all',       'Everything',            'x'],
     ['one',       'Missed by one',         'x'],
-    ['none',      'No reason recorded',    'x'],
+    ['none',      'Rejected on score',     'x'],
     ['news',      'Not a mandate',         'x'],
     ['strategy',  'Strategy',              'r'],
     ['asset',     'Asset class',           'r'],
@@ -3305,6 +3349,9 @@ RENDER.rejected = function (body) {
 
   const TESTS = {
     one:  (m, why) => why.length === 1,
+    // Not "we lost the reason" but "the hard criteria passed it and the
+    // scorer did not". Worth its own lens: these are the judgement calls,
+    // and judgement is the thing worth reviewing.
     none: (m, why) => why.length === 0,
 
     strategy: (m, why) => /eligible strategy/i.test(why.join(' '))
@@ -3388,7 +3435,7 @@ RENDER.rejected = function (body) {
     if (!rows.length) {
       return out.appendChild(empty('Nothing here',
         tone === 'one'    ? 'No mandate was turned away on a single criterion.'
-        : tone === 'none' ? 'Every rejected mandate has at least one reason recorded against it.'
+        : tone === 'none' ? 'Every rejected mandate failed a hard criterion \u2014 none were rejected on the score alone.'
         : tone === 'news'   ? 'No launches or industry pieces have been set aside yet.'
         : tone === 'ticket' ? 'No rejected mandate has a ticket under USD 500,000.'
         : 'No mandate was turned away for that reason.'));
@@ -3406,19 +3453,24 @@ RENDER.rejected = function (body) {
         // one reason or four. Amber where a single miss makes it worth
         // reopening, red where it failed on several counts.
         callout: why.length ? why.join('   \u00B7   ')
-          : 'Rejected before any reason was recorded',
-        calloutLabel: why.length === 0 ? 'No reason recorded'
+          : (asText(m.fit_reason)
+             || 'Scored below the 0.30 threshold, and no note was written with it.'),
+        calloutLabel: why.length === 0 ? 'Judged, not screened out'
           : why.length === 1 ? 'Missed only on'
           : 'Missed on ' + why.length,
         calloutTone: why.length > 1 ? 'bad' : 'signal',
         evidence: [
-          ['failures  ', missCount(why.length)],
+          ['failures  ', why.length === 0
+              ? ('none \u2014 it met the hard criteria and was rejected on the score'
+                 + (m.fit_score === null || m.fit_score === undefined
+                    ? '' : ' of ' + scoreText(m.fit_score)))
+              : missCount(why.length)],
           ['strategy  ', asText(m.strategies)],
           ['ticket    ', money(m.ticket_min_usd)
               + (tone === 'ticket' ? '   \u2014 below the floor, but not why it was turned away' : '')]
         ],
         tags: [['rejected', 'bad'],
-               why.length === 0 ? ['no reason recorded', 'signal']
+               why.length === 0 ? ['rejected on score', 'signal']
                : why.length === 1 ? ['one miss', 'signal']
                : [why.length + ' misses', 'quiet']].filter(Boolean),
         actions: [
@@ -3496,6 +3548,19 @@ RENDER.meetings = function (body) {
   for (const [v, l] of MEETING_PROVIDERS) mProv.appendChild(el('option', { value: v }, l));
   mProv.value = meetingProvider;
   mProv.addEventListener('change', () => { meetingProvider = mProv.value; });
+
+  /* Which language the written invitation comes back in. Also remembered,
+     for the same reason as the platform: it rarely changes between bookings. */
+  const mLang = el('select', { class: 'search' });
+  for (const [v, l] of MEETING_LANGUAGES) mLang.appendChild(el('option', { value: v }, l));
+  mLang.value = meetingLanguage;
+  mLang.addEventListener('change', () => { meetingLanguage = mLang.value; });
+
+  /* Who the message is addressed to. Separate from the guest list on purpose:
+     the common case is booking a slot and sending the details by hand to one
+     person, without putting anybody on the calendar invitation. */
+  const mFor = el('input', { class: 'search',
+    placeholder: 'Address the message to someone, e.g. Marie' });
   const mLook  = el('input', { class: 'search', placeholder: 'Search the contact book to add someone' });
   const mSugg  = el('div', { class: 'chips' });
   const mList  = el('div');
@@ -3559,7 +3624,9 @@ RENDER.meetings = function (body) {
   async function book() {
     if (!mTitle.value.trim()) return toast('Give the meeting a title.', true);
     if (!mWhen.value) return toast('Pick a date and time.', true);
-    if (!invited.length) return toast('Add at least one person.', true);
+    // No guest list required. Booking a slot to send on by hand is a normal
+    // way to use this, and the workflow skips the email step when nobody is
+    // on it rather than erroring on an empty To address.
 
     const provider = mProv.value || 'zoom';
     const label = (MEETING_PROVIDERS.find(p => p[0] === provider) || ['', provider])[1];
@@ -3569,7 +3636,9 @@ RENDER.meetings = function (body) {
       start_utc:    new Date(mWhen.value).toISOString(),
       duration_min: Number(mMins.value) || 30,
       tz:           mTz.value.trim() || 'Africa/Cairo',
-      to_people:    invited
+      to_people:    invited,
+      language:     mLang.value || 'en',
+      invitee_name: mFor.value.trim()
     };
 
     bookBtn.disabled = true; bookBtn.textContent = 'Creating the meeting\u2026';
@@ -3580,7 +3649,7 @@ RENDER.meetings = function (body) {
       const r = await callGateway('meeting.create', payload) || {};
       const url = r.join_url || r.meet_url || r.url || null;
       if (url) {
-        showLink(label, url, r.passcode);
+        showLink(label, url, r.passcode, r.message, r.invited);
         toast(label + ' meeting created.');
       } else {
         /* The gateway answered but has no link for us -- almost always a
@@ -3588,7 +3657,7 @@ RENDER.meetings = function (body) {
         showPending(label, r.message || 'The gateway did not return a join link.');
         toast('Booked, but no link came back.', true);
       }
-      mTitle.value = ''; mWhen.value = ''; invited = []; drawInvited();
+      mTitle.value = ''; mWhen.value = ''; mFor.value = ''; invited = []; drawInvited();
       run();
     } catch (e) {
       /* Gateway unreachable. Keep the booking rather than lose it. */
@@ -3606,7 +3675,7 @@ RENDER.meetings = function (body) {
     }
   }
 
-  function showLink(label, url, passcode) {
+  function showLink(label, url, passcode, message, invited) {
     clear(issued);
     issued.appendChild(el('div', { class: 'callout good', style: 'margin-top:14px' },
       el('span', { class: 'callout-k' }, label),
@@ -3616,9 +3685,31 @@ RENDER.meetings = function (body) {
         'Passcode ' + passcode));
     }
     issued.appendChild(el('div', { class: 'acts' },
-      el('button', { class: 'btn btn-sm', onclick: () => copy(url) }, 'Copy the link'),
+      el('button', { class: 'btn btn-sm', onclick: () => copy(url, 'Link') }, 'Copy the link'),
       el('button', { class: 'btn btn-sm btn-quiet',
         onclick: () => window.open(url, '_blank', 'noopener,noreferrer') }, 'Open it')));
+
+    /* The written invitation, exactly as the workflow composed it and exactly
+       as anyone emailed will have received it. Shown whether or not there was
+       a guest list, because with no guest list this IS how it gets sent. */
+    if (message) {
+      issued.appendChild(el('p', { style: 'margin:18px 0 6px;font-size:11px;letter-spacing:.14em;'
+        + 'text-transform:uppercase;color:var(--ink-3)' },
+        invited ? 'Sent to ' + invited : 'Nobody was emailed \u2014 send this yourself'));
+      // Editable in place. Most edits are a line added before sending it on,
+      // and making that require opening a panel first is friction for the
+      // commonest thing anyone does with this box.
+      const box = el('textarea', { style: 'width:100%;min-height:220px;padding:13px 15px;'
+        + 'font:inherit;font-size:13.5px;line-height:1.6;border:1px solid var(--rule);'
+        + 'border-radius:6px;background:var(--card);color:var(--ink);resize:vertical' });
+      box.value = message;
+      issued.appendChild(box);
+      issued.appendChild(el('div', { class: 'acts' },
+        el('button', { class: 'btn btn-sm', onclick: () => copy(box.value, 'Message') },
+          'Copy the message'),
+        el('button', { class: 'btn btn-sm btn-quiet',
+          onclick: () => { box.value = message; toast('Back to the original.'); } }, 'Reset')));
+    }
   }
 
   function showPending(label, why) {
@@ -3633,8 +3724,10 @@ RENDER.meetings = function (body) {
   body.appendChild(el('div', { style: 'max-width:900px;margin:0 0 24px' },
     el('div', { class: 'grid2' }, lbl('Title', mTitle), lbl('When', mWhen)),
     el('div', { class: 'grid2' }, lbl('Minutes', mMins), lbl('Timezone', mTz)),
-    lbl('Platform', mProv),
-    lbl('Who is coming?', el('div', { class: 'toolbar' }, mLook, addTyped)),
+    el('div', { class: 'grid2' }, lbl('Platform', mProv), lbl('Invitation language', mLang)),
+    lbl('Address the message to (optional)', mFor),
+    lbl('Who is coming? (optional \u2014 leave empty to just get a link)',
+        el('div', { class: 'toolbar' }, mLook, addTyped)),
     mSugg, mList, bookBtn, issued));
 
   const out = el('div');
@@ -3687,7 +3780,12 @@ RENDER.meetings = function (body) {
           actions: [
             m.meet_url ? { label: 'Join the meeting', primary: true,
               run: () => window.open(m.meet_url, '_blank', 'noopener,noreferrer') } : null,
-            m.meet_url ? { label: 'Copy the link', run: () => copy(m.meet_url) } : null,
+            m.meet_url ? { label: 'Copy the link', run: () => copy(m.meet_url, 'Link') } : null,
+            // Stored by the workflow, so it survives the session that booked
+            // it. Meetings booked before the invitation was kept have none,
+            // and say so by simply not offering the button.
+            m.invitation_body ? { label: 'Invitation',
+              run: () => invitationSheet(Object.assign({}, m, { to_csv_display: people(m) })) } : null,
             /* Only for rows that never got a link -- a booking made while the
                gateway was down, or one that arrived from Telegram. */
             (st === 'pending' || !m.meet_url) ? { label: 'Issue the link', primary: true,
@@ -4880,10 +4978,52 @@ async function act(action, payload, okMsg) {
   } catch (e) { toast(e.message, true); }
 }
 
-function copy(text) {
+/* The label matters. This always said "Link copied", so copying a whole
+   invitation reported that a link had gone to the clipboard -- a small lie
+   that makes you check the clipboard to find out what actually happened. */
+function copy(text, what) {
   navigator.clipboard.writeText(text || '').then(
-    () => toast('Link copied'),
+    () => toast((what || 'Link') + ' copied'),
     () => toast('Could not copy', true));
+}
+
+/* The invitation, editable before you send it on.
+   The edit is deliberately local: crm_meetings keeps the text the workflow
+   composed and actually emailed, and that record is worth being able to trust
+   when somebody asks what they were sent. What you change here is your copy
+   of it, for pasting into a message you send yourself. */
+function invitationSheet(m) {
+  const original = String(m.invitation_body || '');
+  const subject  = String(m.invitation_subject || m.title || 'Meeting');
+
+  const area = el('textarea', {
+    style: 'width:min(720px,80vw);min-height:340px;padding:13px 15px;font:inherit;'
+         + 'font-size:13.5px;line-height:1.6;border:1px solid var(--rule);'
+         + 'border-radius:6px;background:var(--card);color:var(--ink);resize:vertical'
+  });
+  area.value = original;
+
+  const head = el('div', { style: 'margin-bottom:10px' },
+    el('div', { style: 'font-size:11px;letter-spacing:.14em;text-transform:uppercase;'
+      + 'color:var(--ink-3);margin-bottom:3px' }, 'Subject'),
+    el('div', { style: 'font-size:15px;font-weight:600' }, subject));
+
+  const note = el('p', { style: 'margin:9px 0 0;font-size:12.5px;color:var(--ink-3);line-height:1.55' },
+    m.to_csv_display
+      ? 'This is what was emailed to ' + m.to_csv_display + '. Editing here changes your copy only.'
+      : 'Nobody was emailed. Edit it if you like, then copy it and send it yourself.');
+
+  sheet('Invitation' + (m.invitation_language === 'fr' ? '  \u00B7  Français' : ''),
+    [el('div', null, head, area, note)],
+    [
+      el('button', { class: 'btn btn-sm btn-quiet',
+        onclick: () => { area.value = original; toast('Back to the original.'); } }, 'Reset'),
+      el('button', { class: 'btn btn-sm btn-quiet',
+        onclick: () => copy(subject, 'Subject') }, 'Copy the subject'),
+      el('button', { class: 'btn btn-sm',
+        onclick: () => copy(area.value, 'Message') }, 'Copy the message'),
+      el('button', { class: 'btn btn-sm btn-quiet', onclick: closeSheet }, 'Close')
+    ]);
 }
 
 function sheet(title, bodyNodes, footNodes) {
@@ -5743,7 +5883,7 @@ async function answerLocally(host, question) {
         evidence: [['why  ', asText(x.fit_reason)]],
         actions: [
           { label: 'View the mandate', primary: true, run: () => openMandate(x) },
-          { label: 'Open Approvals', run: () => go('approvals') }
+          { label: 'See what is waiting', run: () => { oppsView = 'pending'; go('opps'); } }
         ]
       }));
     }
@@ -6156,26 +6296,24 @@ async function poll() {
     const dayStart = new Date();
     dayStart.setHours(0, 0, 0, 0);
 
-    const [n, m, raw] = await Promise.all([
+    const [n, m] = await Promise.all([
       supaSelect('app_notifications', 'select=id&read_at=is.null&limit=200'),
-      supaSelect('wi_mandates', 'select=id&qualification=eq.uncertain&published_at=is.null&limit=200'),
-      supaSelect('wi_raw_emails',
-        'select=id&received_at=gte.' + encodeURIComponent(dayStart.toISOString()) + '&limit=50')
+      // The badge has to mean the same thing as the chip it sits above, or
+      // the two disagree in front of you. Opportunities counts 'Not approved'
+      // as approved_at IS NULL, so the badge counts exactly that. It used to
+      // count qualification='uncertain' AND published_at IS NULL, which was
+      // the old scorer-driven idea of waiting and no longer matches anything
+      // on screen.
+      supaSelect('wi_mandates',
+        'select=id&qualification=neq.rejected&approved_at=is.null&limit=200')
     ]);
     counts.today = n.length;
-    // Things still waiting on a person. Shown against Opportunities, which is
-    // where the decision is now taken.
     counts.opps = m.length;
     counts.approvals = 0;
 
-    if (raw.length) {
-      const seen = await supaSelect('wi_mandates',
-        'select=raw_email_id&raw_email_id=in.(' + raw.map(r => r.id).join(',') + ')&limit=300');
-      const withItems = new Set(seen.map(r => String(r.raw_email_id)));
-      counts.intake = raw.filter(r => !withItems.has(String(r.id))).length;
-    } else {
-      counts.intake = 0;
-    }
+    // The intake badge was still being computed here -- two queries every
+    // poll, one of them a second round trip -- for a tab that no longer
+    // exists in the nav. Removed rather than left running.
 
     paintCounts();
   } catch (_) { /* a failed poll is not worth interrupting anyone */ }
