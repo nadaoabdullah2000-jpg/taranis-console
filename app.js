@@ -947,7 +947,7 @@ const TABS = [
   { id: 'reports',  icon: '\u25F0', label: 'Reports',      title: 'Weekly report',
     sub: 'The Friday dashboard, read from the stored snapshot rather than a Telegram attachment.' },
   { id: 'network',  icon: '\u25CB', label: 'Network',      title: 'LinkedIn network',
-    sub: 'First-degree connections, separate from the contact book.' },
+    sub: 'Every LinkedIn profile that arrived on an opportunity, and whether anyone here can reach them.' },
   /* One filter page, not two. "Find an investor" and "Filter & find" were
      built at different times against the same table and ended up asking the
      same question with different widgets, which left nobody sure which one
@@ -4704,77 +4704,147 @@ RENDER.network = function (body) {
      connection to somebody already in the contact book is the most actionable
      thing this system produces, and finding one used to depend on suspecting
      it first. */
+  /* Three ways into the same list, because they answer different questions.
+     Mutual is who more than one person knows — the ones worth an
+     introduction. No mutuals is the rest of the network, which is not
+     nothing: it is still a profile you have. */
+  let connView = 'all';
   const warmBtn = el('button', { class: 'btn btn-sm btn-quiet',
-    onclick: () => showWarm() }, 'Warm introductions');
+    onclick: () => showWarm('all') }, 'Opportunity profiles');
+  const mutBtn = el('button', { class: 'btn btn-sm btn-quiet',
+    onclick: () => showWarm('mutual') }, 'Mutual');
+  const soloBtn = el('button', { class: 'btn btn-sm btn-quiet',
+    onclick: () => showWarm('solo') }, 'No mutuals');
+
   if (counts.network > 0) {
     warmBtn.classList.remove('btn-quiet');
-    warmBtn.textContent = 'Warm introductions  \u00B7  ' + counts.network + ' new';
+    warmBtn.textContent = counts.network + ' new connection'
+      + (counts.network === 1 ? '' : 's');
+  }
+
+  function markActive() {
+    for (const [b, k] of [[warmBtn, 'all'], [mutBtn, 'mutual'], [soloBtn, 'solo']]) {
+      b.classList.toggle('btn-quiet', connView !== k);
+    }
   }
 
   body.appendChild(el('div', { class: 'toolbar' }, q,
-    el('button', { class: 'btn btn-sm', onclick: () => run() }, 'Look up'), warmBtn));
+    el('button', { class: 'btn btn-sm', onclick: () => run() }, 'Look up'),
+    warmBtn, mutBtn, soloBtn));
   const out = el('div'); body.appendChild(out);
   q.addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
 
-  async function showWarm() {
-    const since = warmSeenAt();
+  async function showWarm(view) {
+    connView = view || 'all';
+    markActive();
     clear(out);
     out.appendChild(el('p', { style: 'color:var(--ink-3);font-size:12px' },
-      'Reading the connection list\u2026'));
-    let rows;
-    try { rows = await warmMatches(); }
-    catch (e) { clear(out); return out.appendChild(empty('Could not read it', e.message)); }
+      'Reading the profiles\u2026'));
 
-    // Opening the list is the acknowledgement. Marking it seen on a button
-    // press you might not have followed through on would clear the badge
-    // without anybody having looked.
-    markWarmSeen();
-    warmBtn.classList.add('btn-quiet');
-    warmBtn.textContent = 'Warm introductions';
+    let rows;
+    try { rows = await connectionFeed(); }
+    catch (e) { clear(out); return out.appendChild(empty('Could not read it', e.message)); }
 
     clear(out);
     if (!rows.length) {
-      return out.appendChild(empty('No warm introductions yet',
-        'Nobody in the contact book is a first-degree connection of anyone here. '
-        + 'That is either a thin connection list or a thin contact book \u2014 '
-        + 'importing an investor export fills the second.'));
+      return out.appendChild(empty('No profiles on file',
+        'This lists everyone with a LinkedIn profile \u2014 the people at your '
+        + 'investors, and anyone named on an alert \u2014 with the opportunity they '
+        + 'belong to and whether anyone here can reach them. Importing an investor '
+        + 'export fills it.'));
     }
 
-    out.appendChild(el('p', { style: 'margin:0 0 14px;font-size:13px;color:var(--ink-2)' },
-      rows.length + ' ' + (rows.length === 1 ? 'person' : 'people')
-      + ' in the contact book can be reached through somebody here.'));
+    const fresh  = rows.filter(r => r.isNew);
+    const shared = rows.filter(r => r.via.length > 0);   // mutual to anyone here
+    const linked = rows.filter(r => r.mandate);          // tied to an opportunity
 
-    for (const m of rows) {
-      const isNew = String(m.found_at || '') > since;
-      const c = m.contact;
+    const inView = connView === 'mutual' ? shared
+                 : connView === 'solo'   ? rows.filter(r => !r.via.length)
+                 :                         rows;
+
+    /* The counts always describe the WHOLE list, whichever filter is open. A
+       summary that shrank with the filter would make the pipeline look
+       smaller every time you narrowed it. */
+    out.appendChild(el('div', { class: 'callout ' + (shared.length ? 'good' : 'signal'),
+      style: 'margin-bottom:16px' },
+      el('span', { class: 'callout-k' },
+        fresh.length ? fresh.length + ' new' : (shared.length ? 'Reachable' : 'No warm routes')),
+      el('span', { class: 'callout-v' },
+        rows.length + ' profiles on the pipeline, ' + shared.length
+        + ' reachable through somebody here, ' + linked.length
+        + ' tied to an opportunity.'
+        + (connView === 'mutual' ? '  Showing the reachable ones.'
+         : connView === 'solo'   ? '  Showing the ones with no route in.' : ''))));
+
+    if (!inView.length) {
+      out.appendChild(empty(
+        connView === 'mutual' ? 'No warm routes yet' : 'Every profile has a route in',
+        connView === 'mutual'
+          ? 'Nobody here is connected to any of these people. The synced connection '
+            + 'list is one person\u2019s \u2014 adding the others is what would change '
+            + 'this.'
+          : 'Somebody here is connected to every profile on the pipeline.'));
+      markConnSeen(new Set(rows.map(r => r.handle)));
+      return;
+    }
+
+    const showing = inView.slice(0, 400);
+    for (const r of showing) {
+      const m = r.mandate;
+      const c = r.contact;
+      const warm = r.via.length > 0;
       out.appendChild(entry({
-        tone: isNew ? 'good' : 'accent',
-        rail: m.via.length + '\u00D7',
-        action: c.name,
-        who: [c.role, c.company].filter(Boolean).join('  \u00B7  '),
-        callout: 'Introduced by ' + m.via.join(', '),
-        calloutLabel: m.via.length === 1 ? 'Via' : 'Via any of',
-        calloutTone: 'good',
+        tone: warm ? 'good' : r.isNew ? 'signal' : 'quiet',
+        rail: warm ? r.shared + '\u00D7' : 'cold',
+        action: r.full_name,
+        who: [r.role, r.firm].filter(Boolean).join('  \u00B7  '),
+        callout: warm
+          ? (r.via.length > 1 ? 'Mutual \u2014 known to ' + r.via.join(' and ')
+                              : 'Connected to ' + r.via.join(', '))
+          : 'Nobody here is connected. An approach would be cold.',
+        calloutLabel: warm ? (r.via.length > 1 ? 'Mutual' : 'Via') : 'No route',
+        calloutTone: warm ? 'good' : 'quiet',
+        record: m || c,
         evidence: [
-          ['company ', c.company],
-          ['role    ', c.role],
-          ['email   ', c.email],
-          ['found   ', m.found_at ? fmtDate(m.found_at) : null]
+          ['profile  ', r.handle],
+          ['known by ', r.via.join(', ')],
+          ['at       ', r.firm],
+          ['verdict  ', m ? m.qualification : null],
+          ['email    ', c ? c.email : null]
         ],
-        tags: isNew ? [['new', 'good']] : [],
+        tags: (m ? [[m.qualification, m.qualification === 'matched' ? 'good'
+                    : m.qualification === 'rejected' ? 'bad' : 'signal']] : [])
+          .concat(warm ? [['reachable', 'good']] : [['no route', 'quiet']])
+          .concat(r.isNew ? [['new', 'good']] : [])
+          .concat(m && isApproved(m) ? [['approved', 'good']] : [])
+          .concat(!m ? [['no opportunity on file', 'quiet']] : []),
         actions: [
-          { label: 'Open the profile', primary: true,
-            run: () => window.open(m.profile_url, '_blank', 'noopener,noreferrer') },
-          c.email ? { label: 'Draft an email',
-            run: () => { PENDING.draft = c.name; go('email'); } } : null,
-          { label: 'Look them up', run: () => { q.value = liHandle(m.profile_url) || c.name; run(); } }
+          /* The link back to the investor this person works for. Without it
+             the tab is a list of strangers; with it, every row is a way into
+             a deal already in the pipeline. */
+          m ? { label: 'Open the opportunity', primary: true,
+                run: () => { markSeen(m); openMandate(m); } } : null,
+          { label: 'Open the profile', primary: !m,
+            run: () => window.open(r.profile_url, '_blank', 'noopener,noreferrer') },
+          c && c.email ? { label: 'Draft an email',
+            run: () => { PENDING.draft = c.name; go('email'); } } : null
         ].filter(Boolean)
       }));
     }
+
+    if (inView.length > showing.length) {
+      out.appendChild(el('p', { style: 'margin-top:14px;font-size:12.5px;color:var(--ink-3)' },
+        'Showing the first ' + showing.length + ' of ' + inView.length
+        + '. Search above for anyone further down.'));
+    }
+
+    // Looking IS the acknowledgement, so the badge clears once the list has
+    // actually been drawn rather than when the button was pressed.
+    markConnSeen(new Set(rows.map(r => r.handle)));
   }
 
-  // Land on the new matches when there are some, rather than an empty search.
-  if (counts.network > 0 && !networkPrefill) setTimeout(showWarm, 0);
+  // Land on the new arrivals when there are some, rather than an empty search.
+  if (counts.network > 0 && !networkPrefill) setTimeout(() => showWarm('all'), 0);
 
   /* A pasted URL carries the query string, the trailing slash and sometimes
      the country subdomain, none of which are in the stored profile_url. The
@@ -6690,7 +6760,7 @@ async function poll() {
     counts.today = n.length;
     counts.opps = m.length;
     counts.approvals = 0;
-    counts.network = await warmCount();
+    counts.network = await newConnectionCount();
 
     // The intake badge was still being computed here -- two queries every
     // poll, one of them a second round trip -- for a tab that no longer
@@ -6794,54 +6864,62 @@ function importSheet() {
   }
 }
 
-/* ---- warm introductions ---------------------------------------------------
-   A first-degree connection to somebody already in the contact book is the
-   most actionable thing this system produces, and until now it was invisible:
-   the connection list sat in one table, the people in another, and nothing
-   compared them. You had to already suspect a match to go looking for one.
+/* ---- the profiles on the pipeline ----------------------------------------
+   Every LinkedIn profile that arrived on an opportunity, and whether anyone
+   here is connected to them.
 
-   A match is a stored contact whose LinkedIn profile appears in the synced
-   connection list with at least one colleague attached. "New" means it turned
-   up since the last time somebody opened the Network tab and looked, which is
-   kept in this browser rather than the database - the alternative is a
-   seen_at column and a write on every glance, and the count is a nudge, not a
-   record. */
-const WARM_SEEN_KEY = 'taranis.warm.seen';
+   This is deliberately driven by wi_mandates rather than by the connection
+   list. The connection list is somebody's address book; it answers "who do
+   we know", which is a question about us. The useful question is about the
+   PIPELINE: here is an investor we are considering, and here is whether
+   there is a way in. So the profile is listed because an opportunity carries
+   it, and the connection list is consulted second, to answer whether anybody
+   is connected.
 
-function warmSeenAt() {
-  try { return localStorage.getItem(WARM_SEEN_KEY) || '1970-01-01T00:00:00Z'; }
-  catch (_) { return '1970-01-01T00:00:00Z'; }
-}
-function markWarmSeen() {
-  try { localStorage.setItem(WARM_SEEN_KEY, new Date().toISOString()); } catch (_) {}
-  counts.network = 0; paintCounts();
-}
+   A profile nobody is connected to is still listed. Knowing an approach
+   would be cold is worth as much as knowing it would be warm — it is the
+   difference between writing a careful email and asking for an introduction.
 
-/* The handle, not the URL. The same profile is written half a dozen ways -
-   trailing slashes, tracking parameters, http against https, a country
-   prefix - and comparing URLs would miss most real matches. */
+   "New" is kept in this browser as the set of profiles seen last time. That
+   needs no timestamp column, which matters: two earlier attempts here read
+   columns on these tables that do not exist. */
+const CONN_SEEN_KEY = 'taranis.profiles.seen';
+
 function liHandle(v) {
   const m = String(v || '').match(/linkedin\.com\/in\/([^/?#\s]+)/i);
   return m ? decodeURIComponent(m[1]).toLowerCase().replace(/\/$/, '') : null;
 }
 
-/* Every stored contact who is a first-degree connection of somebody here.
-   Both lists are read whole and matched in the browser: PostgREST cannot
-   join on a substring of a URL, and at these sizes - a few thousand each -
-   fetching both is faster than being clever. */
-async function warmMatches() {
-  /* Only the four columns the rest of this tab already reads. An earlier
-     version asked for checked_at as well, on the assumption the view carried
-     a timestamp; it does not, and PostgREST refuses the whole query when one
-     column is missing rather than returning the rest. So "new" is judged by
-     when the CONTACT arrived, which is the side that actually changes when an
-     export is imported. */
-  const [conns, people] = await Promise.all([
+function connSeen() {
+  try {
+    const raw = localStorage.getItem(CONN_SEEN_KEY);
+    return raw ? new Set(JSON.parse(raw)) : null;   // null = never looked
+  } catch (_) { return null; }
+}
+
+function markConnSeen(handles) {
+  try { localStorage.setItem(CONN_SEEN_KEY, JSON.stringify([...handles])); } catch (_) {}
+  counts.network = 0; paintCounts();
+}
+
+async function connectionFeed() {
+  /* Two sources, because a profile can arrive either way.
+       - contacts.linkedin_url : the people AT an investor, which is where the
+         investor export puts them and where 179 of them currently live
+       - wi_mandates.linkedin_url : a profile named in a With Intelligence
+         alert itself, which happens rarely but is worth catching
+     Both are joined to the opportunity they belong to, because a profile with
+     no investor behind it is a stranger rather than a lead. */
+  const [mandates, conns, people] = await Promise.all([
+    supaSelect('wi_mandates',
+      'select=id,investor_name,organization_name,linkedin_url,qualification,'
+      + 'investor_country,investor_city,fit_score,approved_at,source_kind,alert_date,seen_at'
+      + '&limit=3000'),
     supaSelect('linkedin_mutual',
-      'select=full_name,profile_url,mutual_to,mutual_count&limit=5000'),
+      'select=full_name,profile_url,mutual_to,mutual_count&limit=20000'),
     supaSelect('contacts',
       'select=id,name,company,role,email,linkedin_url,created_at'
-      + '&linkedin_url=not.is.null&limit=5000')
+      + '&linkedin_url=not.is.null&limit=20000')
   ]);
 
   const byHandle = {};
@@ -6850,31 +6928,99 @@ async function warmMatches() {
     if (h) byHandle[h] = c;
   }
 
+  /* The investor a person belongs to, matched on the firm name. The importer
+     writes contacts.company as the investor's name exactly, so this is an
+     equality check rather than a guess. Contacts typed in by hand may not
+     match, and those simply have no opportunity attached — which the card
+     says, rather than pretending. */
+  const byFirm = {};
+  for (const m of mandates || []) {
+    for (const n of [m.investor_name, m.organization_name]) {
+      const k = String(n || '').toLowerCase().trim();
+      if (k && !byFirm[k]) byFirm[k] = m;
+    }
+  }
+
+  const seen = connSeen();
   const out = [];
+  const used = {};
+
+  const add = (row) => {
+    if (!row.handle || used[row.handle]) return;
+    used[row.handle] = true;
+    out.push(row);
+  };
+
+  // The people at investors.
   for (const p of people || []) {
     const h = liHandle(p.linkedin_url);
     if (!h) continue;
     const hit = byHandle[h];
-    if (!hit) continue;
-    const via = Array.isArray(hit.mutual_to) ? hit.mutual_to
-              : (hit.mutual_to ? [hit.mutual_to] : []);
-    if (!via.length) continue;              // in the list, but nobody knows them
-    out.push({
-      contact: p, via: via,
-      found_at: p.created_at || null,
+    const via = hit
+      ? (Array.isArray(hit.mutual_to) ? hit.mutual_to.filter(Boolean)
+        : (hit.mutual_to ? [hit.mutual_to] : []))
+      : [];
+    add({
+      handle: h,
       profile_url: p.linkedin_url,
-      full_name: hit.full_name || p.name
+      full_name: p.name || (hit && hit.full_name) || h,
+      role: p.role || null,
+      firm: p.company || null,
+      contact: p,
+      mandate: byFirm[String(p.company || '').toLowerCase().trim()] || null,
+      via: via,
+      shared: via.length ? (Number(hit.mutual_count) || via.length) : 0,
+      when: p.created_at || null,
+      isNew: seen ? !seen.has(h) : false
     });
   }
-  out.sort((a, b) => String(b.found_at || '').localeCompare(String(a.found_at || '')));
+
+  // A profile named on the alert itself.
+  for (const m of mandates || []) {
+    const h = liHandle(m.linkedin_url);
+    if (!h) continue;
+    const hit = byHandle[h];
+    const via = hit
+      ? (Array.isArray(hit.mutual_to) ? hit.mutual_to.filter(Boolean)
+        : (hit.mutual_to ? [hit.mutual_to] : []))
+      : [];
+    add({
+      handle: h,
+      profile_url: m.linkedin_url,
+      full_name: (hit && hit.full_name) || investorLabel(m),
+      role: null,
+      firm: investorLabel(m),
+      contact: null,
+      mandate: m,
+      via: via,
+      shared: via.length ? (Number(hit.mutual_count) || via.length) : 0,
+      when: m.alert_date || null,
+      isNew: seen ? !seen.has(h) : false
+    });
+  }
+
+  // Reachable first, then new, then most recent.
+  out.sort((a, b) =>
+    (b.via.length ? 1 : 0) - (a.via.length ? 1 : 0) ||
+    (b.isNew ? 1 : 0) - (a.isNew ? 1 : 0) ||
+    String(b.when || '').localeCompare(String(a.when || '')));
   return out;
 }
 
-async function warmCount() {
+async function newConnectionCount() {
   try {
-    const since = warmSeenAt();
-    const all = await warmMatches();
-    return all.filter(m => String(m.found_at || '') > since).length;
+    const seen = connSeen();
+    if (!seen) return 0;                     // first run: nothing to call new
+    const [people, mandates] = await Promise.all([
+      supaSelect('contacts', 'select=linkedin_url&linkedin_url=not.is.null&limit=20000'),
+      supaSelect('wi_mandates', 'select=linkedin_url&linkedin_url=not.is.null&limit=3000')
+    ]);
+    const fresh = new Set();
+    for (const r of [...(people || []), ...(mandates || [])]) {
+      const h = liHandle(r.linkedin_url);
+      if (h && !seen.has(h)) fresh.add(h);
+    }
+    return fresh.size;
   } catch (_) { return 0; }
 }
 
