@@ -91,6 +91,10 @@ let meetingProvider = 'zoom';
    emailed invitation and the copyable one cannot disagree. */
 const MEETING_LANGUAGES = [['en', 'English'], ['fr', 'Français']];
 let meetingLanguage = 'en';
+
+/* Set when a record hands a LinkedIn handle to the Network tab, cleared as
+   soon as that tab reads it. */
+let networkPrefill = '';
 function providerLabel(v) {
   const hit = MEETING_PROVIDERS.find(p => p[0] === String(v || '').toLowerCase());
   return hit ? hit[1] : (v ? String(v) : '');
@@ -3611,13 +3615,25 @@ RENDER.meetings = function (body) {
      meeting half-booked is better than a meeting lost, and the row is picked
      up by the workflow when the connection is fixed. */
 
+  /* Booking is a view like any other rather than a panel wedged above every
+     list. The form took the top third of the tab whether you were booking or
+     just looking at what is coming, and a list you have to scroll past a form
+     to reach is a list you stop reading. */
   let filter = 'live';
+  const VIEWS = [['new', 'Schedule a meeting'], ['live', 'Upcoming'],
+                 ['scheduled', 'Scheduled'], ['pending', 'Not issued yet'],
+                 ['cancelled', 'Cancelled'], ['all', 'Everything']];
   const chips = el('div', { class: 'chips' });
-  for (const [k, lbl] of [['live', 'Upcoming'], ['scheduled', 'Scheduled'],
-                          ['pending', 'Not issued yet'], ['cancelled', 'Cancelled'],
-                          ['all', 'Everything']]) {
-    chips.appendChild(el('button', { class: 'chip', onclick: () => { filter = k; run(); } }, lbl));
+  function drawChips() {
+    clear(chips);
+    for (const [k, lbl] of VIEWS) {
+      chips.appendChild(el('button', {
+        class: 'chip' + (filter === k ? ' on' : ''),
+        onclick: () => { filter = k; drawChips(); run(); }
+      }, lbl));
+    }
   }
+  drawChips();
   body.appendChild(chips);
 
   /* ---------------------------------------------------------- book one
@@ -3878,7 +3894,7 @@ RENDER.meetings = function (body) {
   }
 
   const lbl = (t, n) => el('label', { class: 'field' }, el('span', null, t), n);
-  body.appendChild(el('div', { style: 'max-width:900px;margin:0 0 24px' },
+  const form = el('div', { style: 'max-width:900px;margin:0 0 24px' },
     el('div', { class: 'grid2' }, lbl('Title', mTitle), lbl('When', mWhen)),
     el('div', { class: 'grid2' }, lbl('Minutes', mMins), lbl('Timezone', mTz)),
     el('div', { class: 'grid2' }, lbl('Platform', mProv), lbl('Invitation language', mLang)),
@@ -3886,7 +3902,8 @@ RENDER.meetings = function (body) {
     lbl('Email the invitation to', el('div', { class: 'toolbar' }, mLook, addTyped)),
     mSugg, mList,
     el('div', { class: 'acts', style: 'margin-top:16px' }, bookBtn, linkBtn),
-    issued));
+    issued);
+  body.appendChild(form);
 
   const out = el('div');
   body.appendChild(out);
@@ -3899,8 +3916,13 @@ RENDER.meetings = function (body) {
   }
 
   function run() {
+    // The booking form and the list are alternatives, never both at once.
+    form.style.display = filter === 'new' ? '' : 'none';
+    out.style.display  = filter === 'new' ? 'none' : '';
+    if (filter === 'new') { clear(out); return; }
+
     clear(out);
-    out.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading\u2026'));
+    out.appendChild(el('p', { style: 'color:var(--ink-3);font-size:12px' }, 'Loading\u2026'));
 
     let sel = 'select=*&order=start_utc.desc&limit=200';
     if (filter === 'live')          sel += '&status=eq.scheduled&start_utc=gte.' + new Date(Date.now() - 36e5).toISOString();
@@ -3909,9 +3931,11 @@ RENDER.meetings = function (body) {
     fill(out, () => readRows('crm_meetings', sel, 'zoom.upcoming', {}), (rows) => {
       if (!rows.length) {
         return out.appendChild(empty(
-          filter === 'pending' ? 'Nothing waiting' : 'Nothing booked',
+          filter === 'pending' ? 'Nothing waiting'
+            : filter === 'cancelled' ? 'Nothing cancelled' : 'Nothing booked',
           filter === 'live'
-            ? 'Meetings already scheduled and still ahead of you appear here.'
+            ? 'Meetings already scheduled and still ahead of you appear here. '
+              + 'Press Schedule a meeting to book one.'
             : 'Meetings booked from Telegram or from here land in this list.'));
       }
       for (const m of rows) {
@@ -3944,6 +3968,24 @@ RENDER.meetings = function (body) {
             // and say so by simply not offering the button.
             m.invitation_body ? { label: 'Invitation',
               run: () => invitationSheet(Object.assign({}, m, { to_csv_display: people(m) })) } : null,
+            /* Cancelling has to reach the PLATFORM, not just this table. A row
+               marked cancelled while the Zoom meeting stays live is worse than
+               no cancellation at all: the link still works, and whoever has it
+               will use it. */
+            st !== 'cancelled' ? { label: 'Cancel it',
+              run: async () => {
+                const label = providerLabel(m.provider) || 'the meeting';
+                if (!confirm('Cancel this meeting? It is removed from ' + label
+                  + ' as well, so the join link stops working.')) return;
+                toast('Cancelling\u2026');
+                try {
+                  const r = await createMeeting({ action: 'cancel', meeting_id: String(m.id) }) || {};
+                  toast(r.ok ? 'Cancelled.'
+                             : (r.message || 'Cancelled here, but the platform refused.'),
+                        !r.ok);
+                  run();
+                } catch (e) { toast(e.message, true); }
+              } } : null,
             /* Only for rows that never got a link -- a booking made while the
                gateway was down, or one that arrived from Telegram. */
             (st === 'pending' || !m.meet_url) ? { label: 'Issue the link', primary: true,
@@ -4663,6 +4705,10 @@ RENDER.network = function (body) {
     const m = String(v || '').match(/linkedin\.com\/in\/([^/?#\s]+)/i);
     return m ? decodeURIComponent(m[1]).toLowerCase() : null;
   }
+
+  /* Arriving here from a record means the search term is already known, so
+     asking for it again would be asking a question that was just answered. */
+  if (networkPrefill) { q.value = networkPrefill; networkPrefill = ''; }
 
   /* Two sources feed this tab now. linkedin_mutual is the synced first-degree
      list. A LinkedIn URL typed onto a mandate in Fill the gaps is not in that
@@ -5474,6 +5520,70 @@ async function openMandate(m) {
     style: q === 'rejected' ? 'border-color:var(--bad);background:transparent;color:var(--bad)' : '' },
     el('b', null, q === 'rejected' ? 'Rejected. ' : q === 'matched' ? 'Matched. ' : 'Awaiting a decision. '),
     asText(full.fit_reason) || 'No reason recorded.'));
+
+  /* ---- does anybody here already know them? -------------------------------
+     A LinkedIn URL on a record is only worth having if it answers that, and
+     until now it did not: the record showed a button that opened the profile,
+     and finding the mutual connections meant going to the Network tab and
+     searching for the name by hand. The person deciding whether to approach
+     an investor is looking at THIS screen, so the answer belongs here.
+
+     Read straight from linkedin_mutual, the synced first-degree list. No
+     gateway involved, so it works whether or not n8n is reachable. */
+  if (full.linkedin_url) {
+    const handle = String(full.linkedin_url)
+      .match(/linkedin\.com\/in\/([^/?#\s]+)/i);
+    const who = el('div', { class: 'banner', style: 'margin-top:-8px' },
+      el('span', { style: 'color:var(--ink-3)' }, 'Checking who knows them\u2026'));
+    host.appendChild(who);
+
+    (async () => {
+      try {
+        if (!handle) {
+          clear(who);
+          who.appendChild(el('span', { style: 'color:var(--ink-3)' },
+            'That LinkedIn address is not a personal profile, so it cannot be matched '
+            + 'against the connection list.'));
+          return;
+        }
+        const slug = decodeURIComponent(handle[1]).toLowerCase();
+        const hits = await readRows('linkedin_mutual',
+          'select=full_name,profile_url,mutual_to,mutual_count'
+          + '&profile_url=ilike.*' + encodeURIComponent(slug) + '*&limit=5',
+          'li.mutual', { q: slug });
+
+        clear(who);
+        const hit = (hits || [])[0];
+        const names = hit && Array.isArray(hit.mutual_to) ? hit.mutual_to
+                    : (hit && hit.mutual_to ? [hit.mutual_to] : []);
+
+        if (hit && names.length) {
+          who.style.borderColor = 'var(--good)';
+          who.appendChild(el('b', null, 'Connected. '));
+          who.appendChild(el('span', null,
+            names.join(', ') + (names.length === 1 ? ' is' : ' are')
+            + ' a first-degree connection of ' + (hit.full_name || 'them') + '.'));
+        } else if (hit) {
+          who.appendChild(el('b', null, 'On the list, but not connected. '));
+          who.appendChild(el('span', null,
+            (hit.full_name || 'They') + ' appears in the synced list, but nobody at '
+            + 'Taranis is a first-degree connection.'));
+        } else {
+          who.appendChild(el('b', null, 'Nobody here knows them. '));
+          who.appendChild(el('span', null,
+            'That profile is not in the synced connection list \u2014 which means '
+            + 'no warm introduction, not that the profile is wrong.'));
+        }
+        who.appendChild(el('div', { class: 'acts' },
+          el('button', { class: 'btn btn-sm btn-quiet',
+            onclick: () => { networkPrefill = slug; go('network'); } }, 'Open in Network')));
+      } catch (e) {
+        clear(who);
+        who.appendChild(el('span', { style: 'color:var(--ink-3)' },
+          'The connection list could not be read: ' + e.message));
+      }
+    })();
+  }
 
   const field = (label, value, big) => {
     const t = asText(value);
