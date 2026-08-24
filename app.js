@@ -6830,9 +6830,15 @@ function liHandle(v) {
    join on a substring of a URL, and at these sizes - a few thousand each -
    fetching both is faster than being clever. */
 async function warmMatches() {
+  /* Only the four columns the rest of this tab already reads. An earlier
+     version asked for checked_at as well, on the assumption the view carried
+     a timestamp; it does not, and PostgREST refuses the whole query when one
+     column is missing rather than returning the rest. So "new" is judged by
+     when the CONTACT arrived, which is the side that actually changes when an
+     export is imported. */
   const [conns, people] = await Promise.all([
     supaSelect('linkedin_mutual',
-      'select=full_name,profile_url,mutual_to,mutual_count,checked_at&limit=5000'),
+      'select=full_name,profile_url,mutual_to,mutual_count&limit=5000'),
     supaSelect('contacts',
       'select=id,name,company,role,email,linkedin_url,created_at'
       + '&linkedin_url=not.is.null&limit=5000')
@@ -6855,7 +6861,7 @@ async function warmMatches() {
     if (!via.length) continue;              // in the list, but nobody knows them
     out.push({
       contact: p, via: via,
-      found_at: hit.checked_at || p.created_at || null,
+      found_at: p.created_at || null,
       profile_url: p.linkedin_url,
       full_name: hit.full_name || p.name
     });
