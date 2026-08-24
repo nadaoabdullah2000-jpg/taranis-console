@@ -516,6 +516,49 @@ function daysSince(v) {
  * The gateway workflow reads { action, payload } and routes to the
  * matching sub-workflow, exactly as the Telegram command router did.
  */
+/* Booking a meeting goes straight to Supabase, not through the n8n gateway.
+   The Edge Function holds the Zoom, Microsoft and Google secrets, which this
+   page could never hold: it is a static site in a public repository, so a
+   client secret in app.js would be a working credential published on the
+   internet.
+
+   It also means meetings do not depend on n8n being reachable or within its
+   execution quota — the two things that stopped a booking working today. */
+async function createMeeting(payload) {
+  if (DEMO) return demoResponse('meeting.create', payload);
+  if (!CFG.supabaseUrl) throw new Error('No Supabase configured.');
+  if (!session || !session.token) throw new Error('Signed out. Sign in again.');
+  await ensureToken();
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 60000);
+  try {
+    const res = await fetch(CFG.supabaseUrl + '/functions/v1/create-meeting', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: CFG.supabaseAnonKey,
+        Authorization: 'Bearer ' + session.token
+      },
+      body: JSON.stringify(payload || {}),
+      signal: ctrl.signal,
+      mode: 'cors'
+    });
+    if (res.status === 401) { signOut(); throw new Error('Signed out. Sign in again.'); }
+    const out = await res.json().catch(() => ({}));
+    /* A refusal from the function is still an answer, and it carries the
+       reason — which platform, and what it said. Passing it through beats
+       replacing it with a generic failure. */
+    if (!res.ok && !out.message) throw new Error('The meeting service returned ' + res.status);
+    return out;
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('The meeting service did not answer in time.');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function callGateway(action, payload) {
   if (DEMO) return demoResponse(action, payload);
 
@@ -3743,9 +3786,9 @@ RENDER.meetings = function (body) {
     pressed.textContent = 'Creating the meeting\u2026';
     clear(issued);
     try {
-      /* One call. The gateway creates the meeting with the chosen provider,
-         writes the row, sends the invitations, and returns the join link. */
-      const r = await callGateway('meeting.create', payload) || {};
+      /* One call. The Edge Function creates the meeting with the chosen
+         provider, writes the row, and returns the join link. */
+      const r = await createMeeting(payload) || {};
       const url = r.join_url || r.meet_url || r.url || null;
       if (url) {
         showLink(label, url, r.passcode, r.message, r.invited);
@@ -3909,8 +3952,11 @@ RENDER.meetings = function (body) {
                 if (!confirm('Create ' + label + ' and email the invitation to everyone on it?')) return;
                 toast('Creating\u2026');
                 try {
-                  const r = await callGateway('meeting.create',
-                    { meeting_id: String(m.id), provider: m.provider || meetingProvider }) || {};
+                  const r = await createMeeting({
+                    meeting_id: String(m.id), provider: m.provider || meetingProvider,
+                    title: m.title, start_utc: m.start_utc,
+                    duration_min: m.duration_min, tz: m.tz,
+                    to_people: m.to_people || [] }) || {};
                   const url = r.join_url || r.meet_url || r.url;
                   toast(url ? 'Created. The invitation is on its way.'
                             : 'Booked, but no link came back.', !url);
