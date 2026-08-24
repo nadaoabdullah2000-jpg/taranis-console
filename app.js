@@ -2896,6 +2896,13 @@ RENDER.opps = function (body) {
   clear(body);
   const chips = el('div', { class: 'chips', style: 'margin-bottom:14px' });
   const list  = el('div');
+
+  /* Importing a list belongs here rather than in Documents, because this is
+     where the result lands. A file dropped in a file tab and appearing as
+     opportunities somewhere else is two facts a person has to join up. */
+  body.appendChild(el('div', { class: 'toolbar', style: 'margin-bottom:12px' },
+    el('button', { class: 'btn btn-sm btn-quiet', onclick: () => importSheet() },
+      'Import an investor list')));
   body.append(chips, list);
 
   const VIEWS = [
@@ -4692,10 +4699,82 @@ RENDER.network = function (body) {
   clear(body);
   const q = el('input', { class: 'search', type: 'search',
     placeholder: 'A name, or paste a LinkedIn profile URL\u2026' });
+  /* Two things happen on this tab. Looking somebody up, which is what it has
+     always done — and being TOLD, which it never did. A first-degree
+     connection to somebody already in the contact book is the most actionable
+     thing this system produces, and finding one used to depend on suspecting
+     it first. */
+  const warmBtn = el('button', { class: 'btn btn-sm btn-quiet',
+    onclick: () => showWarm() }, 'Warm introductions');
+  if (counts.network > 0) {
+    warmBtn.classList.remove('btn-quiet');
+    warmBtn.textContent = 'Warm introductions  \u00B7  ' + counts.network + ' new';
+  }
+
   body.appendChild(el('div', { class: 'toolbar' }, q,
-    el('button', { class: 'btn btn-sm', onclick: () => run() }, 'Look up')));
+    el('button', { class: 'btn btn-sm', onclick: () => run() }, 'Look up'), warmBtn));
   const out = el('div'); body.appendChild(out);
   q.addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
+
+  async function showWarm() {
+    const since = warmSeenAt();
+    clear(out);
+    out.appendChild(el('p', { style: 'color:var(--ink-3);font-size:12px' },
+      'Reading the connection list\u2026'));
+    let rows;
+    try { rows = await warmMatches(); }
+    catch (e) { clear(out); return out.appendChild(empty('Could not read it', e.message)); }
+
+    // Opening the list is the acknowledgement. Marking it seen on a button
+    // press you might not have followed through on would clear the badge
+    // without anybody having looked.
+    markWarmSeen();
+    warmBtn.classList.add('btn-quiet');
+    warmBtn.textContent = 'Warm introductions';
+
+    clear(out);
+    if (!rows.length) {
+      return out.appendChild(empty('No warm introductions yet',
+        'Nobody in the contact book is a first-degree connection of anyone here. '
+        + 'That is either a thin connection list or a thin contact book \u2014 '
+        + 'importing an investor export fills the second.'));
+    }
+
+    out.appendChild(el('p', { style: 'margin:0 0 14px;font-size:13px;color:var(--ink-2)' },
+      rows.length + ' ' + (rows.length === 1 ? 'person' : 'people')
+      + ' in the contact book can be reached through somebody here.'));
+
+    for (const m of rows) {
+      const isNew = String(m.found_at || '') > since;
+      const c = m.contact;
+      out.appendChild(entry({
+        tone: isNew ? 'good' : 'accent',
+        rail: m.via.length + '\u00D7',
+        action: c.name,
+        who: [c.role, c.company].filter(Boolean).join('  \u00B7  '),
+        callout: 'Introduced by ' + m.via.join(', '),
+        calloutLabel: m.via.length === 1 ? 'Via' : 'Via any of',
+        calloutTone: 'good',
+        evidence: [
+          ['company ', c.company],
+          ['role    ', c.role],
+          ['email   ', c.email],
+          ['found   ', m.found_at ? fmtDate(m.found_at) : null]
+        ],
+        tags: isNew ? [['new', 'good']] : [],
+        actions: [
+          { label: 'Open the profile', primary: true,
+            run: () => window.open(m.profile_url, '_blank', 'noopener,noreferrer') },
+          c.email ? { label: 'Draft an email',
+            run: () => { PENDING.draft = c.name; go('email'); } } : null,
+          { label: 'Look them up', run: () => { q.value = liHandle(m.profile_url) || c.name; run(); } }
+        ].filter(Boolean)
+      }));
+    }
+  }
+
+  // Land on the new matches when there are some, rather than an empty search.
+  if (counts.network > 0 && !networkPrefill) setTimeout(showWarm, 0);
 
   /* A pasted URL carries the query string, the trailing slash and sometimes
      the country subdomain, none of which are in the stored profile_url. The
@@ -6611,6 +6690,7 @@ async function poll() {
     counts.today = n.length;
     counts.opps = m.length;
     counts.approvals = 0;
+    counts.network = await warmCount();
 
     // The intake badge was still being computed here -- two queries every
     // poll, one of them a second round trip -- for a tab that no longer
@@ -6618,6 +6698,178 @@ async function poll() {
 
     paintCounts();
   } catch (_) { /* a failed poll is not worth interrupting anyone */ }
+}
+
+/* ---- importing an investor export ----------------------------------------
+   A two-sheet workbook of investors and their contacts, of the kind a data
+   provider exports. It is read by an Edge Function rather than a model: the
+   file has named columns and one value per cell, so mapping it in code is
+   faster, costs nothing, and cannot invent a figure that was never there.
+
+   The upload and the import are separate steps on purpose. The file goes to
+   storage first, so a parse that fails leaves the workbook sitting there to
+   look at rather than vanishing with the error. */
+function importSheet() {
+  const pick = el('input', { type: 'file', class: 'search',
+    accept: '.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const note = el('div', { style: 'margin-top:12px;font-size:13px;line-height:1.6;color:var(--ink-2)' });
+  const go = el('button', { class: 'btn btn-sm', onclick: () => run() }, 'Read it');
+
+  const explain = el('div', { style: 'font-size:13px;line-height:1.65;color:var(--ink-2)' },
+    el('p', { style: 'margin:0 0 10px' },
+      'Two sheets: investors, and their contacts joined on Investor ID. '
+      + 'Every investor is screened against the Taranis criteria on the way in, '
+      + 'so what appears in Opportunities is already sorted into matched, '
+      + 'uncertain and rejected.'),
+    el('p', { style: 'margin:0 0 10px' },
+      'Contacts go to the contact book with their LinkedIn profiles, which is '
+      + 'what makes warm introductions findable in Network.'),
+    el('p', { style: 'margin:0;color:var(--ink-3)' },
+      'Uploading the same export again updates those investors rather than '
+      + 'duplicating them.'));
+
+  sheet('Import an investor list', [explain, el('div', { style: 'margin-top:16px' }, pick), note],
+    [go, el('button', { class: 'btn btn-sm btn-quiet', onclick: closeSheet }, 'Close')]);
+
+  async function run() {
+    const file = pick.files && pick.files[0];
+    if (!file) return toast('Choose a file first.', true);
+
+    go.disabled = true; go.textContent = 'Uploading\u2026';
+    clear(note);
+    try {
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '');
+      const path = 'imports/' + stamp + '-' + file.name.replace(/[^\w.\-]/g, '_');
+      await uploadToStorage(file, path, (pct) => { go.textContent = 'Uploading ' + pct + '%'; }, false);
+
+      go.textContent = 'Reading it\u2026';
+      await ensureToken();
+      const res = await fetch(CFG.supabaseUrl + '/functions/v1/import-investors', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: CFG.supabaseAnonKey,
+          Authorization: 'Bearer ' + session.token
+        },
+        body: JSON.stringify({ bucket: 'documents', path: path })
+      });
+      const out = await res.json().catch(() => ({}));
+
+      clear(note);
+      if (!out.ok) {
+        note.appendChild(el('div', { class: 'callout bad' },
+          el('span', { class: 'callout-k' }, 'Not imported'),
+          el('span', { class: 'callout-v' }, out.message || ('The importer returned ' + res.status))));
+        return;
+      }
+
+      note.appendChild(el('div', { class: 'callout good' },
+        el('span', { class: 'callout-k' }, 'Done'),
+        el('span', { class: 'callout-v' }, out.message)));
+
+      /* Named, not counted. "12 investors written" is a number; the list is
+         something you can check against the file you just uploaded. */
+      const show = (title, names, tone) => {
+        if (!names || !names.length) return;
+        note.appendChild(el('p', { style: 'margin:14px 0 4px;font-size:11px;'
+          + 'letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)' }, title));
+        note.appendChild(el('div', { class: 'chips' },
+          ...names.map(n => el('span', { class: 'tag ' + tone }, n))));
+      };
+      show('Written', out.written, 'good');
+      show('Screened out', out.rejected, 'quiet');
+      show('Skipped', out.skipped, 'bad');
+
+      note.appendChild(el('div', { class: 'acts' },
+        el('button', { class: 'btn btn-sm', onclick: () => { closeSheet(); go('opps'); } },
+          'See them in Opportunities')));
+    } catch (e) {
+      clear(note);
+      note.appendChild(el('div', { class: 'callout bad' },
+        el('span', { class: 'callout-k' }, 'Failed'),
+        el('span', { class: 'callout-v' }, e.message)));
+    } finally {
+      go.disabled = false; go.textContent = 'Read it';
+    }
+  }
+}
+
+/* ---- warm introductions ---------------------------------------------------
+   A first-degree connection to somebody already in the contact book is the
+   most actionable thing this system produces, and until now it was invisible:
+   the connection list sat in one table, the people in another, and nothing
+   compared them. You had to already suspect a match to go looking for one.
+
+   A match is a stored contact whose LinkedIn profile appears in the synced
+   connection list with at least one colleague attached. "New" means it turned
+   up since the last time somebody opened the Network tab and looked, which is
+   kept in this browser rather than the database - the alternative is a
+   seen_at column and a write on every glance, and the count is a nudge, not a
+   record. */
+const WARM_SEEN_KEY = 'taranis.warm.seen';
+
+function warmSeenAt() {
+  try { return localStorage.getItem(WARM_SEEN_KEY) || '1970-01-01T00:00:00Z'; }
+  catch (_) { return '1970-01-01T00:00:00Z'; }
+}
+function markWarmSeen() {
+  try { localStorage.setItem(WARM_SEEN_KEY, new Date().toISOString()); } catch (_) {}
+  counts.network = 0; paintCounts();
+}
+
+/* The handle, not the URL. The same profile is written half a dozen ways -
+   trailing slashes, tracking parameters, http against https, a country
+   prefix - and comparing URLs would miss most real matches. */
+function liHandle(v) {
+  const m = String(v || '').match(/linkedin\.com\/in\/([^/?#\s]+)/i);
+  return m ? decodeURIComponent(m[1]).toLowerCase().replace(/\/$/, '') : null;
+}
+
+/* Every stored contact who is a first-degree connection of somebody here.
+   Both lists are read whole and matched in the browser: PostgREST cannot
+   join on a substring of a URL, and at these sizes - a few thousand each -
+   fetching both is faster than being clever. */
+async function warmMatches() {
+  const [conns, people] = await Promise.all([
+    supaSelect('linkedin_mutual',
+      'select=full_name,profile_url,mutual_to,mutual_count,checked_at&limit=5000'),
+    supaSelect('contacts',
+      'select=id,name,company,role,email,linkedin_url,created_at'
+      + '&linkedin_url=not.is.null&limit=5000')
+  ]);
+
+  const byHandle = {};
+  for (const c of conns || []) {
+    const h = liHandle(c.profile_url);
+    if (h) byHandle[h] = c;
+  }
+
+  const out = [];
+  for (const p of people || []) {
+    const h = liHandle(p.linkedin_url);
+    if (!h) continue;
+    const hit = byHandle[h];
+    if (!hit) continue;
+    const via = Array.isArray(hit.mutual_to) ? hit.mutual_to
+              : (hit.mutual_to ? [hit.mutual_to] : []);
+    if (!via.length) continue;              // in the list, but nobody knows them
+    out.push({
+      contact: p, via: via,
+      found_at: hit.checked_at || p.created_at || null,
+      profile_url: p.linkedin_url,
+      full_name: hit.full_name || p.name
+    });
+  }
+  out.sort((a, b) => String(b.found_at || '').localeCompare(String(a.found_at || '')));
+  return out;
+}
+
+async function warmCount() {
+  try {
+    const since = warmSeenAt();
+    const all = await warmMatches();
+    return all.filter(m => String(m.found_at || '') > since).length;
+  } catch (_) { return 0; }
 }
 
 /* ------------------------------------------------------------- demo data */
