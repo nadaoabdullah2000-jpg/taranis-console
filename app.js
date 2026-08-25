@@ -43,7 +43,26 @@ const counts = { today: 0, approvals: 0, opps: 0, intake: 0, hfn: 0, tools: 0 };
 // Survives a re-render, so filling a gap does not lose your place.
 let intakeView = 'all';
 // Today opens on what is still waiting; cleared notices are one click away.
-let todayView = 'new';
+/* Today opens on opportunities. The operational notices are a separate view
+   because they are a different job for a different person. */
+let todayView = 'opps';
+
+/* Who looks after the machinery. Parse failures, ignored emails and
+   duplicates are somebody's job, but not the job of the person deciding which
+   investors to approach — and putting them in front of that person costs
+   attention without buying anything.
+
+   This is a DISPLAY rule, not a permission. The rows are still readable by
+   anyone the RLS policy allows; they are simply not shown to people who have
+   no use for them. If they ever need to be genuinely restricted, that is a
+   policy on app_notifications, not a list in a file anybody can read.
+
+   A list rather than one address, because "only Nada" stops being true the
+   day somebody covers for her. */
+const OPS_REVIEWERS = ['nada.osama@taranis.net'];
+function isOpsReviewer() {
+  return OPS_REVIEWERS.indexOf(String((session && session.email) || '').toLowerCase()) !== -1;
+}
 
 /* jsonb columns arrive as arrays through PostgREST but as strings through the
    gateway, and occasionally double-encoded. Two passes, then give up and
@@ -1252,16 +1271,55 @@ RENDER.today = function (body) {
     })) };
   }, (d) => {
     const all = d.items || [];
-    counts.today = all.filter(i => !i.read).length;
+    /* The badge counts unread OPPORTUNITIES. Counting parse failures too made
+       it read 59 on a day when four investors actually arrived, which trains
+       you to ignore the number. */
+    counts.today = all.filter(i => !i.read && (
+      !!i.mandate_id || !!i.review_id ||
+      ['published', 'review', 'gaps', 'matched'].indexOf(String(i.kind || '')) !== -1
+    )).length;
+    /* The reviewer's badge includes the machinery, because for that person it
+       IS the work. For everybody else it stays a count of investors. */
+    if (isOpsReviewer()) {
+      counts.today = all.filter(i => !i.read).length;
+    }
     paintCounts();
 
-    /* Today means what is still waiting on you. Cleared notices stay one click
-       away rather than disappearing - marking something read should stop it
+    /* Two different audiences read this tab, and mixing them made both worse.
+       An investor worth a decision and a block the extractor could not parse
+       are both "notices", but only one is fundraising — and forty of the
+       second buries the first.
+
+       So they are separated by what the notice is ABOUT. Anything carrying a
+       mandate is an opportunity; everything else is the machinery reporting on
+       itself, which needs somebody to look at it but not the person deciding
+       who to approach.
+
+       Cleared stays, and stays whole: marking something read should stop it
        competing for attention, not erase that it happened. */
+    const isOpportunity = (i) =>
+      !!i.mandate_id || !!i.review_id ||
+      ['published', 'review', 'gaps', 'matched'].indexOf(String(i.kind || '')) !== -1;
+
+    const bucket = (i) => i.read ? 'read' : (isOpportunity(i) ? 'opps' : 'ops');
+
+    /* For everyone else the operational notices are removed from the feed
+       entirely, not merely from the chip — including once they are cleared.
+       Hiding the tab while letting the same rows reappear under Cleared would
+       be a worse result than not hiding them at all. */
+    const mine = isOpsReviewer() ? all : all.filter(i => isOpportunity(i));
+
+    const VIEWS = [['opps', 'Opportunities received']]
+      .concat(isOpsReviewer() ? [['ops', 'For Nada to review']] : [])
+      .concat([['read', 'Cleared']]);
+
+    const allowed = VIEWS.map(v => v[0]);
+    if (allowed.indexOf(todayView) === -1) todayView = 'opps';
+
     const chips = el('div', { class: 'chips', style: 'margin-bottom:14px' });
-    for (const [k, lbl] of [['new', 'New'], ['read', 'Cleared']]) {
+    for (const [k, lbl] of VIEWS) {
       const on = todayView === k;
-      const n = all.filter(i => k === 'read' ? i.read : !i.read).length;
+      const n = mine.filter(i => bucket(i) === k).length;
       const c = el('button', { class: 'chip',
         onclick: () => { todayView = k; go('today'); } }, lbl + '  ' + n);
       c.style.borderColor = on ? 'var(--accent)' : '';
@@ -1271,11 +1329,16 @@ RENDER.today = function (body) {
     }
     body.appendChild(chips);
 
-    const items = all.filter(i => todayView === 'read' ? i.read : !i.read);
+    const items = mine.filter(i => bucket(i) === todayView);
     if (!items.length) {
-      return body.appendChild(todayView === 'read'
-        ? empty('Nothing cleared yet', 'Notices you mark as read collect here.')
-        : empty('You are up to date', 'New alerts, reviews and replies land here.'));
+      return body.appendChild(
+        todayView === 'read' ? empty('Nothing cleared yet',
+          'Notices you mark as read collect here.')
+      : todayView === 'ops'  ? empty('Nothing to look at',
+          'Parse failures, ignored emails and duplicates land here \u2014 the '
+          + 'machinery reporting on itself, rather than anything to decide.')
+      :                        empty('You are up to date',
+          'Investors worth a decision land here.'));
     }
     for (const i of items) {
       body.appendChild(entry({
