@@ -38,7 +38,7 @@ const CFG = Object.assign({
 
 /* The Taranis brand faces, applied across the whole console — GT Flexa Extended
    for the page titles and headline figures, Aktiv Grotesk Light for everything
-   else. Host the licensed woff2 in a /fonts folder beside the site; Saira
+   else. Host the licensed woff2 in a /fonts folder beside the site; Archivo
    Extended and Inter stand in until they are there. Injected here rather than in
    index.html so the sign-in gate carries them too. Monospace numeric labels keep
    tabular figures so columns still line up. */
@@ -46,7 +46,7 @@ function ensureBrandFonts() {
   if (document.getElementById('taranis-fonts')) return;
   const link = document.createElement('link');
   link.rel = 'stylesheet';
-  link.href = 'https://fonts.googleapis.com/css2?family=Saira+Extended:wght@400;500&family=Inter:wght@300;400;500;600&display=swap';
+  link.href = 'https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=Inter:wght@300;400;500;600&display=swap';
   document.head.appendChild(link);
   const style = document.createElement('style');
   style.id = 'taranis-fonts';
@@ -58,7 +58,7 @@ function ensureBrandFonts() {
   + "@font-face{font-family:'Aktiv Grotesk';src:url('fonts/AktivGrotesk-Medium.woff2') format('woff2');font-weight:500;font-display:swap}"
   + "html body,body input,body select,body textarea,body button{font-family:'Aktiv Grotesk','Inter',system-ui,sans-serif}"
   + ".mono{font-family:'Aktiv Grotesk','Inter',system-ui,sans-serif;font-variant-numeric:tabular-nums lining-nums}"
-  + "html #pg-title,.word,.rpt-kpi .v,.rpt-oc .sc b{font-family:'GT Flexa Extended','Saira Extended',system-ui,sans-serif}";
+  + "html #pg-title,.word,.rpt-kpi .v,.rpt-oc .sc b{font-family:'GT Flexa Extended','Archivo',system-ui,sans-serif}";
   document.head.appendChild(style);
 }
 
@@ -72,8 +72,7 @@ function ensureCardStyle() {
   const s = document.createElement('style');
   s.id = 'taranis-cards';
   s.textContent =
-    "html body{background:#F3F7FA}"
-  + "#pg-body{background:#F3F7FA}"
+    "#pg-body{background:#F3F7FA}"
   + ".entry{display:flex;gap:0;align-items:stretch;background:#fff;border:1px solid var(--rule,#E9EFF3);border-radius:12px;padding:18px 20px;margin:0 0 14px;box-shadow:0 1px 2px rgba(16,35,58,.04),0 6px 16px rgba(16,35,58,.05)}"
   + ".entry:hover{border-color:#CFE6EF;box-shadow:0 2px 4px rgba(16,35,58,.05),0 10px 24px rgba(0,120,160,.08)}"
   + ".entry.good{box-shadow:inset 3px 0 0 #1E9E63,0 1px 2px rgba(16,35,58,.03)}"
@@ -135,7 +134,8 @@ function ensureEntrySkin() {
   + "#pg-body .entry .btn{border-radius:9px;padding:9px 15px;font-weight:500;letter-spacing:.01em}";
   document.head.appendChild(s);
 }
-ensureEntrySkin();
+// Not called: ensureCardStyle() is the single entry skin. This older one pinned
+// the rail to the top-right and coloured rejected orange, fighting the clean skin.
 
 let DEMO = false;                 // sample-data mode
 let session = null;               // { email, token }
@@ -1328,22 +1328,22 @@ async function wiStrip(host) {
     const top = Object.keys(why).sort((x, y) => why[y] - why[x]).slice(0, 5);
 
     const num = (n, lbl, cls) => el('div', { style: 'min-width:96px' },
-      el('div', { class: 'mono', style: 'font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)' }, lbl),
-      el('div', { style: 'font-size:24px;font-weight:600;' + (cls || '') }, String(n)));
+      el('div', { style: 'font-size:11.5px;letter-spacing:.02em;color:var(--ink-3)' }, lbl),
+      el('div', { style: 'font-size:26px;font-weight:600;letter-spacing:.01em;' + (cls || '') }, String(n)));
 
     const box = el('div', { style: 'border:1px solid var(--rule);border-radius:10px;padding:16px 18px;margin-bottom:22px;background:var(--card)' },
-      el('p', { class: 'mono',
-        style: 'font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 12px' },
+      el('p', {
+        style: 'font-size:12px;letter-spacing:.02em;color:var(--ink-3);margin:0 0 14px' },
         'Screening \u2014 last 7 days'),
       el('div', { style: 'display:flex;gap:26px;flex-wrap:wrap;margin-bottom:' + (top.length ? '14px' : '0') },
-        num(rows.length, 'screened'),
-        num(by.matched, 'matched', 'color:var(--good)'),
-        num(by.uncertain, 'to review', 'color:var(--signal)'),
-        num(by.rejected, 'rejected', 'color:var(--bad)')));
+        num(rows.length, 'Screened'),
+        num(by.matched, 'Matched', 'color:var(--good)'),
+        num(by.uncertain, 'To review', 'color:var(--signal)'),
+        num(by.rejected, 'Rejected', 'color:var(--bad)')));
 
     if (top.length) {
-      box.appendChild(el('p', { class: 'mono',
-        style: 'font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin:0 0 6px' },
+      box.appendChild(el('p', {
+        style: 'font-size:12px;letter-spacing:.02em;color:var(--ink-3);margin:0 0 8px' },
         'Why they were rejected'));
       const list = el('div', { class: 'ev' });
       for (const k of top) {
@@ -3174,7 +3174,7 @@ RENDER.opps = function (body) {
       } else if (soft.length) {
         verdict = { label: 'Worth a look because', tone: 'signal', text: soft.join('   \u00B7   ') };
       } else if (missing.length) {
-        verdict = { label: 'Never stated in the alert', tone: 'signal',
+        verdict = { label: 'The alert didn\u2019t mention', tone: 'signal',
           text: missing.join(', ').replace(/_/g, ' ') };
       } else {
         verdict = { label: 'Waiting on you', tone: 'signal',
@@ -4960,7 +4960,7 @@ RENDER.reports = function (body) {
         ['Awaiting you', n(m.wi_awaiting), null],
         ['Matched value', shortMoney(m.wi_ticket_value), null],
         ['Emails', n(m.crm_week), 'crm_week'],
-        ['LinkedIn (WI)', liCount == null ? '\u2014' : String(liCount), null]
+        ['LinkedIn', liCount == null ? '\u2014' : String(liCount), null]
       ]) {
         kpis.appendChild(el('div', { class: 'rpt-kpi' },
           el('div', { class: 'l' }, lbl),
@@ -5025,12 +5025,12 @@ RENDER.reports = function (body) {
     }
     draw();
 
-    // The LinkedIn figure is the profiles that arrived on With Intelligence
-    // opportunities — not the contact book. Fetched once, then the strip is
-    // redrawn with the count in place of the em dash.
+    // The LinkedIn figure is the number of contacts with a profile URL on file
+    // (the ones that arrived on opportunities plus the import). Read from the
+    // contacts table, not wi_mandates, which rarely carries the URL itself.
     (async () => {
       try {
-        const li = await supaSelect('wi_mandates', 'select=id&linkedin_url=not.is.null&limit=5000');
+        const li = await supaSelect('contacts', 'select=id&linkedin_url=not.is.null&limit=5000');
         liCount = Array.isArray(li) ? li.length : 0;
         draw();
       } catch (_) { /* leave the em dash */ }
