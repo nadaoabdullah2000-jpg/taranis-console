@@ -4687,8 +4687,111 @@ const RPT_CSS = `
 .rpt-rows{border-top:1px solid var(--rule)}
 .rpt-row{display:flex;justify-content:space-between;gap:16px;padding:10px 2px;border-bottom:1px solid var(--rule);font-size:13px}
 .rpt-row .k{color:var(--ink-3)} .rpt-row .v{color:var(--ink);font-weight:500}
-@media (max-width:860px){.rpt-kpis{grid-template-columns:repeat(3,1fr)}.rpt-cols{grid-template-columns:1fr}}
+.rpt-opps{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border-top:1px solid var(--rule)}
+.rpt-oc{border-bottom:1px solid var(--rule);border-right:1px solid var(--rule);padding:18px 20px;display:flex;flex-direction:column}
+.rpt-oc:nth-child(3n){border-right:0}
+.rpt-oc h4{margin:0 0 3px;font-size:15px;font-weight:500;color:var(--ink);line-height:1.28}
+.rpt-oc .sub{font-size:11.5px;color:var(--ink-3);margin-bottom:13px}
+.rpt-oc .sc{display:flex;justify-content:space-between;align-items:baseline;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:7px}
+.rpt-oc .sc b{font-size:14px;color:var(--accent)}
+.rpt-oc .seg{display:flex;gap:4px;margin-bottom:14px}
+.rpt-oc .seg i{height:8px;flex:1;border-radius:3px;background:rgba(0,168,208,.14)}
+.rpt-oc .seg i.on{background:var(--accent)}
+.rpt-oc .cr{display:grid;grid-template-columns:1fr 1fr;gap:9px 14px;font-size:12.5px;margin-bottom:15px}
+.rpt-oc .cr .c{display:flex;align-items:center;gap:8px;color:var(--ink-2)}
+.rpt-oc .cr .mk{width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex:none}
+.rpt-oc .cr .y{background:rgba(0,168,208,.14);color:var(--accent)} .rpt-oc .cr .no{background:#EEF2F6;color:#aab6c2}
+.rpt-oc .btns{margin-top:auto;display:flex;gap:8px}
+.rpt-ob{font-family:inherit;font-size:12.5px;padding:8px 14px;border-radius:6px;border:1px solid var(--rule);background:#fff;color:var(--ink-2);cursor:pointer}
+.rpt-ob.prim{border-color:var(--accent);color:var(--accent)} .rpt-ob:hover{background:rgba(0,168,208,.06)}
+.rpt-ob[disabled]{opacity:.6;cursor:default}
+@media (max-width:860px){.rpt-kpis{grid-template-columns:repeat(3,1fr)}.rpt-cols{grid-template-columns:1fr}.rpt-opps{grid-template-columns:1fr}}
 `;
+
+/* The still-open opportunities, shown on the Weekly report as match cards.
+   "Open" reads the full mandate; "Mark as read" sets seen_at (the same flag
+   the Opportunities tab uses) and drops the card from here. The five ticks are
+   the Taranis screening criteria, read from the mandate's own fields. */
+const WI_ADDR = ['GB', 'CH', 'US'];
+const WI_ELIG = ['equity_long_short', 'market_neutral', 'quant', 'systematic', 'cta', 'macro', 'multi_strategy'];
+const WI_CRIT = ['In-market (GB/CH/US)', 'Buys hedge funds', 'Eligible strategy', 'AuM on file', 'Contact on file'];
+function wiJarr(v) { let x = v; for (let i = 0; i < 2 && typeof x === 'string'; i++) { try { x = JSON.parse(x); } catch (_) { x = []; } } return Array.isArray(x) ? x : []; }
+function wiJobj(v) { let x = v; for (let i = 0; i < 2 && typeof x === 'string'; i++) { try { x = JSON.parse(x); } catch (_) { x = {}; } } return (x && typeof x === 'object' && !Array.isArray(x)) ? x : {}; }
+function wiCrit(m) {
+  const c = String(m.investor_country || '').toUpperCase().slice(0, 2);
+  const assets = wiJarr(m.asset_classes).map(String);
+  const strats = wiJarr(m.strategies).map((s) => String(s).toLowerCase());
+  const ev = wiJobj(m.evidence);
+  return [
+    WI_ADDR.indexOf(c) > -1,
+    assets.some((a) => /hedge|alternative|absolute return/i.test(a)),
+    strats.some((s) => WI_ELIG.indexOf(s) > -1),
+    Number(m.aum_usd) > 0,
+    !!(m.contact_name || m.linkedin_url || Number(ev.contact_count) > 0)
+  ];
+}
+
+function renderOpenOpps(host) {
+  host.appendChild(el('p', { class: 'rpt-h' }, 'Open opportunities'));
+  host.appendChild(el('p', { class: 'rpt-cap', style: 'margin:-4px 0 14px' },
+    'Still awaiting a decision. Open one to read it, or mark it read to clear it from here.'));
+  const grid = el('div', { class: 'rpt-opps' });
+  host.appendChild(grid);
+  grid.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px;padding:12px 2px' }, 'Loading\u2026'));
+
+  const emptyOut = () => { grid.className = ''; clear(grid);
+    grid.appendChild(empty('Nothing open', 'Every screened opportunity has been read or actioned.')); };
+
+  fill(grid, () => supaSelect('wi_mandates',
+    'select=id,investor_name,organization_name,investor_country,strategies,asset_classes,aum_usd,aum_band,'
+    + 'qualification,fit_score,view_investor_url,linkedin_url,contact_name,evidence,seen_at,approved_at,alert_date'
+    + '&qualification=in.(matched,uncertain)&approved_at=is.null&seen_at=is.null'
+    + '&order=fit_score.desc.nullslast&limit=24'), (rows) => {
+
+    if (!rows.length) return emptyOut();
+    grid.className = 'rpt-opps';
+
+    for (const m of rows) {
+      const crit = wiCrit(m);
+      const score = crit.filter(Boolean).length;
+      const card = el('div', { class: 'rpt-oc' });
+      card.appendChild(el('h4', {}, m.investor_name || m.organization_name || 'Investor'));
+      card.appendChild(el('div', { class: 'sub' },
+        [m.investor_country, m.aum_band].filter(Boolean).join('  \u00B7  ') || '\u00A0'));
+      const sc = el('div', { class: 'sc' });
+      sc.append(el('span', {}, m.qualification || 'open'), el('b', {}, score + '/5'));
+      card.appendChild(sc);
+      const seg = el('div', { class: 'seg' });
+      for (let i = 0; i < 5; i++) seg.appendChild(el('i', { class: i < score ? 'on' : '' }));
+      card.appendChild(seg);
+      const cr = el('div', { class: 'cr' });
+      WI_CRIT.forEach((name, i) => {
+        const yes = !!crit[i];
+        cr.appendChild(el('div', { class: 'c' },
+          el('span', { class: 'mk ' + (yes ? 'y' : 'no') }, yes ? '\u2713' : '\u2717'), name));
+      });
+      card.appendChild(cr);
+      const btns = el('div', { class: 'btns' });
+      const readBtn = el('button', { class: 'rpt-ob' }, 'Mark as read');
+      btns.append(
+        el('button', { class: 'rpt-ob prim', onclick: () => openMandate(m) }, 'Open'),
+        readBtn);
+      readBtn.addEventListener('click', async () => {
+        readBtn.setAttribute('disabled', ''); readBtn.textContent = 'Clearing\u2026';
+        try {
+          await markSeen(m);
+          card.remove();
+          if (!grid.querySelector('.rpt-oc')) emptyOut();
+        } catch (e) {
+          readBtn.removeAttribute('disabled'); readBtn.textContent = 'Mark as read';
+          toast(e.message, true);
+        }
+      });
+      card.appendChild(btns);
+      grid.appendChild(card);
+    }
+  });
+}
 
 RENDER.reports = function (body) {
   clear(body);
@@ -4722,6 +4825,12 @@ RENDER.reports = function (body) {
       'Week to ' + fmtDate(r.taken_at))));
     pick.addEventListener('change', () => { at = Number(pick.value) || 0; draw(); });
     body.append(el('div', { class: 'toolbar' }, pick), host);
+
+    // The still-open opportunities. Not week-specific, so rendered once below
+    // the per-week figures rather than inside draw().
+    const oppsWrap = el('div');
+    body.appendChild(oppsWrap);
+    renderOpenOpps(oppsWrap);
 
     function draw() {
       clear(host);
@@ -4801,34 +4910,6 @@ RENDER.reports = function (body) {
       }
       cols.append(cA, cB);
       host.appendChild(cols);
-
-      // the mail
-      host.appendChild(H('Activity'));
-      const act = el('div', { class: 'rpt-rows' });
-      for (const [k, v] of [
-        ['Messages', n(m.crm_week) + ' (' + n(m.crm_sent) + ' out, ' + n(m.crm_received) + ' in)'],
-        ['Needs reply', n(m.crm_needs_action)],
-        ['Engaged', n(m.contacts_touched) + ' contacts'],
-        ['Linked', n(m.crm_linked) + ' of ' + n(m.crm_stored_total) + ' stored']
-      ]) act.appendChild(el('div', { class: 'rpt-row' },
-        el('span', { class: 'k' }, k), el('span', { class: 'v' }, String(v))));
-      host.appendChild(act);
-
-      // the book
-      host.appendChild(H('The book'));
-      const bk = el('div', { class: 'rpt-rows' });
-      for (const [k, v] of [
-        ['Contacts', n(m.contacts_total)],
-        ['With email', n(m.contacts_with_email)],
-        ['No email', n(m.contacts_total) - n(m.contacts_with_email)],
-        ['Correspondence', n(m.contacts_with_history)],
-        ['Awaiting reply', n(m.awaiting_reply)],
-        ['Ever replied', n(m.ever_replied)],
-        ['Quiet 90d+', n(m.overdue_90)],
-        ['Open steps', n(m.open_next_steps)]
-      ]) bk.appendChild(el('div', { class: 'rpt-row' },
-        el('span', { class: 'k' }, k), el('span', { class: 'v' }, String(v))));
-      host.appendChild(bk);
 
       if (!p) {
         host.appendChild(el('p', { class: 'mono',
