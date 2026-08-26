@@ -36,6 +36,107 @@ const CFG = Object.assign({
   build: ''            // commit hash stamped in by GitHub Actions
 }, window.TARANIS_CONFIG || {});
 
+/* The Taranis brand faces, applied across the whole console — GT Flexa Extended
+   for the page titles and headline figures, Aktiv Grotesk Light for everything
+   else. Host the licensed woff2 in a /fonts folder beside the site; Saira
+   Extended and Inter stand in until they are there. Injected here rather than in
+   index.html so the sign-in gate carries them too. Monospace numeric labels keep
+   tabular figures so columns still line up. */
+function ensureBrandFonts() {
+  if (document.getElementById('taranis-fonts')) return;
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = 'https://fonts.googleapis.com/css2?family=Saira+Extended:wght@400;500&family=Inter:wght@300;400;500;600&display=swap';
+  document.head.appendChild(link);
+  const style = document.createElement('style');
+  style.id = 'taranis-fonts';
+  style.textContent =
+    "@font-face{font-family:'GT Flexa Extended';src:url('fonts/GT-Flexa-Extended-Regular.woff2') format('woff2');font-weight:400;font-display:swap}"
+  + "@font-face{font-family:'GT Flexa Extended';src:url('fonts/GT-Flexa-Extended-Medium.woff2') format('woff2');font-weight:500;font-display:swap}"
+  + "@font-face{font-family:'Aktiv Grotesk';src:url('fonts/AktivGrotesk-Light.woff2') format('woff2');font-weight:300;font-display:swap}"
+  + "@font-face{font-family:'Aktiv Grotesk';src:url('fonts/AktivGrotesk-Regular.woff2') format('woff2');font-weight:400;font-display:swap}"
+  + "@font-face{font-family:'Aktiv Grotesk';src:url('fonts/AktivGrotesk-Medium.woff2') format('woff2');font-weight:500;font-display:swap}"
+  + "html body,body input,body select,body textarea,body button{font-family:'Aktiv Grotesk','Inter',system-ui,sans-serif}"
+  + ".mono{font-family:'Aktiv Grotesk','Inter',system-ui,sans-serif;font-variant-numeric:tabular-nums lining-nums}"
+  + "html #pg-title,.word,.rpt-kpi .v,.rpt-oc .sc b{font-family:'GT Flexa Extended','Saira Extended',system-ui,sans-serif}";
+  document.head.appendChild(style);
+}
+
+/* Re-skins the shared entry() card to the softer look of the match cards:
+   a bordered, rounded card with room to breathe, the tone shown as a quiet
+   left accent rather than a hard rail, pill tags and outlined buttons. Pure
+   styling — every tag, callout, evidence line and button entry() renders is
+   left exactly as it was. */
+function ensureCardStyle() {
+  if (document.getElementById('taranis-cards')) return;
+  const s = document.createElement('style');
+  s.id = 'taranis-cards';
+  s.textContent =
+    "html body{background:#F3F7FA}"
+  + "#pg-body{background:#F3F7FA}"
+  + ".entry{display:flex;gap:0;align-items:stretch;background:#fff;border:1px solid var(--rule,#E9EFF3);border-radius:12px;padding:18px 20px;margin:0 0 14px;box-shadow:0 1px 2px rgba(16,35,58,.04),0 6px 16px rgba(16,35,58,.05)}"
+  + ".entry:hover{border-color:#CFE6EF;box-shadow:0 2px 4px rgba(16,35,58,.05),0 10px 24px rgba(0,120,160,.08)}"
+  + ".entry.good{box-shadow:inset 3px 0 0 #1E9E63,0 1px 2px rgba(16,35,58,.03)}"
+  + ".entry.signal{box-shadow:inset 3px 0 0 var(--signal,#C89000),0 1px 2px rgba(16,35,58,.03)}"
+  + ".entry.bad{box-shadow:inset 3px 0 0 #C6402B,0 1px 2px rgba(16,35,58,.03)}"
+  + ".entry.quiet{box-shadow:inset 3px 0 0 #C6D2DC,0 1px 2px rgba(16,35,58,.03)}"
+  + ".entry-rail{display:flex;align-items:flex-start;gap:6px;min-width:0;margin:0}"
+  + ".entry .dot{display:none}"
+  + ".entry .rail-n{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-right:12px}"
+  + ".entry-main{flex:1;min-width:0}"
+  + ".entry-act{font-size:16px;font-weight:500;color:var(--ink);margin:0 0 3px;line-height:1.3}"
+  + ".entry-who{font-size:12px;color:var(--ink-3);margin:0 0 12px}"
+  + ".entry .acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}"
+  + ".entry .acts:has(.tag){margin:0 0 12px}"
+  + ".entry .acts:has(.btn){margin:14px 0 0}"
+  + ".entry .acts .tag{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;padding:3px 9px;border-radius:999px;background:rgba(0,168,208,.10);color:#0a6f8a;border:0}"
+  + ".entry .acts .tag.signal{background:rgba(216,162,39,.16);color:#946200}"
+  + ".entry .acts .tag.bad{background:#FBEAE5;color:#C1402A}"
+  + ".entry .acts .tag.good{background:#E7F6EE;color:#147A50}"
+  + ".entry .callout{border-radius:10px;padding:12px 14px;margin:2px 0 14px}"
+  + ".entry .ev{font-size:13px}"
+  + ".entry .ev .k{color:var(--ink-3);margin-right:10px}"
+  + ".entry .acts .btn.btn-sm{border-radius:8px;padding:8px 14px;font-size:12.5px;font-weight:500;border:1px solid var(--rule,#E9EFF3);background:#fff;color:var(--ink-2)}"
+  + ".entry .acts .btn.btn-sm:not(.btn-quiet){border-color:var(--accent,#00A8D0);color:var(--accent,#00A8D0)}"
+  + ".entry .acts .btn.btn-sm:hover{background:rgba(0,168,208,.06)}";
+  document.head.appendChild(s);
+}
+
+ensureBrandFonts();
+ensureCardStyle();
+
+/* A softer skin for the opportunity cards. Same content and the same buttons —
+   only the look changes: rounded card, hairline border, a little shadow, the
+   tone shown as a clipped edge rather than a hard rail, and rounded chips and
+   buttons. Scoped to #pg-body .entry so nothing else shifts. */
+function ensureEntrySkin() {
+  if (document.getElementById('taranis-entry-skin')) return;
+  const s = document.createElement('style');
+  s.id = 'taranis-entry-skin';
+  s.textContent =
+    "#pg-body .entry{position:relative;border:1px solid var(--rule,#E9EFF3);border-radius:14px;overflow:hidden;"
+      + "background:var(--card,#fff);box-shadow:0 1px 2px rgba(16,35,58,.03),0 12px 28px rgba(16,35,58,.05);"
+      + "margin:0 0 14px;transition:box-shadow .16s ease}"
+  + "#pg-body .entry::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:#C6D2DC;z-index:1}"
+  + "#pg-body .entry.good::before{background:#1E9E8A}#pg-body .entry.signal::before{background:#00A8D0}"
+  + "#pg-body .entry.quiet::before{background:#C6D2DC}#pg-body .entry.bad::before{background:#C87A5A}"
+  + "#pg-body .entry:hover{box-shadow:0 2px 4px rgba(16,35,58,.05),0 18px 40px rgba(0,120,160,.09)}"
+  + "#pg-body .entry .entry-rail{position:absolute;top:14px;right:16px;left:auto;width:auto;min-width:0;padding:0}"
+  + "#pg-body .entry .entry-rail .dot{display:none}"
+  + "#pg-body .entry .entry-rail .rail-n{opacity:.32;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase}"
+  + "#pg-body .entry .entry-act{font-size:16.5px;font-weight:500;color:var(--ink,#10233A);margin:0 0 2px;line-height:1.28}"
+  + "#pg-body .entry .entry-who{font-size:12.5px;color:var(--ink-3,#7A8EA0);margin:0 0 2px}"
+  + "#pg-body .entry .ev{margin-top:13px;display:flex;flex-direction:column;gap:7px}"
+  + "#pg-body .entry .ev>div{font-size:13px;color:var(--ink-2,#41586C);line-height:1.4}"
+  + "#pg-body .entry .ev .k{color:var(--ink-3,#7A8EA0);display:inline-block;min-width:78px}"
+  + "#pg-body .entry .callout{border-radius:10px;padding:13px 16px}"
+  + "#pg-body .entry .acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px}"
+  + "#pg-body .entry .tag{border-radius:999px;padding:3px 10px;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;font-weight:600}"
+  + "#pg-body .entry .btn{border-radius:9px;padding:9px 15px;font-weight:500;letter-spacing:.01em}";
+  document.head.appendChild(s);
+}
+ensureEntrySkin();
+
 let DEMO = false;                 // sample-data mode
 let session = null;               // { email, token }
 let pollTimer = null;
@@ -4697,6 +4798,10 @@ const RPT_CSS = `
 .rpt-oc .seg{display:flex;gap:4px;margin-bottom:14px}
 .rpt-oc .seg i{height:8px;flex:1;border-radius:3px;background:rgba(0,168,208,.14)}
 .rpt-oc .seg i.on{background:var(--accent)}
+.rpt-oc.q-matched .seg i.on{background:#1E9E63}
+.rpt-oc.q-matched .sc b,.rpt-oc.q-matched .sc span{color:#1E9E63}
+.rpt-oc.q-rejected .seg i.on{background:#C6402B}
+.rpt-oc.q-rejected .sc b,.rpt-oc.q-rejected .sc span{color:#C6402B}
 .rpt-oc .cr{display:grid;grid-template-columns:1fr 1fr;gap:9px 14px;font-size:12.5px;margin-bottom:15px}
 .rpt-oc .cr .c{display:flex;align-items:center;gap:8px;color:var(--ink-2)}
 .rpt-oc .cr .mk{width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex:none}
@@ -4754,7 +4859,7 @@ function renderOpenOpps(host) {
     for (const m of rows) {
       const crit = wiCrit(m);
       const score = crit.filter(Boolean).length;
-      const card = el('div', { class: 'rpt-oc' });
+      const card = el('div', { class: 'rpt-oc q-' + (m.qualification || 'open') });
       card.appendChild(el('h4', {}, m.investor_name || m.organization_name || 'Investor'));
       card.appendChild(el('div', { class: 'sub' },
         [m.investor_country, m.aum_band].filter(Boolean).join('  \u00B7  ') || '\u00A0'));
@@ -4818,6 +4923,7 @@ RENDER.reports = function (body) {
                                     : x >= 1e3 ? '$' + Math.round(x / 1e3) + 'k' : '$' + x; };
 
     let at = 0;
+    let liCount = null;   // LinkedIn profiles that arrived from With Intelligence
     const host = el('div');
 
     const pick = el('select', { class: 'search', style: 'max-width:280px' });
@@ -4854,7 +4960,7 @@ RENDER.reports = function (body) {
         ['Awaiting you', n(m.wi_awaiting), null],
         ['Matched value', shortMoney(m.wi_ticket_value), null],
         ['Emails', n(m.crm_week), 'crm_week'],
-        ['Contacts', n(m.contacts_total), 'contacts_total']
+        ['LinkedIn (WI)', liCount == null ? '\u2014' : String(liCount), null]
       ]) {
         kpis.appendChild(el('div', { class: 'rpt-kpi' },
           el('div', { class: 'l' }, lbl),
@@ -4874,9 +4980,9 @@ RENDER.reports = function (body) {
       host.appendChild(H('Screening outcome'));
       host.appendChild(el('div', { class: 'rpt-funnel' },
         stage('Screened', n(m.wi_new), '#285096'),
-        stage('Matched', n(m.wi_matched), 'linear-gradient(90deg,#00A8D0,#00A8C8)'),
+        stage('Matched', n(m.wi_matched), 'linear-gradient(90deg,#1E9E63,#2CB477)'),
         stage('Awaiting you', n(m.wi_awaiting), 'linear-gradient(90deg,#D9A227,#C89000)'),
-        stage('Rejected', n(m.wi_rejected), '#9AA7B5')));
+        stage('Rejected', n(m.wi_rejected), 'linear-gradient(90deg,#C6402B,#D2624C)')));
 
       // rejection reasons + country flow, side by side, as bars
       const bar = (label, value, max, grad, tagAddr) => {
@@ -4918,6 +5024,17 @@ RENDER.reports = function (body) {
       }
     }
     draw();
+
+    // The LinkedIn figure is the profiles that arrived on With Intelligence
+    // opportunities — not the contact book. Fetched once, then the strip is
+    // redrawn with the count in place of the em dash.
+    (async () => {
+      try {
+        const li = await supaSelect('wi_mandates', 'select=id&linkedin_url=not.is.null&limit=5000');
+        liCount = Array.isArray(li) ? li.length : 0;
+        draw();
+      } catch (_) { /* leave the em dash */ }
+    })();
   });
 };
 
