@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Taranis — With Intelligence Analysis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Free stand-ins closest to the brand faces: Saira Extended ~ GT Flexa Extended, Inter ~ Aktiv Grotesk -->
+<link href="https://fonts.googleapis.com/css2?family=Saira+Extended:wght@300;400;500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* Licensed brand faces — the same files taranis.net uses. Put them in a
+     /fonts folder next to this file in the repo (paths are relative, so they
+     resolve on GitHub Project Pages served under /<repo>/). */
+  @font-face{font-family:'GT Flexa Extended';src:url('fonts/GT-Flexa-Extended-Regular.woff2') format('woff2');font-weight:400;font-display:swap}
+  @font-face{font-family:'GT Flexa Extended';src:url('fonts/GT-Flexa-Extended-Medium.woff2') format('woff2');font-weight:500;font-display:swap}
+  @font-face{font-family:'Aktiv Grotesk';src:url('fonts/AktivGrotesk-Light.woff2') format('woff2');font-weight:300;font-display:swap}
+  @font-face{font-family:'Aktiv Grotesk';src:url('fonts/AktivGrotesk-Regular.woff2') format('woff2');font-weight:400;font-display:swap}
+  @font-face{font-family:'Aktiv Grotesk';src:url('fonts/AktivGrotesk-Medium.woff2') format('woff2');font-weight:500;font-display:swap}
+
+  :root{
+    --cyan:#00A8D0; --teal:#00A8C8; --navy:#285096;
+    --gold:#C89000; --gold2:#D9A227; --sky:#BEE6F0; --sky2:#EAF7FB;
+    --ink:#10233A; --ink2:#41586C; --muted:#7A8EA0;
+    --line:#E9EFF3; --bg:#FFFFFF; --panel:#FFFFFF; --panel2:#F7FAFC;
+    --good:#1E9E8A; --warn:#C87A00; --bad:#C0562F;
+    --shadow:none;
+    --lift:0 10px 30px rgba(16,35,58,.08);
+    --r:4px;
+    --display:'GT Flexa Extended','Saira Extended',system-ui,sans-serif;
+    --body:'Aktiv Grotesk','Inter',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    font-family:var(--body); font-weight:300; letter-spacing:.005em; color:var(--ink);
+    -webkit-font-smoothing:antialiased; font-size:15px;
+    background:var(--bg);
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:34px 30px 80px}
+  .num{font-variant-numeric:tabular-nums lining-nums}
+  .word,.panel h3,.kpi .val,.mcard h4,.mscore b,.wc .big,.h2{font-family:var(--display)}
+  a{color:inherit}
+
+  /* header — a set masthead */
+  header.top{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;
+    padding-bottom:20px;margin-bottom:0}
+  .brand{display:flex;flex-direction:column;gap:10px}
+  .word{font-weight:400;font-size:34px;letter-spacing:.34em;line-height:1;padding-right:.34em}
+  .word b{font-weight:400;color:var(--cyan)}
+  .kicker{font-size:10.5px;letter-spacing:.28em;text-transform:uppercase;color:var(--muted)}
+  .ctx{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .pill{display:inline-flex;align-items:center;gap:8px;font-size:11.5px;letter-spacing:.05em;
+    padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--ink2)}
+  .pill .dot{width:7px;height:7px;border-radius:50%}
+  .pill.live .dot{background:var(--good)} .pill.off .dot{background:var(--muted)}
+  .btn{font-family:inherit;font-size:12px;letter-spacing:.04em;border:1px solid var(--cyan);
+    background:var(--cyan);color:#fff;padding:8px 15px;border-radius:3px;cursor:pointer;font-weight:400}
+  .btn.ghost{background:#fff;color:var(--cyan)}
+  .btn:focus-visible,a:focus-visible,.card-link:focus-visible{outline:2px solid var(--navy);outline-offset:3px}
+  /* a single hairline with one cyan tick — quiet, not a chrome bar */
+  .ledger{height:2px;margin:0 0 8px;background:var(--ink);position:relative}
+  .ledger::after{content:"";position:absolute;left:0;top:0;height:2px;width:64px;background:var(--cyan)}
+
+  .eyebrow{font-size:10.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--muted);font-weight:400;
+    margin:52px 0 18px;display:flex;align-items:center;gap:14px}
+  .eyebrow .ix{font-family:var(--display);color:var(--cyan);letter-spacing:.05em}
+  .eyebrow::after{content:"";flex:1;height:1px;background:var(--line)}
+  .grid{display:grid;gap:26px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:26px 28px;box-shadow:var(--shadow)}
+  .panel h3,.h2{margin:0 0 4px;font-weight:400;font-size:19px;letter-spacing:.005em;color:var(--ink)}
+  .panel .cap{margin:0 0 20px;font-size:12.5px;color:var(--muted);letter-spacing:.02em;line-height:1.55}
+
+  /* KPI strip — flat editorial measures, hairline separated */
+  .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .kpi{padding:20px 20px 18px;position:relative;border-left:1px solid var(--line)}
+  .kpi:first-child{border-left:0}
+  .kpi .lbl{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:400}
+  .kpi .val{font-size:38px;font-weight:400;line-height:1;margin-top:12px;color:var(--ink);letter-spacing:.01em}
+  .kpi.gold .val{color:var(--ink)} .kpi .val .u{color:var(--cyan)}
+  .kpi .foot{font-size:11px;color:var(--muted);margin-top:8px;line-height:1.4}
+  .kpi.clk:hover{background:var(--panel2)}
+
+  /* clickable affordance */
+  .clk{cursor:pointer;transition:transform .16s ease, box-shadow .16s ease, border-color .16s ease, background .16s ease}
+  .clk:hover{box-shadow:var(--lift);border-color:#CFE6EF}
+  .ext{font-size:11px;color:var(--cyan);margin-left:5px}
+
+  /* screened-investor match cards */
+  .searchhead{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:4px}
+  .searchhead .big{font-size:34px;color:var(--ink);line-height:1} .searchhead .big b{color:var(--cyan);font-weight:500}
+  .tabrow{display:flex;gap:8px;flex-wrap:wrap}
+  .qtab{display:flex;flex-direction:column;gap:2px;padding:8px 14px;border:1px solid var(--line);border-radius:3px;background:var(--panel2);min-width:92px}
+  .qtab .n{font-family:var(--display);font-size:18px} .qtab .l{font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+  .qtab.matched .n{color:var(--cyan)} .qtab.uncertain .n{color:var(--gold)} .qtab.rejected .n{color:var(--muted)}
+  .critkey{display:flex;gap:16px;flex-wrap:wrap;margin:16px 0 4px;font-size:11.5px;color:var(--muted)}
+  .critkey span{display:inline-flex;align-items:center;gap:7px}
+  .dotc{width:9px;height:9px;border-radius:50%;background:var(--cyan)}
+  .matchgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:0;margin-top:16px;border-top:1px solid var(--line)}
+  .mcard{border-bottom:1px solid var(--line);border-right:1px solid var(--line);padding:20px 22px;background:var(--panel);display:flex;flex-direction:column}
+  .mcard:nth-child(3n){border-right:0}
+  .mcard.q-matched{box-shadow:inset 3px 0 0 var(--cyan)} .mcard.q-uncertain{box-shadow:inset 3px 0 0 var(--gold2)} .mcard.q-rejected{box-shadow:inset 3px 0 0 #C6D2DC}
+  .mcard h4{margin:0 0 3px;font-size:16px;font-weight:400;color:var(--ink);line-height:1.28}
+  .mcard .sub{font-size:11.5px;color:var(--muted);margin-bottom:15px;letter-spacing:.02em}
+  .mscore{display:flex;justify-content:space-between;align-items:baseline;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:7px}
+  .mscore b{font-size:14px;color:var(--cyan)}
+  .segbar{display:flex;gap:4px;margin-bottom:14px}
+  .seg{height:8px;flex:1;border-radius:3px;background:var(--sky2)} .seg.on{background:linear-gradient(90deg,#00A8D0,#00A8C8)}
+  .crit{display:grid;grid-template-columns:1fr 1fr;gap:9px 16px;font-size:12.5px;margin-bottom:14px}
+  .crit .c{display:flex;align-items:center;gap:8px;color:var(--ink2)}
+  .crit .mk{width:17px;height:17px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;flex:none;font-weight:600}
+  .crit .yes{background:#E4F3FA;color:var(--cyan)} .crit .no{background:#F0F2F5;color:#aab6c2}
+  .mfoot{margin-top:auto;display:flex;gap:8px;flex-wrap:wrap}
+  .chip{font-size:11.5px;letter-spacing:.02em;padding:6px 11px;border-radius:3px;border:1px solid var(--line);background:#fff;color:var(--ink2);cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+  .chip.prim{border-color:var(--cyan);color:var(--cyan)} .chip:hover{background:var(--sky2)}
+  .chip[aria-disabled="true"]{opacity:.4;pointer-events:none}
+
+  /* funnel + bars */
+  .funnel{display:flex;flex-direction:column;gap:9px}
+  .stage{display:flex;align-items:center;gap:14px}
+  .stage .bar{height:38px;border-radius:8px;display:flex;align-items:center;padding:0 14px;color:#fff;font-weight:500;min-width:64px;transition:width .7s cubic-bezier(.22,1,.36,1)}
+  .stage .meta{font-size:12.5px;color:var(--ink2)} .stage .meta b{color:var(--ink);font-weight:500}
+  .hbar{display:grid;grid-template-columns:132px 1fr 54px;align-items:center;gap:12px;margin:0 0 11px}
+  .hbar .k{font-size:12.5px;color:var(--ink2);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hbar .track{background:var(--sky2);border-radius:6px;height:20px;overflow:hidden}
+  .hbar .fill{height:100%;border-radius:6px;transition:width .7s cubic-bezier(.22,1,.36,1)}
+  .hbar .v{font-size:12.5px;color:var(--ink);text-align:right;font-weight:500}
+  .tag{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;padding:2px 6px;border-radius:4px;background:var(--sky);color:#0a6f8a;margin-left:7px;vertical-align:middle}
+
+  .donutrow{display:flex;gap:22px;align-items:center;flex-wrap:wrap}
+  .legend{display:flex;flex-direction:column;gap:8px;font-size:12.5px}
+  .legend .li{display:flex;align-items:center;gap:9px;color:var(--ink2)}
+  .legend .sw{width:11px;height:11px;border-radius:3px;flex:none}
+  .legend b{color:var(--ink);font-weight:500;margin-left:auto;padding-left:18px}
+
+  /* reports */
+  .tabs{display:flex;gap:8px} .tab{font-family:inherit;font-size:12.5px;letter-spacing:.04em;padding:8px 14px;border-radius:3px;cursor:pointer;border:1px solid var(--line);background:#fff;color:var(--ink2)}
+  .tab.on{border-color:var(--cyan);color:var(--cyan);font-weight:500;background:var(--sky2)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-weight:500;color:var(--muted);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;padding:0 12px 9px;border-bottom:1px solid var(--line)}
+  td{padding:12px;border-bottom:1px solid var(--line);color:var(--ink2);vertical-align:top}
+  tr.rowlink{cursor:pointer} tr.rowlink:hover td{background:var(--sky2)}
+  td .t{color:var(--ink);font-weight:500}
+  .date{white-space:nowrap;color:var(--ink2);font-variant-numeric:tabular-nums}
+  .chipR{display:inline-block;font-size:10.5px;letter-spacing:.06em;padding:2px 8px;border-radius:999px;font-weight:500}
+  .r-high{background:#E2F6EF;color:#137a67} .r-med{background:#FFF3DA;color:#946200} .r-low{background:#EEF2F6;color:#67788a}
+  .outcome .n{font-weight:600;color:var(--cyan);font-variant-numeric:tabular-nums}
+
+  /* linkedin-from-WI list */
+  .li-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+  .li-item{display:flex;align-items:center;gap:13px;padding:14px 16px;border:1px solid var(--line);border-radius:4px;background:var(--panel);text-decoration:none;color:inherit}
+  .li-badge{width:34px;height:34px;border-radius:3px;background:#0a66c2;color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--display);font-size:15px;flex:none}
+  .li-item .nm{font-size:13.5px;color:var(--ink);font-weight:500;line-height:1.2}
+  .li-item .mt{font-size:11.5px;color:var(--muted);margin-top:2px}
+  .li-item .go{margin-left:auto;font-size:12px;color:var(--cyan);white-space:nowrap}
+
+  /* health */
+  .health{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .hrow{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}
+  .hrow .st{font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;font-weight:600;padding:3px 8px;border-radius:5px;white-space:nowrap;margin-top:1px}
+  .st.fixed{background:#E2F6EF;color:#137a67} .st.live{background:#E4F3FA;color:#0a6f8a}
+  .hrow .tx{font-size:12.5px;color:var(--ink2);line-height:1.45} .hrow .tx b{color:var(--ink);font-weight:500}
+
+  .callout{display:flex;gap:14px;align-items:flex-start;background:var(--sky2);border:1px solid #CBE9F3;border-left:4px solid var(--cyan);border-radius:10px;padding:14px 16px;font-size:13px;color:var(--ink2);line-height:1.55}
+  .callout b{color:var(--ink)}
+  .empty{padding:30px;text-align:center;color:var(--muted);font-size:13px;line-height:1.6;border:1px dashed var(--line);border-radius:4px;background:var(--panel2)}
+  .empty b{color:var(--ink2);font-weight:500}
+  .loading{color:var(--muted);font-size:12.5px;padding:6px 0}
+  footer{margin-top:34px;padding-top:16px;border-top:1px solid var(--line);font-size:11.5px;color:var(--muted);line-height:1.6}
+
+  @media (max-width:960px){ .kpis{grid-template-columns:repeat(2,1fr)} .two{grid-template-columns:1fr!important}
+    .matchgrid{grid-template-columns:1fr} .li-grid{grid-template-columns:1fr} .health{grid-template-columns:1fr} }
+  @media (prefers-reduced-motion:reduce){ *{transition:none!important} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="brand">
+      <div class="word">TARAN<b>I</b>S</div>
+      <div class="kicker">With Intelligence · Pipeline Analysis</div>
+    </div>
+    <div class="ctx">
+      <span class="pill off" id="asof"><span class="dot"></span><span id="asofTxt">Not connected</span></span>
+      <button class="btn ghost" id="connect">Load live data</button>
+      <a class="btn" id="openConsole" href="#" target="_blank" rel="noopener">Open the console ↗</a>
+    </div>
+  </header>
+  <div class="ledger"></div>
+
+  <!-- KPI STRIP (5 measures) -->
+  <div class="eyebrow"><span class="ix">01</span> The pipeline, at a glance</div>
+  <div class="kpis" id="kpis"></div>
+
+  <!-- SCREENED INVESTORS (match view) -->
+  <div class="eyebrow"><span class="ix">02</span> Screened investors — from With Intelligence</div>
+  <div class="panel">
+    <div class="searchhead">
+      <div>
+        <div class="big"><b id="scTotal">—</b> screened</div>
+        <p class="cap" id="scCap" style="margin-top:6px">Live from your With Intelligence intake. Each card opens the investor's own page.</p>
+      </div>
+      <div class="tabrow" id="qtabs"></div>
+    </div>
+    <div class="critkey" id="critKey"></div>
+    <div id="matchWrap"><div class="loading">Loading investors…</div></div>
+    <p class="cap" id="scMore" style="margin-top:16px"></p>
+  </div>
+
+  <!-- FUNNEL + TIMELINE -->
+  <div class="eyebrow"><span class="ix">03</span> Screening — from alert to decision</div>
+  <div class="grid two" style="grid-template-columns:0.9fr 1.1fr">
+    <div class="panel">
+      <h3>Qualification funnel</h3>
+      <p class="cap">Every block With Intelligence sent, and where the Taranis criteria left it.</p>
+      <div class="funnel" id="funnel"><div class="loading">Loading…</div></div>
+      <div class="callout" style="margin-top:18px">
+        <div>Criteria applied in code: allocator country in <b>GB / CH / US</b>, asset classes that include hedge
+        funds, and at least one eligible strategy. A machine score can only move a record <b>down</b> — a match
+        needs the criteria to pass outright <i>and</i> the score to agree.</div>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Screened over time</h3>
+      <p class="cap">By alert date. Matched shown against total screened, per month.</p>
+      <div id="timeline"><div class="loading">Loading…</div></div>
+    </div>
+  </div>
+
+  <!-- STRATEGY + COUNTRY -->
+  <div class="eyebrow"><span class="ix">04</span> Where the flow comes from</div>
+  <div class="grid two" style="grid-template-columns:1fr 1fr">
+    <div class="panel">
+      <h3>By strategy</h3>
+      <p class="cap">Primary + secondary strategies across screened investors. Eligible strategies carry the mark.</p>
+      <div class="donutrow"><div id="donut"></div><div class="legend" id="donutLegend"></div></div>
+    </div>
+    <div class="panel">
+      <h3>By allocator country</h3>
+      <p class="cap">Addressable markets — the three Taranis raises from — are highlighted.</p>
+      <div id="countryBars"><div class="loading">Loading…</div></div>
+    </div>
+  </div>
+
+  <!-- REJECTION -->
+  <div class="eyebrow"><span class="ix">05</span> Why opportunities were screened out</div>
+  <div class="panel">
+    <h3>Rejection reasons</h3>
+    <p class="cap">Grouped from the deterministic hard-fail record on each rejected block.</p>
+    <div id="rejectBars"><div class="loading">Loading…</div></div>
+  </div>
+
+  <!-- HFA & FOC -->
+  <div class="eyebrow"><span class="ix">06</span> Hedge Fund Alert &amp; Family Office Confidential — reading outcomes</div>
+  <div class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px">
+      <div>
+        <h3>Filed issues and what was mined from them</h3>
+        <p class="cap">Each issue, its date, and the outcome: allocator signals read out of it. A row opens the PDF.</p>
+      </div>
+      <div class="tabs" id="reportTabs">
+        <button class="tab on" data-f="hedge_fund">Hedge Fund Alert</button>
+        <button class="tab" data-f="family_office">Family Office Confidential</button>
+      </div>
+    </div>
+    <div id="reportSummary" style="display:flex;gap:26px;flex-wrap:wrap;margin:6px 0 16px"></div>
+    <div style="overflow-x:auto">
+      <table><thead><tr>
+        <th style="width:112px">Issue date</th><th>Issue</th><th style="width:140px">Publisher</th>
+        <th style="width:92px">Relevance</th><th style="width:132px">Outcome</th><th style="width:96px">Managers</th>
+      </tr></thead><tbody id="reportBody"></tbody></table>
+    </div>
+  </div>
+
+  <!-- LINKEDIN FROM WI -->
+  <div class="eyebrow"><span class="ix">07</span> LinkedIn profiles from With Intelligence</div>
+  <div class="panel">
+    <h3>Reachable on LinkedIn</h3>
+    <p class="cap">Every allocator whose LinkedIn profile arrived on a With Intelligence opportunity. Each opens the profile.</p>
+    <div id="liWrap"><div class="loading">Loading…</div></div>
+  </div>
+
+  <!-- HEALTH -->
+  <div class="eyebrow"><span class="ix">08</span> Pipeline health — With Intelligence intake</div>
+  <div class="panel">
+    <h3>What the extractor now reads, and what it used to lose</h3>
+    <p class="cap">Silent failures found and fixed in the intake.</p>
+    <div class="health" id="health"></div>
+    <div class="callout" style="margin-top:16px" id="backlog"></div>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+   Taranis — With Intelligence Analysis  (live, in-console)
+   Reads from Supabase PostgREST using the SAME sign-in the console holds
+   (sessionStorage/localStorage key "taranis.session"). No preview data,
+   no secrets: the anon key is RLS-gated and injected via TARANIS_CONFIG.
+   ===================================================================== */
+'use strict';
+
+const SESSION_KEY = 'taranis.session';
+const CFG = Object.assign({
+  supabaseUrl:'https://asqrhnwicgbgwzttopla.supabase.co',
+  supabaseAnonKey:'',
+  consoleUrl:'https://nadaoabdullah2000-jpg.github.io',
+  token:''
+}, window.TARANIS_CONFIG || {});
+
+/* reuse the console's stored session if present */
+function readSession(){
+  if(CFG.token) return CFG.token;
+  for(const store of [sessionStorage, localStorage]){
+    try{ const raw=store.getItem(SESSION_KEY); if(raw){ const s=JSON.parse(raw); if(s&&s.token) return s.token; } }catch(_){}
+  }
+  const u=new URLSearchParams(location.search); if(u.get('token')) return u.get('token');
+  return '';
+}
+
+const ADDRESSABLE=new Set(['GB','CH','US']);
+const ELIGIBLE=new Set(['equity_long_short','market_neutral','quant','systematic','cta','macro','multi_strategy']);
+const STRAT_LABEL={equity_long_short:'Long/short equity',market_neutral:'Market neutral',macro:'Macro',cta:'CTA / managed futures',
+  multi_strategy:'Multi-strategy',quant:'Quantitative',systematic:'Systematic',relative_value:'Relative value',
+  event_driven:'Event driven',distressed:'Distressed',credit:'Credit',tail_risk:'Tail risk',alternative_risk_premia:'Alt. risk premia'};
+const RAMP=['#00A8D0','#2FB6D6','#5C83B4','#285096','#8FD3E3','#1C3E74','#B9E4EF','#6E8296'];
+const CRITERIA=['In-market (GB/CH/US)','Buys hedge funds','Eligible strategy','AuM on file','Contact on file'];
+
+/* ---------- helpers ---------- */
+const $=(s,r=document)=>r.querySelector(s);
+const el=(t,a,...k)=>{const n=document.createElement(t);if(a)for(const p in a){if(p==='html')n.innerHTML=a[p];else n.setAttribute(p,a[p]);}for(const c of k){if(c==null)continue;n.append(c.nodeType?c:document.createTextNode(c));}return n;};
+const fmtN=v=>Number(v||0).toLocaleString('en-US');
+const money=v=>{const x=Number(v||0);if(!x)return '—';return x>=1e9?'$'+(x/1e9).toFixed(1)+'bn':x>=1e6?'$'+(x/1e6).toFixed(0)+'m':x>=1e3?'$'+(x/1e3).toFixed(0)+'k':'$'+x;};
+const fmtDate=s=>{const d=new Date(s);return isNaN(d)?(s||'—'):d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});};
+const fmtMonth=s=>{const d=new Date(s+'-01');return isNaN(d)?s:d.toLocaleDateString('en-GB',{month:'short',year:'2-digit'});};
+function jarr(v){let x=v;for(let i=0;i<2&&typeof x==='string';i++){try{x=JSON.parse(x);}catch(_){x=[];}}return Array.isArray(x)?x:[];}
+function jobj(v){let x=v;for(let i=0;i<2&&typeof x==='string';i++){try{x=JSON.parse(x);}catch(_){x={};}}return (x&&typeof x==='object'&&!Array.isArray(x))?x:{};}
+
+async function supa(path){
+  const res=await fetch(CFG.supabaseUrl+'/rest/v1/'+path,{
+    headers:{apikey:CFG.supabaseAnonKey,Authorization:'Bearer '+CFG.token,Accept:'application/json'}});
+  if(!res.ok){ let m='';try{m=(await res.json()).message||'';}catch(_){} throw new Error(path.split('?')[0]+' → '+res.status+(m?' · '+m:'')); }
+  return res.json();
+}
+
+/* ---------- criteria from a real mandate row ---------- */
+function critOf(r){
+  const c=(r.investor_country||'').toUpperCase().slice(0,2);
+  const assets=jarr(r.asset_classes).map(String);
+  const strats=jarr(r.strategies).map(s=>String(s).toLowerCase());
+  const ev=jobj(r.evidence);
+  return [
+    ADDRESSABLE.has(c),
+    assets.some(a=>/hedge|alternative|absolute return/i.test(a)),
+    strats.some(s=>ELIGIBLE.has(s)),
+    Number(r.aum_usd)>0,
+    !!(r.contact_name || r.linkedin_url || Number(ev.contact_count)>0)
+  ];
+}
+
+/* ---------- load everything live ---------- */
+async function load(){
+  const mand=await supa('wi_mandates?select=id,investor_name,organization_name,investor_country,strategies,asset_classes,'
+    +'aum_usd,aum_band,qualification,fit_score,hard_fail_reasons,alert_date,view_investor_url,linkedin_url,contact_name,evidence'
+    +'&order=fit_score.desc.nullslast&limit=4000');
+  const hf=await supa('hf_newsletters?select=title,publisher,issue_date,relevance,allocator_signals,managers_mentioned,'
+    +'report_type,was_truncated,public_url,uploaded_at&order=issue_date.desc.nullslast&limit=200');
+  let ticketVal=0;
+  try{ const s=await supa('weekly_snapshots?select=metrics&order=taken_at.desc&limit=1');
+       if(s[0]){ const m=jobj(s[0].metrics); ticketVal=Number(m.wi_ticket_value||0); } }catch(_){}
+
+  const f={matched:0,uncertain:0,rejected:0}; const country={},strat={},reject={},months={};
+  let sumMatchedAum=0;
+  for(const r of mand){
+    const q=r.qualification||'uncertain'; if(f[q]!==undefined)f[q]++;
+    const c=(r.investor_country||'').toUpperCase().slice(0,2); if(c)country[c]=(country[c]||0)+1;
+    for(const s of jarr(r.strategies)){const k=String(s).toLowerCase();strat[k]=(strat[k]||0)+1;}
+    if(q==='rejected')for(const hfr of jarr(r.hard_fail_reasons)){const k=String(hfr).split(':')[0].trim();if(k)reject[k]=(reject[k]||0)+1;}
+    if(q==='matched'&&Number(r.aum_usd)>0)sumMatchedAum+=Number(r.aum_usd);
+    const m=(r.alert_date||'').slice(0,7); if(/^\d{4}-\d{2}$/.test(m)){months[m]=months[m]||{screened:0,matched:0};months[m].screened++;if(q==='matched')months[m].matched++;}
+  }
+  const reports={hedge_fund:[],family_office:[]};
+  for(const r of hf){const t=(r.report_type||'hedge_fund');(reports[t]||reports.hedge_fund).push({
+    issue_date:r.issue_date||(r.uploaded_at||'').slice(0,10),title:r.title||'Untitled issue',publisher:r.publisher||'',
+    relevance:(r.relevance||'').toLowerCase(),signals:jarr(r.allocator_signals).length,managers:jarr(r.managers_mentioned).length,
+    truncated:!!r.was_truncated,url:r.public_url||''});}
+
+  const linkedin=mand.filter(r=>r.linkedin_url).map(r=>({
+    name:r.investor_name||r.organization_name||'Investor',country:(r.investor_country||'').toUpperCase().slice(0,2),
+    q:r.qualification||'uncertain',linkedin:r.linkedin_url,page:r.view_investor_url||''}));
+
+  return {
+    total:mand.length, funnel:f,
+    ticket:ticketVal||sumMatchedAum, reports:reports, reportsCount:hf.length,
+    country:Object.entries(country).sort((a,b)=>b[1]-a[1]).slice(0,8),
+    strategy:Object.entries(strat).sort((a,b)=>b[1]-a[1]).slice(0,9),
+    reject:Object.entries(reject).sort((a,b)=>b[1]-a[1]).slice(0,6),
+    timeline:Object.keys(months).sort().slice(-8).map(m=>({month:m,screened:months[m].screened,matched:months[m].matched})),
+    cards:mand.slice().sort((a,b)=>{const sa=critOf(a).filter(Boolean).length,sb=critOf(b).filter(Boolean).length;
+      if(sb!==sa)return sb-sa;return Number(b.fit_score||0)-Number(a.fit_score||0);})
+      .map(r=>({row:r,crit:critOf(r)})),
+    linkedin
+  };
+}
+
+/* ---------- renderers ---------- */
+function renderKPIs(D){
+  const host=$('#kpis'); host.innerHTML='';
+  const items=[
+    ['Matched',fmtN(D.funnel.matched),'passed every criterion','gold'],
+    ['Uncertain',fmtN(D.funnel.uncertain),'awaiting a human decision','slate'],
+    ['Rejected',fmtN(D.funnel.rejected),'screened out deterministically','slate'],
+    ['Matched value',money(D.ticket),'AuM behind matched allocators','navy'],
+    ['Reports filed',fmtN(D.reportsCount),'HFA & FOC issues read','navy']
+  ];
+  for(const [l,v,ft,cls] of items){
+    const k=el('div',{class:'kpi clk'+(cls?' '+cls:''),title:'Open in the console'},
+      el('div',{class:'lbl'},l),el('div',{class:'val num'},v),el('div',{class:'foot'},ft));
+    k.addEventListener('click',()=>window.open(CFG.consoleUrl,'_blank','noopener'));
+    host.append(k);
+  }
+}
+
+function openInvestor(row){
+  const url=row.view_investor_url||row.linkedin_url||CFG.consoleUrl;
+  window.open(url,'_blank','noopener,noreferrer');
+}
+
+function renderCards(D){
+  $('#scTotal').textContent=fmtN(D.total);
+  const qt=$('#qtabs'); qt.innerHTML='';
+  for(const [cls,l,n] of [['matched','Matched',D.funnel.matched],['uncertain','Uncertain',D.funnel.uncertain],['rejected','Rejected',D.funnel.rejected]])
+    qt.append(el('div',{class:'qtab '+cls},el('div',{class:'n num'},fmtN(n)),el('div',{class:'l'},l)));
+  const key=$('#critKey'); key.innerHTML='';
+  key.append(el('span',{},el('span',{class:'dotc'}),'Criterion met'),
+             el('span',{},el('span',{class:'dotc',style:'background:#cfd8e0'}),'not met · score is out of five'));
+
+  const wrap=$('#matchWrap'); wrap.innerHTML='';
+  if(!D.cards.length){ wrap.append(el('div',{class:'empty'},el('b',{},'No screened investors yet. '),
+    'When With Intelligence alerts are read, matched and uncertain allocators appear here.')); $('#scMore').textContent=''; return; }
+  const grid=el('div',{class:'matchgrid'});
+  for(const {row,crit} of D.cards.slice(0,12)){
+    const score=crit.filter(Boolean).length;
+    const q=row.qualification||'uncertain';
+    const card=el('div',{class:'mcard q-'+q});
+    card.append(el('h4',{},row.investor_name||row.organization_name||'Investor'));
+    card.append(el('div',{class:'sub'},[row.investor_country,row.aum_band].filter(Boolean).join('  ·  ')||'\u00A0'));
+    const sc=el('div',{class:'mscore'}); sc.append(el('span',{},q), el('b',{class:'num'},score+'/5')); card.append(sc);
+    const seg=el('div',{class:'segbar'}); for(let i=0;i<5;i++)seg.append(el('div',{class:'seg'+(i<score?' on':'')})); card.append(seg);
+    const cr=el('div',{class:'crit'});
+    CRITERIA.forEach((name,idx)=>{const yes=!!crit[idx];const c=el('div',{class:'c'});
+      c.append(el('span',{class:'mk '+(yes?'yes':'no')},yes?'\u2713':'\u2717'),name);cr.append(c);});
+    card.append(cr);
+    const foot=el('div',{class:'mfoot'});
+    const pageChip=el('a',{class:'chip prim',href:row.view_investor_url||'#',target:'_blank',rel:'noopener'},'Investor page ↗');
+    if(!row.view_investor_url){pageChip.setAttribute('aria-disabled','true');pageChip.textContent='No page on file';}
+    foot.append(pageChip);
+    if(row.linkedin_url)foot.append(el('a',{class:'chip',href:row.linkedin_url,target:'_blank',rel:'noopener'},'LinkedIn ↗'));
+    card.append(foot);
+    grid.append(card);
+  }
+  wrap.append(grid);
+  const more=Math.max(0,D.cards.length-12);
+  $('#scMore').innerHTML = (more? 'Showing the 12 strongest of '+fmtN(D.cards.length)+' screened. ' : 'Showing all '+fmtN(D.cards.length)+' screened. ')
+    + 'Score is the Taranis screening criteria met, out of five. Cards open the investor\u2019s own page in a new tab.';
+}
+
+function renderFunnel(D){
+  const host=$('#funnel'); host.innerHTML='';
+  const total=D.funnel.matched+D.funnel.uncertain+D.funnel.rejected||1;
+  const rows=[['Screened',total,'linear-gradient(90deg,#285096,#3a63ad)'],
+    ['Matched',D.funnel.matched,'linear-gradient(90deg,#00A8D0,#00A8C8)'],
+    ['Uncertain — for review',D.funnel.uncertain,'linear-gradient(90deg,#D9A227,#C89000)'],
+    ['Rejected',D.funnel.rejected,'linear-gradient(90deg,#9AA7B5,#7d8b99)']];
+  for(const [lbl,val,grad] of rows){
+    const pct=Math.max(6,Math.round(val/total*100));
+    const s=el('div',{class:'stage'});
+    const bar=el('div',{class:'bar num',style:`width:${pct}%;background:${grad}`},String(val));
+    const meta=el('div',{class:'meta'}); meta.innerHTML=`<b>${lbl}</b> · ${Math.round(val/total*100)}% of screened`;
+    s.append(bar,meta); host.append(s);
+  }
+}
+
+function renderTimeline(D){
+  const host=$('#timeline'); host.innerHTML='';
+  const data=D.timeline.length?D.timeline:[{month:'—',screened:0,matched:0}];
+  const NS='http://www.w3.org/2000/svg',W=560,H=210,pl=30,pr=16,pt=14,pb=34,iw=W-pl-pr,ih=H-pt-pb;
+  const max=Math.max(...data.map(d=>d.screened),1);
+  const x=i=>pl+(data.length===1?iw/2:i*iw/(data.length-1)), y=v=>pt+ih-(v/max*ih);
+  const svg=document.createElementNS(NS,'svg'); svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.setAttribute('width','100%'); svg.setAttribute('role','img');
+  for(let g=0;g<=2;g++){const gy=pt+g*ih/2;const ln=document.createElementNS(NS,'line');
+    ln.setAttribute('x1',pl);ln.setAttribute('x2',W-pr);ln.setAttribute('y1',gy);ln.setAttribute('y2',gy);ln.setAttribute('stroke','#EAF1F6');svg.append(ln);
+    const tx=document.createElementNS(NS,'text');tx.setAttribute('x',pl-8);tx.setAttribute('y',gy+4);tx.setAttribute('text-anchor','end');tx.setAttribute('font-size','10');tx.setAttribute('fill','#6B8299');tx.textContent=Math.round(max*(1-g/2));svg.append(tx);}
+  const defs=document.createElementNS(NS,'defs');
+  defs.innerHTML=`<linearGradient id="ar" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#00A8D0" stop-opacity=".28"/><stop offset="1" stop-color="#00A8D0" stop-opacity="0"/></linearGradient>`; svg.append(defs);
+  const line=data.map((d,i)=>`${i?'L':'M'}${x(i).toFixed(1)},${y(d.screened).toFixed(1)}`).join(' ');
+  const area=document.createElementNS(NS,'path'); area.setAttribute('d',`${line} L${x(data.length-1)},${pt+ih} L${x(0)},${pt+ih} Z`); area.setAttribute('fill','url(#ar)'); svg.append(area);
+  const path=document.createElementNS(NS,'path'); path.setAttribute('d',line); path.setAttribute('fill','none'); path.setAttribute('stroke','#00A8D0'); path.setAttribute('stroke-width','2.5'); path.setAttribute('stroke-linecap','round'); path.setAttribute('stroke-linejoin','round'); svg.append(path);
+  const ml=data.map((d,i)=>`${i?'L':'M'}${x(i).toFixed(1)},${y(d.matched).toFixed(1)}`).join(' ');
+  const mp=document.createElementNS(NS,'path'); mp.setAttribute('d',ml); mp.setAttribute('fill','none'); mp.setAttribute('stroke','#C89000'); mp.setAttribute('stroke-width','2'); mp.setAttribute('stroke-dasharray','1 5'); mp.setAttribute('stroke-linecap','round'); svg.append(mp);
+  data.forEach((d,i)=>{const c=document.createElementNS(NS,'circle');c.setAttribute('cx',x(i));c.setAttribute('cy',y(d.screened));c.setAttribute('r','3.4');c.setAttribute('fill','#fff');c.setAttribute('stroke','#00A8D0');c.setAttribute('stroke-width','2');svg.append(c);
+    const tx=document.createElementNS(NS,'text');tx.setAttribute('x',x(i));tx.setAttribute('y',H-12);tx.setAttribute('text-anchor',i===0?'start':i===data.length-1?'end':'middle');tx.setAttribute('font-size','10');tx.setAttribute('fill','#6B8299');tx.textContent=fmtMonth(d.month);svg.append(tx);});
+  host.append(svg);
+  host.append(el('div',{style:'display:flex;gap:20px;margin-top:8px;font-size:11.5px;color:#6B8299'},
+    legendDot('#00A8D0','Screened'),legendDot('#C89000','Matched')));
+}
+function legendDot(c,t){const d=el('span',{style:'display:inline-flex;align-items:center;gap:7px'});d.append(el('span',{style:`width:10px;height:3px;border-radius:2px;background:${c};display:inline-block`}),t);return d;}
+
+function renderDonut(D){
+  const host=$('#donut');host.innerHTML='';const leg=$('#donutLegend');leg.innerHTML='';
+  const data=D.strategy.map(([k,v],i)=>({k,v,label:STRAT_LABEL[k]||k.replace(/_/g,' '),c:RAMP[i%RAMP.length],elig:ELIGIBLE.has(k)}));
+  if(!data.length){host.append(el('div',{class:'loading'},'No strategy data.'));return;}
+  const total=data.reduce((a,d)=>a+d.v,0)||1;
+  const NS='http://www.w3.org/2000/svg',R=64,r=40,cx=78,cy=78;
+  const svg=document.createElementNS(NS,'svg');svg.setAttribute('viewBox','0 0 156 156');svg.setAttribute('width','156');svg.setAttribute('height','156');
+  let a0=-Math.PI/2;
+  data.forEach(d=>{const a1=a0+d.v/total*Math.PI*2;const p=document.createElementNS(NS,'path');const large=(a1-a0)>Math.PI?1:0;
+    const x0=cx+R*Math.cos(a0),y0=cy+R*Math.sin(a0),x1=cx+R*Math.cos(a1),y1=cy+R*Math.sin(a1);
+    const xi0=cx+r*Math.cos(a1),yi0=cy+r*Math.sin(a1),xi1=cx+r*Math.cos(a0),yi1=cy+r*Math.sin(a0);
+    p.setAttribute('d',`M${x0},${y0} A${R},${R} 0 ${large} 1 ${x1},${y1} L${xi0},${yi0} A${r},${r} 0 ${large} 0 ${xi1},${yi1} Z`);
+    p.setAttribute('fill',d.c);svg.append(p);a0=a1;});
+  const t1=document.createElementNS(NS,'text');t1.setAttribute('x',cx);t1.setAttribute('y',cy-2);t1.setAttribute('text-anchor','middle');t1.setAttribute('font-size','22');t1.setAttribute('fill','#16283C');t1.textContent=fmtN(total);svg.append(t1);
+  const t2=document.createElementNS(NS,'text');t2.setAttribute('x',cx);t2.setAttribute('y',cy+13);t2.setAttribute('text-anchor','middle');t2.setAttribute('font-size','9');t2.setAttribute('letter-spacing','1.5');t2.setAttribute('fill','#6B8299');t2.textContent='STRATEGIES';svg.append(t2);
+  host.append(svg);
+  data.forEach(d=>{const li=el('div',{class:'li'});li.append(el('span',{class:'sw',style:`background:${d.c}`}));
+    const name=el('span',{},d.label);if(d.elig)name.append(el('span',{class:'tag'},'eligible'));
+    li.append(name,el('b',{class:'num'},String(d.v)));leg.append(li);});
+}
+
+function bars(sel,data,color){const host=$(sel);host.innerHTML='';
+  if(!data.length){host.append(el('div',{class:'loading'},'No data.'));return;}
+  const max=Math.max(...data.map(d=>d.v),1);
+  for(const d of data){const row=el('div',{class:'hbar'});const k=el('div',{class:'k'},d.k);if(d.tag)k.append(el('span',{class:'tag'},d.tag));
+    const track=el('div',{class:'track'});track.append(el('div',{class:'fill',style:`width:${Math.max(3,d.v/max*100)}%;background:${d.c||color}`}));
+    row.append(k,track,el('div',{class:'v num'},String(d.v)));host.append(row);}}
+function renderCountry(D){bars('#countryBars',D.country.map(([k,v])=>({k,v,tag:ADDRESSABLE.has(k)?'addressable':null,
+  c:ADDRESSABLE.has(k)?'linear-gradient(90deg,#00A8D0,#00A8C8)':'linear-gradient(90deg,#9AA7B5,#8794a3)'})));}
+function renderReject(D){bars('#rejectBars',D.reject.map(([k,v])=>({k,v,c:'linear-gradient(90deg,#41586C,#7A8EA0)'})));}
+
+let RTAB='hedge_fund';
+function renderReports(D){
+  const rows=(D.reports&&D.reports[RTAB])||[];
+  const sig=rows.reduce((a,r)=>a+(r.signals||0),0),trunc=rows.filter(r=>r.truncated).length;
+  const sum=$('#reportSummary');sum.innerHTML='';
+  const stat=(v,l)=>{const d=el('div');d.append(el('div',{class:'num',style:'font-family:var(--display);font-size:23px;color:#16283C'},String(v)),el('div',{style:'font-size:11px;letter-spacing:.06em;color:#6B8299;text-transform:uppercase'},l));return d;};
+  sum.append(stat(rows.length,'issues filed'),stat(sig,RTAB==='family_office'?'offices to approach':'allocator signals'),stat(sig,'opportunities raised'),stat(trunc,'front section only'));
+  const body=$('#reportBody');body.innerHTML='';
+  if(!rows.length){body.append(el('tr',{},el('td',{colspan:'6',style:'color:#6B8299'},'No issues in this folder yet. File a PDF in the console and its summary and mined signals appear here.')));return;}
+  const rc={high:'r-high',medium:'r-med',low:'r-low'};
+  for(const r of rows){
+    const tr=el('tr',r.url?{class:'rowlink'}:null);
+    tr.append(el('td',{class:'date'},fmtDate(r.issue_date)));
+    const t=el('td',{});const tt=el('span',{class:'t'},r.title);t.append(tt);
+    if(r.truncated)t.append(el('div',{style:'font-size:11px;color:#946200;margin-top:3px'},'Long issue — front section only'));
+    if(r.url)t.append(el('span',{class:'ext'},' ↗'));
+    tr.append(t);
+    tr.append(el('td',{},r.publisher||'—'));
+    const rcl=el('td',{});rcl.append(el('span',{class:'chipR '+(rc[r.relevance]||'r-low')},r.relevance||'—'));tr.append(rcl);
+    const oc=el('td',{});oc.append(el('span',{class:'outcome'},el('span',{class:'n'},String(r.signals)),' '+(RTAB==='family_office'?'offices → opps':'signals → opps')));tr.append(oc);
+    tr.append(el('td',{class:'num',style:'text-align:left'},String(r.managers)));
+    if(r.url)tr.addEventListener('click',()=>window.open(r.url,'_blank','noopener,noreferrer'));
+    body.append(tr);
+  }
+}
+
+function renderLinkedin(D){
+  const wrap=$('#liWrap');wrap.innerHTML='';
+  const list=D.linkedin||[];
+  if(!list.length){wrap.append(el('div',{class:'empty'},el('b',{},'No LinkedIn profiles yet. '),
+    'Profiles arrive attached to With Intelligence opportunities; none are on file so far.'));return;}
+  wrap.append(el('p',{class:'cap',style:'margin:-6px 0 14px'},fmtN(list.length)+' allocator'+(list.length===1?'':'s')+' reachable on LinkedIn, from With Intelligence opportunities.'));
+  const grid=el('div',{class:'li-grid'});
+  for(const p of list.slice(0,60)){
+    const a=el('a',{class:'li-item',href:p.linkedin,target:'_blank',rel:'noopener'});
+    a.append(el('div',{class:'li-badge'},'in'));
+    const mid=el('div',{});mid.append(el('div',{class:'nm'},p.name),el('div',{class:'mt'},[p.country,p.q].filter(Boolean).join('  ·  ')));
+    a.append(mid,el('div',{class:'go'},'Open profile ↗'));
+    grid.append(a);
+  }
+  wrap.append(grid);
+  if(list.length>60)wrap.append(el('p',{class:'cap',style:'margin-top:12px'},'Showing 60 of '+fmtN(list.length)+'.'));
+}
+
+function renderHealth(){
+  const host=$('#health');host.innerHTML='';
+  const items=[
+    ['fixed','FIXED','<b>Three block shapes now read.</b> Event, Definition (profile alerts) and Announcement (new mandates). Two of the three were being discarded to parse drift.'],
+    ['fixed','FIXED','<b>Managers no longer filed as investors.</b> Bridgewater was appearing instead of Teacher Retirement System of Texas. A named list swaps them; an unmatched manager is rejected.'],
+    ['fixed','FIXED','<b>De-duplication moved onto content.</b> Was keyed on the email Message-ID. Now dedupes on investor + alert date + block.'],
+    ['fixed','FIXED','<b>Date window removed.</b> A 3-day window silently discarded six real digests. Unseen is now the whole test.'],
+    ['fixed','FIXED','<b>Report truncation lifted.</b> Every PDF was cut at 18,000 characters — 40–75% of each issue, including where allocators are named.'],
+    ['live','LIVE','<b>Import is deterministic.</b> The 31-column workbook is mapped in code — AuM read as millions, so a $29.6bn fund is never filed as a $29,600 one.']
+  ];
+  for(const [st,lbl,tx] of items){const row=el('div',{class:'hrow'});row.append(el('div',{class:'st '+st},lbl),el('div',{class:'tx',html:tx}));host.append(row);}
+  $('#backlog').innerHTML='<div><b>Backlog to replay.</b> 38 stored emails produced no mandates, of which about 14 were '
+    +'<span class="num">Daily Investor Searches and Mandates</span> that should have. The three-shape fix is expected to recover them — replay is capped at 5 until the first batch looks right.</div>';
+}
+
+function renderChrome(live,note){
+  const pill=$('#asof'),txt=$('#asofTxt');
+  if(live){pill.className='pill live';txt.textContent='Live · Supabase';}
+  else{pill.className='pill off';txt.textContent=note||'Not connected';}
+  $('#openConsole').href=CFG.consoleUrl;
+}
+
+function renderAll(D){
+  renderChrome(true); renderKPIs(D); renderCards(D); renderFunnel(D); renderTimeline(D);
+  renderDonut(D); renderCountry(D); renderReject(D); renderReports(D); renderLinkedin(D); renderHealth();
+}
+
+/* empty state across data sections when there is no session yet */
+function showDisconnected(msg){
+  renderChrome(false,msg);
+  renderHealth(); // static, always safe
+  const note='<b>Sign in to the Taranis console</b> to load live figures. This view reuses the console\u2019s session — open it there, or press <b>Load live data</b>.';
+  for(const sel of ['#matchWrap','#funnel','#timeline','#countryBars','#rejectBars','#liWrap']){
+    const h=$(sel); if(h){h.innerHTML='';h.append(el('div',{class:'empty',html:note}));}
+  }
+  $('#donut').innerHTML=''; $('#donutLegend').innerHTML=''; $('#reportBody').innerHTML=''; $('#reportSummary').innerHTML='';
+  $('#kpis').innerHTML=''; for(const l of ['Matched','Uncertain','Rejected','Matched value','Reports filed'])
+    $('#kpis').append(el('div',{class:'kpi'},el('div',{class:'lbl'},l),el('div',{class:'val'},'—')));
+  $('#scTotal').textContent='—';
+}
+
+async function boot(){
+  CFG.token=readSession();
+  if(!CFG.token || !CFG.supabaseAnonKey){ showDisconnected(!CFG.supabaseAnonKey?'Config missing':'Signed out'); return; }
+  try{ const D=await load(); window.__D=D; renderAll(D); }
+  catch(err){ showDisconnected('Load failed'); const w=$('#matchWrap'); if(w)w.innerHTML='<div class="empty"><b>Couldn\u2019t load.</b> '+String(err.message).replace(/</g,'&lt;')+'</div>'; }
+}
+
+$('#reportTabs').addEventListener('click',e=>{const b=e.target.closest('.tab');if(!b)return;
+  [...$('#reportTabs').children].forEach(t=>t.classList.toggle('on',t===b));RTAB=b.dataset.f;if(window.__D)renderReports(window.__D);});
+$('#connect').addEventListener('click',async()=>{
+  if(!CFG.supabaseAnonKey){const k=prompt('Supabase anon key (RLS-gated):','');if(k)CFG.supabaseAnonKey=k.trim();else return;}
+  if(!readSession()){const t=prompt('Console sign-in token (JWT):','');if(t)CFG.token=t.trim();}
+  $('#connect').textContent='Loading…';$('#connect').disabled=true;
+  await boot();
+  $('#connect').textContent='Reload';$('#connect').disabled=false;
+});
+
+boot();
+</script>
+</body>
+</html>

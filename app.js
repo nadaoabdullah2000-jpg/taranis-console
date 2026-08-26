@@ -4702,26 +4702,12 @@ RENDER.reports = function (body) {
         host.appendChild(ev);
       }
 
-      // who is worth chasing
-      const interest = A(m.taranis_interest).filter(r => n(r.score) > 0);
-      if (interest.length) {
-        host.appendChild(head('Most interested in Taranis'));
-        for (const r of interest.slice(0, 8)) {
-          host.appendChild(entry({
-            tone: n(r.score) >= 75 ? 'good' : n(r.score) >= 55 ? 'signal' : 'quiet',
-            rail: String(n(r.score)),
-            action: r.name,
-            who: [r.company, r.place].filter(Boolean).join('  \u00B7  '),
-            evidence: [
-              ['about ', r.about],
-              ['last  ', r.last_date ? r.last_date + (r.days_since !== null && r.days_since !== undefined
-                  ? '  (' + n(r.days_since) + ' days)' : '') : 'no email on record'],
-              ['aum   ', r.aum_band]
-            ],
-            actions: [{ label: 'View profile', primary: true, run: () => openProfile({ name: r.name, company: r.company }) }]
-          }));
-        }
-      }
+      /* "Most interested in Taranis" was removed from the weekly report on
+         request. It named individuals (company, place, last-contact date,
+         AuM) directly on the Friday snapshot; that per-person interest list
+         belongs on the Opportunities / Network tabs, not in the report.
+         The snapshot still carries m.taranis_interest if it is ever wanted
+         again, but it is no longer rendered here. */
 
       // the mail and the book
       host.appendChild(head('Activity'));
