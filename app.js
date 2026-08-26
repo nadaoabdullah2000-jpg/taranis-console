@@ -963,7 +963,7 @@ const TABS = [
     sub: 'Book on Zoom, Teams or Google Meet. The link comes back on the row as soon as it is issued.' },
   { id: 'docs',     icon: '\u25AC', label: 'Documents',    title: 'Documents',
     sub: 'Upload a deck or report, and it is versioned, stored and announced to the team.' },
-  { id: 'reports',  icon: '\u25F0', label: 'Reports',      title: 'Weekly report',
+  { id: 'reports',  icon: '\u25F0', label: 'Weekly report',      title: 'Weekly report',
     sub: 'The Friday dashboard, read from the stored snapshot rather than a Telegram attachment.' },
   { id: 'network',  icon: '\u25CB', label: 'Network',      title: 'LinkedIn network',
     sub: 'Every LinkedIn profile that arrived on an opportunity, and whether anyone here can reach them.' },
@@ -1038,6 +1038,45 @@ function go(id) {
   clear(body);
   body.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading…'));
   RENDER[id](body);
+}
+
+/* A manual refresh for the current view. The app already polls in the
+   background, but a person watching a tab wants to pull the latest now —
+   after approving something elsewhere, or when a report has just been read.
+   It re-runs the active tab (which re-fetches from Supabase) and updates the
+   sidebar counts. Detail sheets, which have no tab render, just refresh the
+   counts rather than bouncing the person back to a list. */
+const RFSH_CSS = `
+.rfsh{float:right;display:inline-flex;align-items:center;gap:7px;font-family:inherit;font-size:12.5px;
+  color:var(--ink-2);background:var(--card);border:1px solid var(--rule);border-radius:8px;
+  padding:7px 12px;cursor:pointer;margin:2px 0 0 12px}
+.rfsh:hover{border-color:var(--accent);color:var(--accent)}
+.rfsh:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.rfsh[disabled]{opacity:.6;cursor:default}
+.rfsh .ic{font-size:15px;line-height:1;display:inline-block}
+.rfsh.spin .ic{animation:rfspin .65s linear}
+@keyframes rfspin{to{transform:rotate(360deg)}}
+@media (max-width:640px){.rfsh .lb{display:none}.rfsh{padding:8px}}
+`;
+
+function mountRefresh() {
+  if ($('rfsh')) return;
+  const title = $('pg-title');
+  if (!title) return;
+  const head = title.parentElement || title;
+  if (!$('rfsh-css')) document.head.appendChild(el('style', { id: 'rfsh-css' }, RFSH_CSS));
+  const btn = el('button', { id: 'rfsh', class: 'rfsh', type: 'button',
+    title: 'Refresh this view', 'aria-label': 'Refresh this view', onclick: doRefresh },
+    el('span', { class: 'ic' }, '\u21BB'), el('span', { class: 'lb' }, 'Refresh'));
+  head.insertBefore(btn, head.firstChild);
+}
+
+async function doRefresh() {
+  const btn = $('rfsh');
+  if (btn) { btn.classList.add('spin'); btn.setAttribute('disabled', ''); }
+  try { if (!DEMO) await poll(); } catch (_) { /* counts are best-effort */ }
+  try { if (RENDER[current]) go(current); } catch (_) { /* leave the view as it is */ }
+  setTimeout(() => { const b = $('rfsh'); if (b) { b.classList.remove('spin'); b.removeAttribute('disabled'); } }, 650);
 }
 
 /* ------------------------------------------------------- entry component */
@@ -4623,8 +4662,38 @@ RENDER.hfn = function (body) {
   });
 };
 
+const RPT_CSS = `
+.rpt-cap{font-size:12.5px;color:var(--ink-3);margin:2px 0 16px}
+.rpt-kpis{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin:2px 0 6px}
+.rpt-kpi{padding:15px 15px 13px;border-left:1px solid var(--rule)}
+.rpt-kpi:first-child{border-left:0}
+.rpt-kpi .l{font-size:9.5px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-3)}
+.rpt-kpi .v{font-size:26px;font-weight:600;color:var(--ink);line-height:1.05;margin-top:8px;letter-spacing:.01em}
+.rpt-kpi .d{font-size:11px;margin-top:5px;color:var(--ink-3)}
+.rpt-kpi .d.up{color:var(--good)} .rpt-kpi .d.down{color:var(--bad)}
+.rpt-h{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);margin:28px 0 12px;display:flex;align-items:center;gap:12px}
+.rpt-h::after{content:"";flex:1;height:1px;background:var(--rule)}
+.rpt-funnel{display:flex;flex-direction:column;gap:9px}
+.rpt-stage{display:flex;align-items:center;gap:13px}
+.rpt-stage .bar{height:34px;border-radius:6px;display:flex;align-items:center;padding:0 13px;color:#fff;font-weight:600;min-width:52px;transition:width .6s cubic-bezier(.22,1,.36,1)}
+.rpt-stage .meta{font-size:12.5px;color:var(--ink-2)}
+.rpt-cols{display:grid;grid-template-columns:1fr 1fr;gap:30px}
+.rpt-bar{display:grid;grid-template-columns:154px 1fr 44px;align-items:center;gap:11px;margin:0 0 10px}
+.rpt-bar .k{font-size:12.5px;color:var(--ink-2);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rpt-bar .t{background:rgba(0,168,208,.10);border-radius:5px;height:18px;overflow:hidden}
+.rpt-bar .f{height:100%;border-radius:5px;transition:width .6s cubic-bezier(.22,1,.36,1)}
+.rpt-bar .n{font-size:12.5px;color:var(--ink);text-align:right;font-weight:600}
+.rpt-tag{font-size:9px;letter-spacing:.07em;text-transform:uppercase;padding:2px 6px;border-radius:4px;background:rgba(0,168,208,.14);color:#0a6f8a;margin-left:6px}
+.rpt-rows{border-top:1px solid var(--rule)}
+.rpt-row{display:flex;justify-content:space-between;gap:16px;padding:10px 2px;border-bottom:1px solid var(--rule);font-size:13px}
+.rpt-row .k{color:var(--ink-3)} .rpt-row .v{color:var(--ink);font-weight:500}
+@media (max-width:860px){.rpt-kpis{grid-template-columns:repeat(3,1fr)}.rpt-cols{grid-template-columns:1fr}}
+`;
+
 RENDER.reports = function (body) {
   clear(body);
+
+  if (!$('rpt-css')) document.head.appendChild(el('style', { id: 'rpt-css' }, RPT_CSS));
 
   /* OPS 02 writes the whole Friday dashboard into weekly_snapshots.metrics
      as one jsonb blob, then sends a Telegram message and an HTML file. The
@@ -4659,84 +4728,111 @@ RENDER.reports = function (body) {
       const m = J(rows[at].metrics);
       const p = rows[at + 1] ? J(rows[at + 1].metrics) : null;
       const d = (k) => p && p[k] !== undefined ? n(m[k]) - n(p[k]) : null;
-      const mv = (k) => { const x = d(k); return x === null ? '' : (x > 0 ? '  \u25B2' + x : x < 0 ? '  \u25BC' + Math.abs(x) : '  \u2014'); };
+      const delta = (k) => {
+        const x = d(k); if (x === null) return null;
+        const cls = x > 0 ? 'up' : x < 0 ? 'down' : '';
+        const s = x > 0 ? '\u25B2' + x : x < 0 ? '\u25BC' + Math.abs(x) : '\u2014';
+        return el('div', { class: 'd ' + cls }, s);
+      };
+      const H = (t) => el('p', { class: 'rpt-h' }, t);
 
-      const head = (t) => el('p', { class: 'mono',
-        style: 'font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:24px 0 8px' }, t);
-
-      // headline numbers
-      const kpis = el('div', { style: 'display:flex;gap:22px;flex-wrap:wrap;margin-bottom:6px' });
+      // headline measures, with week-on-week movement
+      const kpis = el('div', { class: 'rpt-kpis' });
       for (const [lbl, val, key] of [
-        ['screened', n(m.wi_new), 'wi_new'],
-        ['matched', n(m.wi_matched), 'wi_matched'],
-        ['rejected', n(m.wi_rejected), 'wi_rejected'],
-        ['awaiting you', n(m.wi_awaiting), null],
-        ['matched value', shortMoney(m.wi_ticket_value), null],
-        ['emails', n(m.crm_week), 'crm_week'],
-        ['contacts', n(m.contacts_total), 'contacts_total']
+        ['Screened', n(m.wi_new), 'wi_new'],
+        ['Matched', n(m.wi_matched), 'wi_matched'],
+        ['Rejected', n(m.wi_rejected), 'wi_rejected'],
+        ['Awaiting you', n(m.wi_awaiting), null],
+        ['Matched value', shortMoney(m.wi_ticket_value), null],
+        ['Emails', n(m.crm_week), 'crm_week'],
+        ['Contacts', n(m.contacts_total), 'contacts_total']
       ]) {
-        kpis.appendChild(el('div', { style: 'min-width:110px' },
-          el('div', { class: 'mono', style: 'font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)' }, lbl),
-          el('div', { style: 'font-size:23px;font-weight:600' }, String(val)),
-          key ? el('div', { class: 'mono', style: 'font-size:11.5px;color:var(--ink-3)' }, mv(key).trim()) : null));
+        kpis.appendChild(el('div', { class: 'rpt-kpi' },
+          el('div', { class: 'l' }, lbl),
+          el('div', { class: 'v' }, String(val)),
+          key ? delta(key) : null));
       }
-      host.append(head('The week'), kpis);
+      host.append(kpis);
 
-      // screening and why things were thrown out
+      // screening outcome as a funnel
+      const scr = n(m.wi_new) || 1;
+      const stage = (lbl, val, grad) => {
+        const pct = Math.max(6, Math.round(val / scr * 100));
+        return el('div', { class: 'rpt-stage' },
+          el('div', { class: 'bar', style: 'width:' + pct + '%;background:' + grad }, String(val)),
+          el('div', { class: 'meta' }, lbl + '  \u00B7  ' + Math.round(val / scr * 100) + '% of screened'));
+      };
+      host.appendChild(H('Screening outcome'));
+      host.appendChild(el('div', { class: 'rpt-funnel' },
+        stage('Screened', n(m.wi_new), '#285096'),
+        stage('Matched', n(m.wi_matched), 'linear-gradient(90deg,#00A8D0,#00A8C8)'),
+        stage('Awaiting you', n(m.wi_awaiting), 'linear-gradient(90deg,#D9A227,#C89000)'),
+        stage('Rejected', n(m.wi_rejected), '#9AA7B5')));
+
+      // rejection reasons + country flow, side by side, as bars
+      const bar = (label, value, max, grad, tagAddr) => {
+        const k = el('div', { class: 'k' }, label);
+        if (tagAddr) k.appendChild(el('span', { class: 'rpt-tag' }, 'addressable'));
+        return el('div', { class: 'rpt-bar' }, k,
+          el('div', { class: 't' }, el('div', { class: 'f',
+            style: 'width:' + Math.max(3, value / max * 100) + '%;background:' + grad })),
+          el('div', { class: 'n' }, String(value)));
+      };
       const rej = A(m.wi_reject_reasons);
-      if (rej.length) {
-        host.appendChild(head('Why opportunities were rejected'));
-        const ev = el('div', { class: 'ev' });
-        for (const r of rej) ev.appendChild(el('div', null,
-          el('span', { class: 'k' }, String(n(r.n)).padStart(3, ' ') + '  '), String(r.k)));
-        host.appendChild(ev);
-      }
-
       const cty = A(m.wi_by_country);
-      if (cty.length) {
-        host.appendChild(head('Where the flow comes from'));
-        const ev = el('div', { class: 'ev' });
-        for (const c of cty.slice(0, 6)) ev.appendChild(el('div', null,
-          el('span', { class: 'k' }, String(n(c.n)).padStart(3, ' ') + '  '),
-          String(c.k) + (['GB', 'CH'].indexOf(String(c.k)) > -1 ? '   (addressable)' : '')));
-        host.appendChild(ev);
+      const cols = el('div', { class: 'rpt-cols' });
+
+      const cA = el('div');
+      if (rej.length) {
+        cA.appendChild(H('Why opportunities were rejected'));
+        const max = Math.max.apply(null, rej.map((r) => n(r.n)).concat([1]));
+        for (const r of rej) cA.appendChild(bar(String(r.k), n(r.n), max, 'linear-gradient(90deg,#41586C,#7A8EA0)'));
       }
+      const cB = el('div');
+      if (cty.length) {
+        cB.appendChild(H('Where the flow comes from'));
+        const ADDR = ['GB', 'CH', 'US'];   // the three Taranis raises from
+        const max = Math.max.apply(null, cty.map((c) => n(c.n)).concat([1]));
+        for (const c of cty.slice(0, 8)) {
+          const addr = ADDR.indexOf(String(c.k)) > -1;
+          cB.appendChild(bar(String(c.k), n(c.n), max,
+            addr ? 'linear-gradient(90deg,#00A8D0,#00A8C8)' : '#9AA7B5', addr));
+        }
+      }
+      cols.append(cA, cB);
+      host.appendChild(cols);
 
-      /* "Most interested in Taranis" was removed from the weekly report on
-         request. It named individuals (company, place, last-contact date,
-         AuM) directly on the Friday snapshot; that per-person interest list
-         belongs on the Opportunities / Network tabs, not in the report.
-         The snapshot still carries m.taranis_interest if it is ever wanted
-         again, but it is no longer rendered here. */
-
-      // the mail and the book
-      host.appendChild(head('Activity'));
-      const act = el('div', { class: 'ev' });
+      // the mail
+      host.appendChild(H('Activity'));
+      const act = el('div', { class: 'rpt-rows' });
       for (const [k, v] of [
-        ['messages   ', n(m.crm_week) + ' (' + n(m.crm_sent) + ' out, ' + n(m.crm_received) + ' in)'],
-        ['needs reply', n(m.crm_needs_action)],
-        ['engaged    ', n(m.contacts_touched) + ' contacts'],
-        ['linked     ', n(m.crm_linked) + ' of ' + n(m.crm_stored_total) + ' stored']
-      ]) act.appendChild(el('div', null, el('span', { class: 'k' }, k + '  '), String(v)));
+        ['Messages', n(m.crm_week) + ' (' + n(m.crm_sent) + ' out, ' + n(m.crm_received) + ' in)'],
+        ['Needs reply', n(m.crm_needs_action)],
+        ['Engaged', n(m.contacts_touched) + ' contacts'],
+        ['Linked', n(m.crm_linked) + ' of ' + n(m.crm_stored_total) + ' stored']
+      ]) act.appendChild(el('div', { class: 'rpt-row' },
+        el('span', { class: 'k' }, k), el('span', { class: 'v' }, String(v))));
       host.appendChild(act);
 
-      host.appendChild(head('The book'));
-      const bk = el('div', { class: 'ev' });
+      // the book
+      host.appendChild(H('The book'));
+      const bk = el('div', { class: 'rpt-rows' });
       for (const [k, v] of [
-        ['contacts     ', n(m.contacts_total)],
-        ['with email   ', n(m.contacts_with_email)],
-        ['no email     ', n(m.contacts_total) - n(m.contacts_with_email)],
-        ['correspondence', n(m.contacts_with_history)],
-        ['awaiting reply', n(m.awaiting_reply)],
-        ['ever replied ', n(m.ever_replied)],
-        ['quiet 90d+   ', n(m.overdue_90)],
-        ['open steps   ', n(m.open_next_steps)]
-      ]) bk.appendChild(el('div', null, el('span', { class: 'k' }, k + '  '), String(v)));
+        ['Contacts', n(m.contacts_total)],
+        ['With email', n(m.contacts_with_email)],
+        ['No email', n(m.contacts_total) - n(m.contacts_with_email)],
+        ['Correspondence', n(m.contacts_with_history)],
+        ['Awaiting reply', n(m.awaiting_reply)],
+        ['Ever replied', n(m.ever_replied)],
+        ['Quiet 90d+', n(m.overdue_90)],
+        ['Open steps', n(m.open_next_steps)]
+      ]) bk.appendChild(el('div', { class: 'rpt-row' },
+        el('span', { class: 'k' }, k), el('span', { class: 'v' }, String(v))));
       host.appendChild(bk);
 
       if (!p) {
         host.appendChild(el('p', { class: 'mono',
-          style: 'color:var(--ink-3);font-size:12px;margin-top:20px' },
+          style: 'color:var(--ink-3);font-size:12px;margin-top:18px' },
           'First snapshot \u2014 week-on-week movement appears once there are two.'));
       }
     }
@@ -7183,6 +7279,7 @@ function start() {
   $('who').textContent = DEMO ? 'Sample data' : (session.email || 'Signed in');
   buildNav();
   go('today');
+  mountRefresh();
   if (!DEMO) {
     poll();
     pollTimer = setInterval(poll, Math.max(60, CFG.pollSeconds) * 1000);
