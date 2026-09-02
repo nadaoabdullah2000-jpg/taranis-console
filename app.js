@@ -81,7 +81,7 @@ function ensureCardStyle() {
   + ".entry.quiet{box-shadow:inset 3px 0 0 #C6D2DC,0 1px 2px rgba(16,35,58,.03)}"
   + ".entry-rail{display:flex;flex-direction:row;align-items:flex-start;gap:6px;min-width:0;margin:0;padding:0;background:none;border-right:0;overflow:visible}"
   + ".entry .dot{display:none}"
-  + ".entry .rail-n{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-right:12px}"
+  + ".entry .rail-n{display:none}"
   + ".entry-main{flex:1;min-width:0}"
   + ".entry-act{font-size:16px;font-weight:500;color:var(--ink);margin:0 0 3px;line-height:1.3}"
   + ".entry-who{font-size:12px;color:var(--ink-3);margin:0 0 12px}"
@@ -1186,6 +1186,98 @@ async function doRefresh() {
  * The console's one visual grammar, borrowed from how the assistant is told
  * to answer: the action first, then the evidence for it, indented.
  */
+/* ---------- Match card (ported from the WI analysis page) ----------
+   The same five-criterion look used on taranis-wi-analysis.html, made
+   reusable so the mandate tabs can render as match cards instead of the
+   evidence-list entry() cards. Criteria are computed in the browser from
+   the mandate row, exactly as the analysis page does. */
+const ADDRESSABLE   = new Set(['GB', 'CH', 'US']);
+const ELIGIBLE      = new Set(['equity_long_short', 'market_neutral', 'quant', 'systematic', 'cta', 'macro', 'multi_strategy']);
+const MATCH_CRITERIA = ['In-market (GB/CH/US)', 'Buys hedge funds', 'Eligible strategy', 'AuM on file', 'Contact on file'];
+
+function critOf(m) {
+  const c      = String(m.investor_country || '').toUpperCase().slice(0, 2);
+  const assets = jsonArr(m.asset_classes).map(String);
+  const strats = jsonArr(m.strategies).map(s => String(s).toLowerCase());
+  let ev = {};
+  try { ev = m.evidence ? (typeof m.evidence === 'string' ? JSON.parse(m.evidence) : m.evidence) : {}; } catch (_) { ev = {}; }
+  return [
+    ADDRESSABLE.has(c),
+    assets.some(a => /hedge|alternative|absolute return/i.test(a)),
+    strats.some(s => ELIGIBLE.has(s)),
+    Number(m.aum_usd) > 0,
+    !!(m.contact_name || m.linkedin_url || Number(ev && ev.contact_count) > 0)
+  ];
+}
+
+function ensureMatchCss() {
+  if (document.getElementById('taranis-matchcard-css')) return;
+  const s = document.createElement('style');
+  s.id = 'taranis-matchcard-css';
+  s.textContent =
+    ".matchgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}"
+  + ".mcard{background:var(--card);border:1px solid var(--rule);border-radius:12px;padding:18px 20px;display:flex;flex-direction:column;box-shadow:0 1px 2px rgba(16,35,58,.04),0 6px 16px rgba(16,35,58,.05)}"
+  + ".mcard.good{box-shadow:inset 3px 0 0 var(--good),0 1px 2px rgba(16,35,58,.04)}"
+  + ".mcard.signal{box-shadow:inset 3px 0 0 var(--signal),0 1px 2px rgba(16,35,58,.04)}"
+  + ".mcard.bad{box-shadow:inset 3px 0 0 var(--bad),0 1px 2px rgba(16,35,58,.04)}"
+  + ".mcard-h{font-family:var(--font-display);font-size:16px;font-weight:400;color:var(--ink);margin:0 0 3px;line-height:1.28}"
+  + ".mcard-sub{font-size:11.5px;color:var(--ink-3);margin-bottom:14px;letter-spacing:.03em;text-transform:uppercase}"
+  + ".mcard-score{display:flex;justify-content:space-between;align-items:baseline;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}"
+  + ".mcard-score b{font-family:var(--font-display);font-size:15px;color:var(--ink-2)}"
+  + ".mcard-seg{display:flex;gap:4px;margin-bottom:15px}"
+  + ".mcard-seg .seg{height:8px;flex:1;border-radius:3px;background:var(--rule-2,#E9EFF3)}"
+  + ".mcard-seg .seg.on{background:linear-gradient(90deg,#00A8D0,#00A8C8)}"
+  + ".mcard-crit{display:flex;flex-direction:column;gap:8px}"
+  + ".mcard-c{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--ink-2)}"
+  + ".mcard-c .mk{width:16px;height:16px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex:none}"
+  + ".mcard-c .mk.yes{background:rgba(30,158,99,.14);color:var(--good)}"
+  + ".mcard-c .mk.no{background:rgba(198,64,43,.12);color:var(--bad)}"
+  + ".mcard .acts{display:flex;gap:8px;flex-wrap:wrap}";
+  document.head.appendChild(s);
+}
+
+/* A mandate rendered as a match card: title, domicile and AuM, the score
+   out of five with its segment bar, the five criteria ticked or crossed,
+   and whatever action buttons the calling tab passes in. */
+function matchCard(m, opts) {
+  opts = opts || {};
+  ensureMatchCss();
+  const crit  = critOf(m);
+  const score = crit.filter(Boolean).length;
+  const q     = String(m.qualification || 'uncertain').toLowerCase();
+  const tone  = opts.tone || (q === 'matched' ? 'good' : q === 'rejected' ? 'bad' : 'signal');
+
+  const card = el('div', { class: 'mcard ' + tone });
+  card.appendChild(el('h4', { class: 'mcard-h' }, investorLabel(m)));
+  card.appendChild(el('div', { class: 'mcard-sub' },
+    [m.investor_country, m.aum_band].filter(Boolean).join('  \u00B7  ') || '\u00A0'));
+
+  card.appendChild(el('div', { class: 'mcard-score' },
+    el('span', null, q.toUpperCase()), el('b', null, score + '/5')));
+
+  const seg = el('div', { class: 'mcard-seg' });
+  for (let i = 0; i < 5; i++) seg.appendChild(el('div', { class: 'seg' + (i < score ? ' on' : '') }));
+  card.appendChild(seg);
+
+  const cr = el('div', { class: 'mcard-crit' });
+  MATCH_CRITERIA.forEach((name, i) => {
+    const yes = !!crit[i];
+    cr.appendChild(el('div', { class: 'mcard-c' },
+      el('span', { class: 'mk ' + (yes ? 'yes' : 'no') }, yes ? '\u2713' : '\u2717'), name));
+  });
+  card.appendChild(cr);
+
+  const acts = (opts.actions || []).filter(Boolean);
+  if (acts.length) {
+    const row = el('div', { class: 'acts', style: 'margin-top:14px' });
+    for (const a of acts) {
+      row.appendChild(el('button', { class: 'btn btn-sm ' + (a.primary ? '' : 'btn-quiet'), onclick: a.run }, a.label));
+    }
+    card.appendChild(row);
+  }
+  return card;
+}
+
 function entry(o) {
   /* A dot the same colour on every row carries no information and still asks
      to be read, so it is drawn only where the tone actually distinguishes
@@ -3147,6 +3239,8 @@ RENDER.opps = function (body) {
         : empty('No opportunities yet', 'Screened mandates from With Intelligence land here.'));
     }
     const body = list;
+    const grid = el('div', { class: 'matchgrid' });
+    body.appendChild(grid);
     for (const m of rows) {
       const tone = m.qualification === 'matched' ? 'good' : m.qualification === 'uncertain' ? 'signal' : 'bad';
 
@@ -3181,30 +3275,8 @@ RENDER.opps = function (body) {
           text: asText(m.fit_reason) || 'No reason recorded \u2014 worth opening.' };
       }
 
-      body.appendChild(entry({
+      grid.appendChild(matchCard(m, {
         tone,
-        rail: '#' + m.id,
-        action: investorLabel(m),
-        who: [orgLabel(m), m.investor_country, m.investor_city]
-               .filter(Boolean).join(' · '),
-        callout: verdict.text,
-        calloutLabel: verdict.label,
-        calloutTone: verdict.tone,
-        record: m,
-        evidence: [
-          ['type      ', asText(m.investor_type)],
-          ['strategy  ', asText(m.strategies)],
-          ['ticket    ', money(m.ticket_min_usd)],
-          ['score     ', m.fit_score],
-          ['not stated', missing.length ? missing.join(', ').replace(/_/g, ' ') : null],
-          // If a mandate is empty in every column above, say so rather than
-          // drawing a blank stripe with no explanation.
-          ['note      ', (!m.investor_name && !m.organization_name && !m.fit_reason)
-              ? 'This row has no investor details stored. WI 01 created it but never filled it in.' : null]
-        ],
-        tags: [[m.qualification, tone]]
-                .concat(seen(m) ? [] : [['unread', 'signal']])
-                .concat(isApproved(m) ? [['approved', 'good']] : []),
         actions: [
           { label: 'View the mandate', primary: true, run: () => { markSeen(m); openMandate(m); } },
           { label: 'Fill a gap', run: () => fillSheet(m) },
