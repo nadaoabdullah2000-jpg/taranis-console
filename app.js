@@ -1054,7 +1054,7 @@ const TABS = [
     sub: 'Every tool, vendor and counterparty Taranis uses, and where each one stands.' },
   { id: 'contacts', archived: true, icon: '\u25A0', label: 'Contacts',     title: 'Contacts',
     sub: 'The fundraising book. Who knows Taranis, when you last emailed, and what is owed.' },
-  { id: 'notes',    icon: '\u25A5', label: 'Notes',        title: 'Notes',
+  { id: 'notes', archived: true,    icon: '\u25A5', label: 'Notes',        title: 'Notes',
     sub: 'What was said, where, and with whom. Linked to the contact book when the person is in it.' },
   { id: 'email', archived: true,    icon: '\u2709', label: 'Email',        title: 'Email',
     sub: 'Draft to a contact, read it back, then send. Nothing leaves without you approving it.' },
@@ -4109,9 +4109,7 @@ RENDER.meetings = function (body) {
     el('div', { class: 'grid2' }, lbl('Minutes', mMins), lbl('Timezone', mTz)),
     el('div', { class: 'grid2' }, lbl('Platform', mProv), lbl('Invitation language', mLang)),
     lbl('Address the message to', mFor), mForSugg,
-    lbl('Email the invitation to', el('div', { class: 'toolbar' }, mLook, addTyped)),
-    mSugg, mList,
-    el('div', { class: 'acts', style: 'margin-top:16px' }, bookBtn, linkBtn),
+    el('div', { class: 'acts', style: 'margin-top:16px' }, linkBtn),
     issued);
   body.appendChild(form);
 
