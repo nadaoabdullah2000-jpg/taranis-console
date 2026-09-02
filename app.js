@@ -79,7 +79,7 @@ function ensureCardStyle() {
   + ".entry.signal{box-shadow:inset 3px 0 0 var(--signal,#C89000),0 1px 2px rgba(16,35,58,.03)}"
   + ".entry.bad{box-shadow:inset 3px 0 0 #C6402B,0 1px 2px rgba(16,35,58,.03)}"
   + ".entry.quiet{box-shadow:inset 3px 0 0 #C6D2DC,0 1px 2px rgba(16,35,58,.03)}"
-  + ".entry-rail{display:flex;align-items:flex-start;gap:6px;min-width:0;margin:0}"
+  + ".entry-rail{display:flex;flex-direction:row;align-items:flex-start;gap:6px;min-width:0;margin:0;padding:0;background:none;border-right:0;overflow:visible}"
   + ".entry .dot{display:none}"
   + ".entry .rail-n{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-right:12px}"
   + ".entry-main{flex:1;min-width:0}"
