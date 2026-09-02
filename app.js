@@ -1050,8 +1050,6 @@ const TABS = [
     sub: 'Screened out on two or more criteria. Kept so you can see what was turned away, and why.' },
   { id: 'hfn',      icon: '\u25A4', label: 'HFA & FOC',     title: 'Hedge Fund Alert & Family Office Confidential', group: 'wi',
     sub: 'Filed by publication, each with a summary written beside it so you need not open the PDF.' },
-  { id: 'tools',    icon: '\u25A3', label: 'Tools & CPs',  title: 'Tools & counterparties',
-    sub: 'Every tool, vendor and counterparty Taranis uses, and where each one stands.' },
   { id: 'contacts', archived: true, icon: '\u25A0', label: 'Contacts',     title: 'Contacts',
     sub: 'The fundraising book. Who knows Taranis, when you last emailed, and what is owed.' },
   { id: 'notes', archived: true,    icon: '\u25A5', label: 'Notes',        title: 'Notes',
@@ -1077,7 +1075,9 @@ const TABS = [
     title: 'Find an investor',
     sub: 'Every screened mandate, narrowed by date, investor type, geography, asset class, strategy, ticket or outcome.' },
   { id: 'ask',      icon: '\u25C7', label: 'Ask',          title: 'Ask',
-    sub: 'Anything you used to type into the bot. It queries before it answers.' }
+    sub: 'Anything you used to type into the bot. It queries before it answers.' },
+  { id: 'tools',    icon: '\u25A3', label: 'Tools & CPs',  title: 'Tools & counterparties', foot: true,
+    sub: 'Every tool, vendor and counterparty Taranis uses, and where each one stands.' }
 ];
 
 let current = 'today';
@@ -1276,6 +1276,31 @@ function matchCard(m, opts) {
     card.appendChild(row);
   }
   return card;
+}
+
+function ensureTodayCss() {
+  if (document.getElementById('taranis-droplist-css')) return;
+  const s = document.createElement('style');
+  s.id = 'taranis-droplist-css';
+  s.textContent =
+    ".droplist{display:flex;flex-direction:column;gap:8px}"
+  + ".drop{border:1px solid var(--rule);border-radius:11px;background:var(--card);overflow:hidden;box-shadow:0 1px 2px rgba(16,35,58,.04);transition:box-shadow .16s,border-color .16s}"
+  + ".drop:hover{border-color:#CFE6EF;box-shadow:0 2px 4px rgba(16,35,58,.05),0 10px 22px -12px rgba(0,120,160,.5)}"
+  + ".drop.open{border-color:#CFE6EF;box-shadow:0 2px 4px rgba(16,35,58,.05),0 12px 26px -14px rgba(0,120,160,.55)}"
+  + ".drop.read{opacity:.6}"
+  + ".drop-h{width:100%;display:flex;align-items:center;gap:12px;padding:14px 16px;background:none;border:0;cursor:pointer;text-align:left;font:inherit}"
+  + ".drop-dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--ink-3)}"
+  + ".drop-dot.good{background:var(--good)}.drop-dot.signal{background:var(--signal)}.drop-dot.accent{background:var(--sky,#00A8D0)}"
+  + ".drop-t{display:flex;flex-direction:column;min-width:0;flex:1}"
+  + ".drop-name{font-family:var(--font-display);font-size:15px;font-weight:400;color:var(--ink);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}"
+  + ".drop-co{font-size:12px;color:var(--ink-3);margin-top:2px;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}"
+  + ".drop-when{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3);flex:none}"
+  + ".drop-chev{flex:none;color:var(--ink-3);font-size:19px;line-height:1;transition:transform .2s ease;transform:rotate(90deg)}"
+  + ".drop.open .drop-chev{transform:rotate(270deg);color:var(--sky,#00A8D0)}"
+  + ".drop-p{max-height:0;overflow:hidden;transition:max-height .24s ease,padding .24s ease;padding:0 18px 0 36px}"
+  + ".drop.open .drop-p{max-height:640px;padding:2px 18px 16px 36px}"
+  + ".drop-p .ev{font-size:13px}.drop-p .ev>div{margin:5px 0}.drop-p .ev .k{color:var(--ink-3);margin-right:8px}";
+  document.head.appendChild(s);
 }
 
 function entry(o) {
@@ -1572,61 +1597,63 @@ RENDER.today = function (body) {
       :                        empty('You are up to date',
           'Investors worth a decision land here.'));
     }
+    ensureTodayCss();
+    const drop = el('div', { class: 'droplist' });
     for (const i of items) {
-      body.appendChild(entry({
-        tone: i.kind === 'review' ? 'signal' : i.kind === 'matched' ? 'good' : 'accent',
-        rail: i.source || '',
-        // A row written without a title used to read "Something happened",
-        // which is worse than useless. Fall back through what the row does
-        // carry, and name the workflow that sent it.
-        action: i.title
-          || i.subtitle
-          || ((i.source ? i.source + ' ' : '') + (i.kind || 'update')).trim()
-          || 'Untitled notice',
-        who: i.title ? i.subtitle : (i.title ? '' : 'This notice arrived without a title'),
-        evidence: (i.fields || []).map(f => [f.label, f.value]),
-        tags: [[i.kind, i.kind === 'review' ? 'signal' : i.kind === 'matched' ? 'good' : 'accent'],
-               [fmtDate(i.at), '']],
-        /* Straight to the record the notice is about. This used to jump to
-           the Approved tab regardless of which opportunity was named, which
-           was wrong before and became visibly wrong once Approved started
-           meaning 'a person approved this' -- the button led to a list the
-           record could not be in. */
-        actions: (notificationMandateId(i) ? [
-          { label: 'Open the opportunity', primary: true,
-            run: () => openMandateById(notificationMandateId(i), 'opps') }
-        ] : []).concat(i.read ? [] : [
-          // Anything you cannot clear stops being read. app_notifications
-          // already carries read_at and has an update policy for the console.
-          /* Goes green in place before the row leaves the list. Re-rendering
-             at once made the notice vanish under the cursor with nothing to
-             show the click had registered, which reads as a misfire rather
-             than as done. The pause is the receipt. */
-          { label: 'Mark as read', run: async (ev) => {
-              const btn = ev && ev.target;
-              try {
-                await supaPatch('app_notifications', 'id=eq.' + encodeURIComponent(i.id),
-                  { read_at: new Date().toISOString() });
-                const card = btn && btn.closest ? btn.closest('.entry') : null;
-                if (card) {
-                  card.style.transition = 'background-color .2s ease, border-color .2s ease';
-                  card.style.backgroundColor = 'var(--good-soft)';
-                  card.style.borderColor = 'var(--good)';
-                  const dot = card.querySelector('.dot');
-                  if (dot) dot.className = 'dot good';
-                }
-                if (btn && btn.tagName === 'BUTTON') {
-                  btn.textContent = 'Read';
-                  btn.disabled = true;
-                  btn.style.color = 'var(--good)';
-                  btn.style.borderColor = 'var(--good)';
-                }
-                setTimeout(() => { if (current === 'today') go('today'); }, 900);
-              } catch (e) { toast(e.message, true); }
-            } }
-        ])
-      }));
+      const mid     = notificationMandateId(i);
+      const kind    = i.kind === 'review' ? 'signal' : i.kind === 'matched' ? 'good' : 'accent';
+      const title   = i.title
+        || i.subtitle
+        || ((i.source ? i.source + ' ' : '') + (i.kind || 'update')).trim()
+        || 'Untitled notice';
+      const company = (i.title && i.subtitle) ? i.subtitle : '';
+
+      const row  = el('div', { class: 'drop' + (i.read ? ' read' : '') });
+      const head = el('button', { class: 'drop-h', type: 'button' },
+        el('span', { class: 'drop-dot ' + kind }),
+        el('span', { class: 'drop-t' },
+          el('span', { class: 'drop-name' }, title),
+          company ? el('span', { class: 'drop-co' }, company) : null),
+        el('span', { class: 'drop-when' }, fmtDate(i.at)),
+        el('span', { class: 'drop-chev' }, '\u203A'));
+
+      const panel = el('div', { class: 'drop-p' });
+      const fields = (i.fields || []).filter(f => f && (f.value || f.value === 0));
+      if (fields.length) {
+        const ev = el('div', { class: 'ev' });
+        for (const f of fields) {
+          ev.appendChild(el('div', null, el('span', { class: 'k' }, f.label + '  '),
+            document.createTextNode(String(f.value))));
+        }
+        panel.appendChild(ev);
+      } else if (i.subtitle && i.subtitle !== company) {
+        panel.appendChild(el('p', { style: 'margin:0;color:var(--ink-3);font-size:13px' }, i.subtitle));
+      } else {
+        panel.appendChild(el('p', { style: 'margin:0;color:var(--ink-3);font-size:13px' },
+          'No further detail on this notice \u2014 open the opportunity for the full record.'));
+      }
+
+      const acts = el('div', { class: 'acts', style: 'margin-top:12px' });
+      if (mid) acts.appendChild(el('button', { class: 'btn btn-sm', style: 'flex:none',
+        onclick: () => openMandateById(mid, 'opps') }, 'Open the opportunity'));
+      if (!i.read) acts.appendChild(el('button', { class: 'btn btn-sm btn-quiet', style: 'flex:none',
+        onclick: async (ev) => {
+          const btn = ev && ev.target;
+          try {
+            await supaPatch('app_notifications', 'id=eq.' + encodeURIComponent(i.id),
+              { read_at: new Date().toISOString() });
+            if (btn && btn.tagName === 'BUTTON') { btn.textContent = 'Read'; btn.disabled = true; btn.style.color = 'var(--good)'; btn.style.borderColor = 'var(--good)'; }
+            setTimeout(() => { if (current === 'today') go('today'); }, 700);
+          } catch (e) { toast(e.message, true); }
+        } }, 'Mark as read'));
+      if (acts.childNodes.length) panel.appendChild(acts);
+
+      head.addEventListener('click', () => row.classList.toggle('open'));
+      row.appendChild(head);
+      row.appendChild(panel);
+      drop.appendChild(row);
     }
+    body.appendChild(drop);
   });
 };
 
