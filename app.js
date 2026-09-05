@@ -2003,8 +2003,10 @@ RENDER.approvals = function (body) {
       return body.appendChild(empty('Nothing approved yet',
         'Approve an opportunity and it appears here. This is a view of Opportunities, not a queue of its own.'));
     }
+    const grid = el('div', { class: 'matchgrid' });
+    body.appendChild(grid);
     for (const r of rows) {
-      body.appendChild(entry({
+      grid.appendChild(matchCard(r, {
         tone: 'good',
         rail: r.review_id,
         action: investorLabel(r),
@@ -3846,9 +3848,11 @@ RENDER.rejected = function (body) {
         : 'No mandate was turned away for that reason.'));
     }
 
+    const grid = el('div', { class: 'matchgrid' });
+    out.appendChild(grid);
     for (const m of rows) {
       const why = reasons(m);
-      out.appendChild(entry({
+      grid.appendChild(matchCard(m, {
         tone: 'bad',
         rail: '#' + m.id,
         action: investorLabel(m),
