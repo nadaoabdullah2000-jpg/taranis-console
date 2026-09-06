@@ -1232,7 +1232,11 @@ function ensureMatchCss() {
   + ".mcard-c .mk{width:16px;height:16px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex:none}"
   + ".mcard-c .mk.yes{background:rgba(30,158,99,.14);color:var(--good)}"
   + ".mcard-c .mk.no{background:rgba(198,64,43,.12);color:var(--bad)}"
-  + ".mcard .acts{display:flex;gap:8px;flex-wrap:wrap}";
+  + ".mcard .acts{display:flex;gap:8px;flex-wrap:wrap}"
+  + ".mcard-reason{margin-top:13px;padding:10px 12px;border-radius:8px;font-size:12.5px;line-height:1.45;background:rgba(198,64,43,.07);border:1px solid rgba(198,64,43,.18)}"
+  + ".mcard-reason.signal{background:rgba(200,144,0,.08);border-color:rgba(200,144,0,.25)}"
+  + ".mcard-reason-k{display:block;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px}"
+  + ".mcard-reason-v{color:var(--ink-2)}";
   document.head.appendChild(s);
 }
 
@@ -1266,6 +1270,16 @@ function matchCard(m, opts) {
       el('span', { class: 'mk ' + (yes ? 'yes' : 'no') }, yes ? '\u2713' : '\u2717'), name));
   });
   card.appendChild(cr);
+
+  // Optional "why" line — used by Rejected cards to say what it was turned
+  // away for (failed criteria and/or missing fields), since the score alone
+  // makes a 3/5-but-rejected card look contradictory.
+  if (opts.reasonLine) {
+    const rl = el('div', { class: 'mcard-reason ' + (opts.reasonTone || 'bad') });
+    if (opts.reasonLabel) rl.appendChild(el('span', { class: 'mcard-reason-k' }, opts.reasonLabel));
+    rl.appendChild(el('span', { class: 'mcard-reason-v' }, opts.reasonLine));
+    card.appendChild(rl);
+  }
 
   const acts = (opts.actions || []).filter(Boolean);
   if (acts.length) {
@@ -3852,8 +3866,29 @@ RENDER.rejected = function (body) {
     out.appendChild(grid);
     for (const m of rows) {
       const why = reasons(m);
+      const miss = jsonArr(m.missing_hard_fields).map(s => String(s).replace(/_/g, ' '));
+      // Build the "why rejected" line: failed hard criteria first, else the
+      // missing information that stopped it qualifying, else the score note.
+      let reasonLabel, reasonLine, reasonTone;
+      if (why.length) {
+        reasonLabel = why.length === 1 ? 'Rejected — missed only on' : 'Rejected — failed ' + why.length + ' criteria';
+        reasonLine = why.join('  ·  ');
+        reasonTone = why.length > 1 ? 'bad' : 'signal';
+      } else if (miss.length) {
+        reasonLabel = 'Rejected — missing to qualify (' + miss.length + ')';
+        reasonLine = miss.join(', ');
+        reasonTone = 'signal';
+      } else {
+        reasonLabel = 'Rejected on score';
+        reasonLine = asText(m.fit_reason) || ('Scored below the 0.30 threshold'
+          + (m.fit_score === null || m.fit_score === undefined ? '' : ' (' + scoreText(m.fit_score) + ')'));
+        reasonTone = 'signal';
+      }
       grid.appendChild(matchCard(m, {
         tone: 'bad',
+        reasonLabel: reasonLabel,
+        reasonLine: reasonLine,
+        reasonTone: reasonTone,
         rail: '#' + m.id,
         action: investorLabel(m),
         who: [orgLabel(m), asText(m.investor_country), asText(m.investor_type)]
