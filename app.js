@@ -1317,6 +1317,26 @@ function ensureTodayCss() {
   document.head.appendChild(s);
 }
 
+// One card per investor: when the same investor appears in several rows
+// (e.g. repeated daily alerts, or the same investor across emails), keep only
+// the best — enriched first, then higher fit score, then newest. Rows with no
+// investor name are never collapsed. Result stays newest-first.
+function dedupeInvestors(rows) {
+  if (!Array.isArray(rows)) return rows;
+  const rank = (m) => [m && m.wi_enriched_at ? 1 : 0, Number(m && m.fit_score) || 0, Number(m && m.id) || 0];
+  const better = (a, b) => { const ra = rank(a), rb = rank(b); for (let i = 0; i < 3; i++) { if (ra[i] !== rb[i]) return ra[i] > rb[i]; } return false; };
+  const best = new Map(), unnamed = [];
+  for (const m of rows) {
+    const key = String((m && m.investor_name) || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    if (!key) { unnamed.push(m); continue; }
+    const cur = best.get(key);
+    if (!cur || better(m, cur)) best.set(key, m);
+  }
+  const outArr = unnamed.concat(Array.from(best.values()));
+  outArr.sort((a, b) => (Number(b && b.id) || 0) - (Number(a && a.id) || 0));
+  return outArr;
+}
+
 function entry(o) {
   /* A dot the same colour on every row carries no information and still asks
      to be read, so it is drawn only where the tone actually distinguishes
@@ -2007,7 +2027,7 @@ RENDER.approvals = function (body) {
       company: r.organization_name
     })) };
   }, (d) => {
-    const rows = d.rows || [];
+    const rows = dedupeInvestors(d.rows || []);
     /* No badge here. A count on this tab would be a tally of work already
        done, and a nav badge should mean something is waiting. What is waiting
        is counted on Opportunities instead. */
@@ -3263,6 +3283,7 @@ RENDER.opps = function (body) {
   fill(list, () => readRows('wi_mandates',
         'select=*&qualification=neq.rejected&order=id.desc&limit=200',
         'wi.mandates.list', { limit: 40 }), (all) => {
+    all = dedupeInvestors(all);
     for (const [k, lbl, tone] of VIEWS) {
       const on = k === oppsView;
       const n  = all.filter(m => inView(m, k)).length;
@@ -3938,7 +3959,7 @@ RENDER.rejected = function (body) {
     fill(out, () => readRows('wi_mandates',
       'select=*&qualification=eq.rejected&order=id.desc&limit=500',
       'wi.mandates.list', {}), (rows) => {
-      all = rows;
+      all = dedupeInvestors(rows);
       paintChips();
       if (!rows.length) {
         return out.appendChild(empty('Nothing rejected', 'Everything screened is still in play.'));
