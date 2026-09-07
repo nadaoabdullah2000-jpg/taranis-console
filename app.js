@@ -1236,7 +1236,14 @@ function ensureMatchCss() {
   + ".mcard-reason{margin-top:13px;padding:10px 12px;border-radius:8px;font-size:12.5px;line-height:1.45;background:rgba(198,64,43,.07);border:1px solid rgba(198,64,43,.18)}"
   + ".mcard-reason.signal{background:rgba(200,144,0,.08);border-color:rgba(200,144,0,.25)}"
   + ".mcard-reason-k{display:block;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px}"
-  + ".mcard-reason-v{color:var(--ink-2)}";
+  + ".mcard-reason-v{color:var(--ink-2)}"
+  + ".mcard-ints{margin-top:13px;border-top:1px solid var(--rule);padding-top:11px}"
+  + ".mcard-ints-h{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}"
+  + ".mcard-int{display:flex;align-items:baseline;gap:9px;font-size:12.5px;color:var(--ink-2);padding:5px 0 5px 10px;border-left:2px solid var(--rule-2,#E9EFF3)}"
+  + ".mcard-int.mcard-int-matched{border-left-color:var(--good)}.mcard-int.mcard-int-rejected{border-left-color:var(--bad)}.mcard-int.mcard-int-uncertain{border-left-color:var(--signal)}"
+  + ".mcard-int-d{flex:none;font-size:10.5px;letter-spacing:.03em;text-transform:uppercase;color:var(--ink-3);min-width:52px}"
+  + ".mcard-int-s{flex:1;min-width:0}"
+  + ".mcard-int-t{flex:none;font-variant-numeric:tabular-nums;color:var(--ink-3);font-size:11.5px}";
   document.head.appendChild(s);
 }
 
@@ -1282,6 +1289,23 @@ function matchCard(m, opts) {
   }
 
   const acts = (opts.actions || []).filter(Boolean);
+  // Stacked intentions: when this investor has several mandates, list them
+  // inside the one card (like the WI intention timeline) instead of repeating
+  // the investor as separate cards.
+  const ints = m && m._intentions;
+  if (Array.isArray(ints) && ints.length > 1) {
+    const box = el('div', { class: 'mcard-ints' });
+    box.appendChild(el('div', { class: 'mcard-ints-h' }, 'Intentions (' + ints.length + ')'));
+    for (const it of ints.slice(0, 8)) {
+      let sum = String(it.intention_summary || it.fit_reason || '').replace(/\s+/g, ' ').trim();
+      if (sum.length > 92) sum = sum.slice(0, 90) + '\u2026';
+      const dt = it.alert_date ? el('span', { class: 'mcard-int-d' }, fmtDate(it.alert_date)) : null;
+      const tk = (it.ticket_min_usd && Number(it.ticket_min_usd) > 0) ? el('span', { class: 'mcard-int-t' }, money(it.ticket_min_usd)) : null;
+      box.appendChild(el('div', { class: 'mcard-int mcard-int-' + String(it.qualification || 'uncertain') },
+        dt, el('span', { class: 'mcard-int-s' }, sum || '(no summary)'), tk));
+    }
+    card.appendChild(box);
+  }
   if (acts.length) {
     const row = el('div', { class: 'acts', style: 'margin-top:14px' });
     for (const a of acts) {
@@ -1325,16 +1349,31 @@ function dedupeInvestors(rows) {
   if (!Array.isArray(rows)) return rows;
   const rank = (m) => [m && m.wi_enriched_at ? 1 : 0, Number(m && m.fit_score) || 0, Number(m && m.id) || 0];
   const better = (a, b) => { const ra = rank(a), rb = rank(b); for (let i = 0; i < 3; i++) { if (ra[i] !== rb[i]) return ra[i] > rb[i]; } return false; };
-  const best = new Map(), unnamed = [];
+  const groups = new Map(), unnamed = [];
   for (const m of rows) {
     const key = String((m && m.investor_name) || '').toLowerCase().replace(/\s+/g, ' ').trim();
     if (!key) { unnamed.push(m); continue; }
-    const cur = best.get(key);
-    if (!cur || better(m, cur)) best.set(key, m);
+    let g = groups.get(key);
+    if (!g) { g = []; groups.set(key, g); }
+    g.push(m);
   }
-  const outArr = unnamed.concat(Array.from(best.values()));
-  outArr.sort((a, b) => (Number(b && b.id) || 0) - (Number(a && a.id) || 0));
-  return outArr;
+  const out = [];
+  for (const g of groups.values()) {
+    let best = g[0];
+    for (const m of g) if (better(m, best)) best = m;
+    if (g.length > 1) {
+      const sorted = g.slice().sort((a, b) => {
+        const da = String(a.alert_date || a.created_at || ''), db = String(b.alert_date || b.created_at || '');
+        if (da !== db) return db < da ? -1 : 1;
+        return (Number(b.id) || 0) - (Number(a.id) || 0);
+      });
+      best = Object.assign({}, best, { _intentions: sorted });
+    }
+    out.push(best);
+  }
+  const res = unnamed.concat(out);
+  res.sort((a, b) => (Number(b && b.id) || 0) - (Number(a && a.id) || 0));
+  return res;
 }
 
 function entry(o) {
@@ -1552,142 +1591,51 @@ RENDER.today = function (body) {
   body = feed;
 
   fill(body, async () => {
-    if (DEMO) { const d = await demoResponse('today.feed'); return { items: d.items || [] }; }
-    const rows = await readRows('app_notifications',
-      'select=id,kind,source,title,subtitle,fields,review_id,mandate_id,contact_id,'
-      + 'created_at,read_at'
-      + '&order=created_at.desc&limit=40', 'today.feed', {});
-    return { items: rows.map(r => Object.assign({}, r, {
-      at: r.created_at, read: r.read_at !== null && r.read_at !== undefined
-    })) };
+    const cutoff = new Date(Date.now() - 7 * 86400000).toISOString();
+    const mands = await readRows('wi_mandates',
+      'select=*&qualification=neq.rejected&created_at=gte.' + cutoff
+      + '&order=id.desc&limit=150', 'today.mandates', {});
+    return { mands: mands };
   }, (d) => {
-    const all = d.items || [];
-    /* The badge counts unread OPPORTUNITIES. Counting parse failures too made
-       it read 59 on a day when four investors actually arrived, which trains
-       you to ignore the number. */
-    counts.today = all.filter(i => !i.read && (
-      !!i.mandate_id || !!i.review_id ||
-      ['published', 'review', 'gaps', 'matched'].indexOf(String(i.kind || '')) !== -1
-    )).length;
-    /* The reviewer's badge includes the machinery, because for that person it
-       IS the work. For everybody else it stays a count of investors. */
-    if (isOpsReviewer()) {
-      counts.today = all.filter(i => !i.read).length;
-    }
+    const seen = (m) => !!m.seen_at;
+    const grouped = dedupeInvestors(d.mands || []);
+    counts.today = grouped.filter(m => !seen(m)).length;
     paintCounts();
 
-    /* Two different audiences read this tab, and mixing them made both worse.
-       An investor worth a decision and a block the extractor could not parse
-       are both "notices", but only one is fundraising — and forty of the
-       second buries the first.
-
-       So they are separated by what the notice is ABOUT. Anything carrying a
-       mandate is an opportunity; everything else is the machinery reporting on
-       itself, which needs somebody to look at it but not the person deciding
-       who to approach.
-
-       Cleared stays, and stays whole: marking something read should stop it
-       competing for attention, not erase that it happened. */
-    const isOpportunity = (i) =>
-      !!i.mandate_id || !!i.review_id ||
-      ['published', 'review', 'gaps', 'matched'].indexOf(String(i.kind || '')) !== -1;
-
-    const bucket = (i) => i.read ? 'read' : (isOpportunity(i) ? 'opps' : 'ops');
-
-    /* For everyone else the operational notices are removed from the feed
-       entirely, not merely from the chip — including once they are cleared.
-       Hiding the tab while letting the same rows reappear under Cleared would
-       be a worse result than not hiding them at all. */
-    const mine = isOpsReviewer() ? all : all.filter(i => isOpportunity(i));
-
-    const VIEWS = [['opps', 'Opportunities received']]
-      .concat(isOpsReviewer() ? [['ops', 'For Nada to review']] : [])
-      .concat([['read', 'Cleared']]);
-
-    const allowed = VIEWS.map(v => v[0]);
-    if (allowed.indexOf(todayView) === -1) todayView = 'opps';
-
+    const VIEWS = [['new', 'New'], ['read', 'Cleared']];
+    if (['new', 'read'].indexOf(todayView) === -1) todayView = 'new';
     const chips = el('div', { class: 'chips', style: 'margin-bottom:14px' });
     for (const [k, lbl] of VIEWS) {
       const on = todayView === k;
-      const n = mine.filter(i => bucket(i) === k).length;
-      const c = el('button', { class: 'chip',
-        onclick: () => { todayView = k; go('today'); } }, lbl + '  ' + n);
+      const n = grouped.filter(m => (k === 'read' ? seen(m) : !seen(m))).length;
+      const c = el('button', { class: 'chip', onclick: () => { todayView = k; go('today'); } }, lbl + '  ' + n);
       c.style.borderColor = on ? 'var(--accent)' : '';
-      c.style.color       = on ? 'var(--accent)' : '';
-      c.style.fontWeight  = on ? '600' : '';
+      c.style.color = on ? 'var(--accent)' : '';
+      c.style.fontWeight = on ? '600' : '';
       chips.appendChild(c);
     }
     body.appendChild(chips);
 
-    const items = mine.filter(i => bucket(i) === todayView);
-    if (!items.length) {
-      return body.appendChild(
-        todayView === 'read' ? empty('Nothing cleared yet',
-          'Notices you mark as read collect here.')
-      : todayView === 'ops'  ? empty('Nothing to look at',
-          'Parse failures, ignored emails and duplicates land here \u2014 the '
-          + 'machinery reporting on itself, rather than anything to decide.')
-      :                        empty('You are up to date',
-          'Investors worth a decision land here.'));
+    const rows = grouped.filter(m => (todayView === 'read' ? seen(m) : !seen(m)));
+    if (!rows.length) {
+      return body.appendChild(todayView === 'read'
+        ? empty('Nothing cleared yet', 'Investors you mark as read collect here.')
+        : empty('You are up to date', 'New investors worth a decision land here.'));
     }
-    ensureTodayCss();
-    const drop = el('div', { class: 'droplist' });
-    for (const i of items) {
-      const mid     = notificationMandateId(i);
-      const kind    = i.kind === 'review' ? 'signal' : i.kind === 'matched' ? 'good' : 'accent';
-      const title   = i.title
-        || i.subtitle
-        || ((i.source ? i.source + ' ' : '') + (i.kind || 'update')).trim()
-        || 'Untitled notice';
-      const company = (i.title && i.subtitle) ? i.subtitle : '';
-
-      const row  = el('div', { class: 'drop' + (i.read ? ' read' : '') });
-      const head = el('button', { class: 'drop-h', type: 'button' },
-        el('span', { class: 'drop-dot ' + kind }),
-        el('span', { class: 'drop-t' },
-          el('span', { class: 'drop-name' }, title),
-          company ? el('span', { class: 'drop-co' }, company) : null),
-        el('span', { class: 'drop-when' }, fmtDate(i.at)),
-        el('span', { class: 'drop-chev' }, '\u203A'));
-
-      const panel = el('div', { class: 'drop-p' });
-      const fields = (i.fields || []).filter(f => f && (f.value || f.value === 0));
-      if (fields.length) {
-        const ev = el('div', { class: 'ev' });
-        for (const f of fields) {
-          ev.appendChild(el('div', null, el('span', { class: 'k' }, f.label + '  '),
-            document.createTextNode(String(f.value))));
-        }
-        panel.appendChild(ev);
-      } else if (i.subtitle && i.subtitle !== company) {
-        panel.appendChild(el('p', { style: 'margin:0;color:var(--ink-3);font-size:13px' }, i.subtitle));
-      } else {
-        panel.appendChild(el('p', { style: 'margin:0;color:var(--ink-3);font-size:13px' },
-          'No further detail on this notice \u2014 open the opportunity for the full record.'));
-      }
-
-      const acts = el('div', { class: 'acts', style: 'margin-top:12px' });
-      if (mid) acts.appendChild(el('button', { class: 'btn btn-sm', style: 'flex:none',
-        onclick: () => openMandateById(mid, 'opps') }, 'Open the opportunity'));
-      if (!i.read) acts.appendChild(el('button', { class: 'btn btn-sm btn-quiet', style: 'flex:none',
-        onclick: async (ev) => {
-          const btn = ev && ev.target;
-          try {
-            await supaPatch('app_notifications', 'id=eq.' + encodeURIComponent(i.id),
-              { read_at: new Date().toISOString() });
-            if (btn && btn.tagName === 'BUTTON') { btn.textContent = 'Read'; btn.disabled = true; btn.style.color = 'var(--good)'; btn.style.borderColor = 'var(--good)'; }
-            setTimeout(() => { if (current === 'today') go('today'); }, 700);
-          } catch (e) { toast(e.message, true); }
-        } }, 'Mark as read'));
-      if (acts.childNodes.length) panel.appendChild(acts);
-
-      head.addEventListener('click', () => row.classList.toggle('open'));
-      row.appendChild(head);
-      row.appendChild(panel);
-      drop.appendChild(row);
+    const grid = el('div', { class: 'matchgrid' });
+    body.appendChild(grid);
+    for (const m of rows) {
+      const tone = m.qualification === 'matched' ? 'good' : m.qualification === 'uncertain' ? 'signal' : 'bad';
+      grid.appendChild(matchCard(m, {
+        tone: tone,
+        actions: [
+          { label: 'View the mandate', primary: true, run: () => { markSeen(m); openMandate(m); } },
+          { label: 'Fill a gap', run: () => fillSheet(m) },
+          seen(m) ? null : { label: 'Mark as read', run: async () => {
+              try { await markSeen(m); go('today'); } catch (e) { toast(e.message, true); } } }
+        ].filter(Boolean)
+      }));
     }
-    body.appendChild(drop);
   });
 };
 
