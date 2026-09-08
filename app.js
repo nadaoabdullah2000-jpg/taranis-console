@@ -4124,7 +4124,10 @@ RENDER.meetings = function (body) {
       const r = await createMeeting(payload) || {};
       const url = r.join_url || r.meet_url || r.url || null;
       if (url) {
-        showLink(label, url, r.passcode, r.message, r.invited);
+        showLink(label, url, r.passcode, r.message, r.invited,
+          buildGcalUrl(payload.title, payload.start_utc, payload.duration_min, url),
+          { meeting_id: r.meeting_id || r.id, title: payload.title, start_utc: payload.start_utc,
+            duration_min: payload.duration_min, tz: payload.tz, provider: payload.provider });
         toast(label + ' meeting created.');
       } else {
         /* The gateway answered but has no link for us -- almost always a
@@ -4165,7 +4168,19 @@ RENDER.meetings = function (body) {
     }
   }
 
-  function showLink(label, url, passcode, message, invited) {
+  function buildGcalUrl(title, startIso, minutes, joinUrl) {
+    const s = new Date(startIso);
+    if (isNaN(s.getTime())) return '';
+    const e = new Date(s.getTime() + (Number(minutes) || 30) * 60000);
+    const z = (d) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    return 'https://calendar.google.com/calendar/render?action=TEMPLATE'
+      + '&text=' + encodeURIComponent(title || 'Meeting')
+      + '&dates=' + z(s) + '/' + z(e)
+      + '&details=' + encodeURIComponent('Join: ' + (joinUrl || ''))
+      + '&location=' + encodeURIComponent(joinUrl || '');
+  }
+
+  function showLink(label, url, passcode, message, invited, calUrl, meta) {
     clear(issued);
     issued.appendChild(el('div', { class: 'callout good', style: 'margin-top:14px' },
       el('span', { class: 'callout-k' }, label),
@@ -4177,7 +4192,9 @@ RENDER.meetings = function (body) {
     issued.appendChild(el('div', { class: 'acts' },
       el('button', { class: 'btn btn-sm', onclick: () => copy(url, 'Link') }, 'Copy the link'),
       el('button', { class: 'btn btn-sm btn-quiet',
-        onclick: () => window.open(url, '_blank', 'noopener,noreferrer') }, 'Open it')));
+        onclick: () => window.open(url, '_blank', 'noopener,noreferrer') }, 'Open it'),
+      calUrl ? el('button', { class: 'btn btn-sm', style: 'background:#1a73e8;border-color:#1a73e8;color:#fff',
+        onclick: () => window.open(calUrl, '_blank', 'noopener,noreferrer') }, 'Add to Google Calendar') : null));
 
     /* The written invitation, exactly as the workflow composed it and exactly
        as anyone emailed will have received it. Shown whether or not there was
@@ -4199,6 +4216,73 @@ RENDER.meetings = function (body) {
           'Copy the message'),
         el('button', { class: 'btn btn-sm btn-quiet',
           onclick: () => { box.value = message; toast('Back to the original.'); } }, 'Reset')));
+    }
+
+    // Send-an-email panel: To/CC/BCC with saved-address suggestions, a preview,
+    // then send from nada.osama@taranis.net with the calendar (.ics) attached.
+    if (meta && meta.meeting_id) {
+      let dl = document.getElementById('mtg-email-sug');
+      if (!dl) { dl = el('datalist', { id: 'mtg-email-sug' }); document.body.appendChild(dl); }
+      clear(dl);
+      readRows('contacts_app', 'select=email,name&email=not.is.null&order=name.asc&limit=800', 'contacts.emails', {})
+        .then((rows) => { (rows || []).forEach((r) => { if (r.email) { const o = el('option', { value: r.email }); o.label = r.name || ''; dl.appendChild(o); } }); })
+        .catch(() => {});
+
+      const wrap = el('div', { style: 'margin-top:18px;border-top:1px solid var(--rule);padding-top:14px' });
+      const panel = el('div', { style: 'display:none;margin-top:12px' });
+      wrap.appendChild(el('button', { class: 'btn btn-sm', onclick: () => {
+        panel.style.display = (panel.style.display === 'none') ? '' : 'none';
+      } }, '\u2709 Send an email'));
+      wrap.appendChild(panel);
+      issued.appendChild(wrap);
+
+      const field = (ph) => el('input', { class: 'search', list: 'mtg-email-sug', placeholder: ph, style: 'margin:0' });
+      const toI = field('To \u2014 name or email');
+      const ccI = field('CC (optional)');
+      const bccI = field('BCC (optional)');
+      const lbl = (t, n) => el('label', { class: 'field', style: 'margin-top:8px' }, el('span', null, t), n);
+      const parse = (s) => String(s || '').split(/[,;\s]+/).map((x) => x.trim()).filter((x) => /.+@.+\..+/.test(x));
+
+      panel.appendChild(lbl('To', toI));
+      panel.appendChild(lbl('CC', ccI));
+      panel.appendChild(lbl('BCC', bccI));
+      const stage = el('div', { style: 'margin-top:12px' });
+      panel.appendChild(el('div', { class: 'acts', style: 'margin-top:10px' },
+        el('button', { class: 'btn btn-sm', onclick: () => doPreview() }, 'Preview the email')));
+      panel.appendChild(stage);
+
+      function doPreview() {
+        const to = parse(toI.value), cc = parse(ccI.value), bcc = parse(bccI.value);
+        if (!to.length && !cc.length && !bcc.length) { toast('Add at least one recipient.', true); return; }
+        clear(stage);
+        const subj = el('input', { class: 'search', style: 'margin:0', value: (meta.title || 'Meeting') });
+        const bodyT = el('textarea', { style: 'width:100%;min-height:170px;padding:12px 14px;font:inherit;'
+          + 'font-size:13.5px;line-height:1.6;border:1px solid var(--rule);border-radius:6px;background:var(--card);color:var(--ink);resize:vertical' });
+        bodyT.value = message || '';
+        stage.appendChild(el('div', { style: 'font-size:12px;color:var(--ink-3);margin-bottom:8px' },
+          'To: ' + (to.join(', ') || '\u2014') + (cc.length ? '    CC: ' + cc.join(', ') : '') + (bcc.length ? '    BCC: ' + bcc.join(', ') : '')));
+        stage.appendChild(lbl('Subject', subj));
+        stage.appendChild(lbl('Message', bodyT));
+        stage.appendChild(el('div', { style: 'font-size:12px;color:var(--ink-3);margin:8px 0' },
+          '\uD83D\uDCC5 A calendar invite (.ics) will be attached, so it lands in their calendar.'));
+        const sendNow = el('button', { class: 'btn btn-sm' }, 'Send from nada.osama@taranis.net');
+        sendNow.onclick = async () => {
+          sendNow.disabled = true; sendNow.textContent = 'Sending\u2026';
+          try {
+            await createMeeting({
+              meeting_id: String(meta.meeting_id), provider: meta.provider,
+              title: subj.value, start_utc: meta.start_utc, duration_min: meta.duration_min, tz: meta.tz,
+              to_people: to.map((e) => ({ email: e })), cc: cc, bcc: bcc,
+              subject: subj.value, body: bodyT.value, attach_ics: true, send_invitations: true
+            });
+            for (const e of to.concat(cc, bcc)) { try { await supaInsert('contacts', { email: e }); } catch (_) {} }
+            toast('Sent, with the calendar invite attached.');
+            panel.style.display = 'none';
+          } catch (err) { toast(err.message, true); sendNow.disabled = false; sendNow.textContent = 'Send from nada.osama@taranis.net'; }
+        };
+        stage.appendChild(el('div', { class: 'acts', style: 'margin-top:12px' }, sendNow,
+          el('button', { class: 'btn btn-sm btn-quiet', onclick: () => clear(stage) }, 'Back')));
+      }
     }
   }
 
