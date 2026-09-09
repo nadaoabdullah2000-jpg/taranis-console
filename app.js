@@ -1239,11 +1239,11 @@ function ensureMatchCss() {
   + ".mcard-reason-v{color:var(--ink-2)}"
   + ".mcard-ints{margin-top:13px;border-top:1px solid var(--rule);padding-top:11px}"
   + ".mcard-ints-h{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}"
-  + ".mcard-int{display:flex;align-items:baseline;gap:9px;font-size:12.5px;color:var(--ink-2);padding:5px 0 5px 10px;border-left:2px solid var(--rule-2,#E9EFF3)}"
+  + ".mcard-int{display:flex;align-items:baseline;gap:10px;font-size:12.5px;color:var(--ink-2);padding:6px 0 6px 10px;border-left:2px solid var(--rule-2,#E9EFF3);min-width:0}"
   + ".mcard-int.mcard-int-matched{border-left-color:var(--good)}.mcard-int.mcard-int-rejected{border-left-color:var(--bad)}.mcard-int.mcard-int-uncertain{border-left-color:var(--signal)}"
-  + ".mcard-int-d{flex:none;font-size:10.5px;letter-spacing:.03em;text-transform:uppercase;color:var(--ink-3);min-width:52px}"
-  + ".mcard-int-s{flex:1;min-width:0}"
-  + ".mcard-int-t{flex:none;font-variant-numeric:tabular-nums;color:var(--ink-3);font-size:11.5px}";
+  + ".mcard-int-d{flex:0 0 auto;white-space:nowrap;font-size:10.5px;letter-spacing:.03em;text-transform:uppercase;color:var(--ink-3)}"
+  + ".mcard-int-s{flex:1 1 auto;min-width:0;line-height:1.5;overflow-wrap:anywhere}"
+  + ".mcard-int-t{flex:0 0 auto;white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--ink-3);font-size:11.5px}";
   document.head.appendChild(s);
 }
 
@@ -1292,19 +1292,35 @@ function matchCard(m, opts) {
   // Stacked intentions: when this investor has several mandates, list them
   // inside the one card (like the WI intention timeline) instead of repeating
   // the investor as separate cards.
-  const ints = m && m._intentions;
-  if (Array.isArray(ints) && ints.length > 1) {
-    const box = el('div', { class: 'mcard-ints' });
-    box.appendChild(el('div', { class: 'mcard-ints-h' }, 'Intentions (' + ints.length + ')'));
-    for (const it of ints.slice(0, 8)) {
-      let sum = String(it.intention_summary || it.fit_reason || '').replace(/\s+/g, ' ').trim();
-      if (sum.length > 92) sum = sum.slice(0, 90) + '\u2026';
-      const dt = it.alert_date ? el('span', { class: 'mcard-int-d' }, fmtDate(it.alert_date)) : null;
-      const tk = (it.ticket_min_usd && Number(it.ticket_min_usd) > 0) ? el('span', { class: 'mcard-int-t' }, money(it.ticket_min_usd)) : null;
-      box.appendChild(el('div', { class: 'mcard-int mcard-int-' + String(it.qualification || 'uncertain') },
-        dt, el('span', { class: 'mcard-int-s' }, sum || '(no summary)'), tk));
+  const rawInts = (m && m._intentions) || [];
+  if (Array.isArray(rawInts) && rawInts.length > 1) {
+    // Collapse duplicate intention lines (same summary + ticket) so repeats
+    // from overlapping email blocks don't show twice.
+    const seen = {}, ints = [];
+    for (const it of rawInts) {
+      const sum = String(it.intention_summary || it.fit_reason || '').replace(/\s+/g, ' ').trim();
+      const key = sum.toLowerCase() + '|' + String(it.ticket_min_usd || '');
+      if (seen[key]) continue;
+      seen[key] = 1;
+      ints.push({ it: it, sum: sum });
     }
-    card.appendChild(box);
+    if (ints.length > 1) {
+      const box = el('div', { class: 'mcard-ints' });
+      box.appendChild(el('div', { class: 'mcard-ints-h' }, 'Intentions (' + ints.length + ')'));
+      for (const row of ints.slice(0, 10)) {
+        const it = row.it;
+        let sum = row.sum;
+        if (sum.length > 130) sum = sum.slice(0, 128) + '\u2026';
+        const dt = it.alert_date ? el('span', { class: 'mcard-int-d' }, fmtDate(it.alert_date)) : null;
+        const tk = (it.ticket_min_usd && Number(it.ticket_min_usd) > 0) ? el('span', { class: 'mcard-int-t' }, money(it.ticket_min_usd)) : null;
+        const line = el('div', { class: 'mcard-int mcard-int-' + String(it.qualification || 'uncertain'),
+          style: 'cursor:pointer', title: 'Open this intention' },
+          dt, el('span', { class: 'mcard-int-s' }, sum || '(no summary)'), tk);
+        line.addEventListener('click', (ev) => { ev.stopPropagation(); openMandate(it); });
+        box.appendChild(line);
+      }
+      card.appendChild(box);
+    }
   }
   if (acts.length) {
     const row = el('div', { class: 'acts', style: 'margin-top:14px' });
