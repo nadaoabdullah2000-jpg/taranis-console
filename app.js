@@ -1441,6 +1441,19 @@ function qualificationControl(m, after) {
     el('span', null, 'Qualification'), sel);
 }
 
+/* Where a mandate belongs the moment its qualification changes, so a change made
+   from a card or a detail page actually relocates the record instead of leaving
+   it sitting where it no longer fits:
+     - rejected  -> the Rejected tab (it leaves the pipeline entirely);
+     - matched or waiting -> back to Opportunities, in the button whose score band
+       the mandate falls in, so it is on screen where it now lives.
+   This matches what the Reject / Send-to-review buttons already do. */
+function routeAfterQualification(m, to) {
+  if (String(to).toLowerCase() === 'rejected') return go('rejected');
+  oppsMode = matchScore(m) >= 0.75 ? 'matched' : 'review';
+  go('opps');
+}
+
 function ensureTodayCss() {
   if (document.getElementById('taranis-droplist-css')) return;
   const s = document.createElement('style');
@@ -3341,22 +3354,22 @@ const OPPS_COUNTRY_NAMES = { GB: 'United Kingdom', US: 'United States', CH: 'Swi
 
 /* Does a mandate pass the finer filters under the two headline buttons?
    Empty filters never constrain. */
-function oppsPasses(m) {
+function oppsPasses(m, skip) {
   const F = oppsFilters;
   const jarr = (v) => {
     let x = v;
     for (let i = 0; i < 2 && typeof x === 'string'; i++) { try { x = JSON.parse(x); } catch (_) { x = []; } }
     return Array.isArray(x) ? x.map(s => String(s).toLowerCase()) : [];
   };
-  if (F.country && String(m.investor_country || '').toUpperCase() !== F.country) return false;
-  if (F.type && !String(m.investor_type || '').toLowerCase().includes(F.type)) return false;
-  if (F.strategy && !jarr(m.strategies).some(s => s.includes(F.strategy))) return false;
-  if (F.asset && !jarr(m.asset_classes).some(a => a.includes(F.asset))) return false;
-  if (F.tmin) {
+  if (skip !== 'country'  && F.country && String(m.investor_country || '').toUpperCase() !== F.country) return false;
+  if (skip !== 'type'     && F.type && !String(m.investor_type || '').toLowerCase().includes(F.type)) return false;
+  if (skip !== 'strategy' && F.strategy && !jarr(m.strategies).some(s => s.includes(F.strategy))) return false;
+  if (skip !== 'asset'    && F.asset && !jarr(m.asset_classes).some(a => a.includes(F.asset))) return false;
+  if (skip !== 'tmin'     && F.tmin) {
     const t = Number(m.ticket_max_usd || m.ticket_min_usd || 0);
     if (!(t >= Number(F.tmin))) return false;
   }
-  if (F.q) {
+  if (skip !== 'q'        && F.q) {
     const hay = [m.investor_name, m.organization_name, m.investor_city, m.investor_country,
       m.investor_type, asText(m.strategies), asText(m.fit_reason)]
       .filter(Boolean).join(' ').toLowerCase();
@@ -3451,27 +3464,44 @@ RENDER.opps = function (body) {
         return s;
       };
 
-      // Country: always offer the three in-market codes, then any other code
-      // present in the loaded rows, each with a count.
-      const geos = new Map();
-      for (const r of all) {
+      /* Facet counts must equal what selecting the option actually shows, so
+         they are computed over the set already narrowed by the current button
+         (Matched / Waiting) and by every OTHER active filter -- but not by the
+         facet's own filter, so each option answers "how many if I pick this".
+         Counting over the whole pipeline instead is what made a dropdown say
+         "Switzerland (6)" while the list underneath showed 3. */
+      const geoBase  = all.filter(m => inMode(m) && oppsPasses(m, 'country'));
+      const typeBase = all.filter(m => inMode(m) && oppsPasses(m, 'type'));
+
+      // Country: always offer the three in-market codes plus any other code that
+      // exists anywhere in the pipeline, each carrying its count for the current
+      // view (which may be 0 in this button/mode).
+      const geoCounts = new Map();
+      for (const r of geoBase) {
         const c = String(r.investor_country || '').trim().toUpperCase();
-        if (c) geos.set(c, (geos.get(c) || 0) + 1);
+        if (c) geoCounts.set(c, (geoCounts.get(c) || 0) + 1);
       }
-      for (const base of ['GB', 'CH', 'US']) if (!geos.has(base)) geos.set(base, 0);
+      const geoCodes = new Set(['GB', 'CH', 'US']);
+      for (const r of all) { const c = String(r.investor_country || '').trim().toUpperCase(); if (c) geoCodes.add(c); }
+      const geos = new Map();
+      for (const c of geoCodes) geos.set(c, geoCounts.get(c) || 0);
       const fGeo = sel([['', 'Anywhere']]);
-      for (const [v, n] of [...geos].sort((a, b) => b[1] - a[1])) {
+      for (const [v, n] of [...geos].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))) {
         fGeo.appendChild(el('option', { value: v },
-          (OPPS_COUNTRY_NAMES[v] || v) + (n ? '  (' + n + ')' : '')));
+          (OPPS_COUNTRY_NAMES[v] || v) + '  (' + n + ')'));
       }
 
-      const types = new Map();
-      for (const r of all) {
+      const typeCounts = new Map();
+      for (const r of typeBase) {
         const t = String(r.investor_type || '').trim().toLowerCase();
-        if (t) types.set(t, (types.get(t) || 0) + 1);
+        if (t) typeCounts.set(t, (typeCounts.get(t) || 0) + 1);
       }
+      const typeCodes = new Set();
+      for (const r of all) { const t = String(r.investor_type || '').trim().toLowerCase(); if (t) typeCodes.add(t); }
+      const types = new Map();
+      for (const t of typeCodes) types.set(t, typeCounts.get(t) || 0);
       const fType = sel([['', 'Any investor type']]);
-      for (const [v, n] of [...types].sort((a, b) => b[1] - a[1])) {
+      for (const [v, n] of [...types].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))) {
         fType.appendChild(el('option', { value: v },
           v.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()) + '  (' + n + ')'));
       }
@@ -3540,7 +3570,7 @@ RENDER.opps = function (body) {
 
       grid.appendChild(matchCard(m, {
         tone,
-        controls: qualificationControl(m, () => go('opps')),
+        controls: qualificationControl(m, (to) => routeAfterQualification(m, to)),
         actions: [
           { label: 'View the mandate', primary: true, run: () => { markSeen(m); openMandate(m); } },
           { label: 'Fill a gap', run: () => fillSheet(m) },
@@ -6576,7 +6606,7 @@ async function openMandate(m) {
         + 'color:var(--ink-3);margin-bottom:3px' }, 'Fit score'),
       el('div', { style: 'font-size:16px;font-weight:600;line-height:1.5' },
         scoreChip(matchScore(full), full))),
-    el('div', { style: 'margin-bottom:14px' }, qualificationControl(full, () => openMandate(full))),
+    el('div', { style: 'margin-bottom:14px' }, qualificationControl(full, (to) => routeAfterQualification(full, to))),
     field('Approved', full.approved_at
       ? (fmtDate(full.approved_at) + (full.approved_by ? '  by ' + full.approved_by : ''))
       : 'not approved yet'),
