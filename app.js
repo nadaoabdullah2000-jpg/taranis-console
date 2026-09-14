@@ -1210,20 +1210,22 @@ async function doRefresh() {
    the mandate row, exactly as the analysis page does. */
 const ADDRESSABLE   = new Set(['GB', 'CH', 'US']);
 const ELIGIBLE      = new Set(['equity_long_short', 'market_neutral', 'quant', 'systematic', 'cta', 'macro', 'multi_strategy']);
-const MATCH_CRITERIA = ['In-market (GB/CH/US)', 'Buys hedge funds', 'Eligible strategy', 'AuM on file', 'Contact on file'];
+const MATCH_CRITERIA = ['In-market (GB/CH/US)', 'Buys hedge funds', 'Eligible strategy', 'AuM on file'];
 
 function critOf(m) {
   const c      = String(m.investor_country || '').toUpperCase().slice(0, 2);
   const assets = jsonArr(m.asset_classes).map(String);
   const strats = jsonArr(m.strategies).map(s => String(s).toLowerCase());
-  let ev = {};
-  try { ev = m.evidence ? (typeof m.evidence === 'string' ? JSON.parse(m.evidence) : m.evidence) : {}; } catch (_) { ev = {}; }
+  /* Contact details (a name, LinkedIn profiles, emails) used to be a fifth
+     criterion, but they are operational data, not a measure of fit: whether an
+     investor is worth approaching does not change because someone pasted a
+     LinkedIn URL or an email address. Scoring is the four criteria that actually
+     describe fit, so filling contact info never moves the score up or down. */
   return [
     ADDRESSABLE.has(c),
     assets.some(a => /hedge|alternative|absolute return/i.test(a)),
     strats.some(s => ELIGIBLE.has(s)),
-    Number(m.aum_usd) > 0,
-    !!(m.contact_name || m.linkedin_url || Number(ev && ev.contact_count) > 0)
+    Number(m.aum_usd) > 0
   ];
 }
 
@@ -1304,10 +1306,10 @@ function matchCard(m, opts) {
     [m.investor_country, m.aum_band].filter(Boolean).join('  \u00B7  ') || '\u00A0'));
 
   card.appendChild(el('div', { class: 'mcard-score' },
-    el('span', null, q.toUpperCase()), el('b', null, score + '/5')));
+    el('span', null, q.toUpperCase()), el('b', null, score + '/' + crit.length)));
 
   const seg = el('div', { class: 'mcard-seg' });
-  for (let i = 0; i < 5; i++) seg.appendChild(el('div', { class: 'seg' + (i < score ? ' on' : '') }));
+  for (let i = 0; i < crit.length; i++) seg.appendChild(el('div', { class: 'seg' + (i < score ? ' on' : '') }));
   card.appendChild(seg);
 
   const cr = el('div', { class: 'mcard-crit' });
@@ -4494,36 +4496,41 @@ RENDER.meetings = function (body) {
       calUrl ? el('button', { class: 'btn btn-sm', style: 'background:#1a73e8;border-color:#1a73e8;color:#fff',
         onclick: () => window.open(calUrl, '_blank', 'noopener,noreferrer') }, 'Add to Google Calendar') : null));
 
-    /* The written invitation, exactly as the workflow composed it and exactly
-       as anyone emailed will have received it. Shown whether or not there was
-       a guest list, because with no guest list this IS how it gets sent. */
+    /* One editable draft, and it is the thing that actually gets sent. Whatever
+       is typed here is what leaves the building -- there is no second hidden copy
+       that quietly wins, which is what used to make edits vanish on send. Shown
+       whether or not there is a guest list, because with no guest list this box
+       IS how the invitation goes out (by hand). */
+    let draftBox = null;
     if (message) {
       issued.appendChild(el('p', { style: 'margin:18px 0 6px;font-size:11px;letter-spacing:.14em;'
         + 'text-transform:uppercase;color:var(--ink-3)' },
-        invited ? 'Sent to ' + invited : 'Nobody was emailed \u2014 send this yourself'));
-      // Editable in place. Most edits are a line added before sending it on,
-      // and making that require opening a panel first is friction for the
-      // commonest thing anyone does with this box.
-      const box = el('textarea', { style: 'width:100%;min-height:220px;padding:13px 15px;'
+        invited ? 'Sent to ' + invited : 'The invitation \u2014 edit it, then send or copy'));
+      draftBox = el('textarea', { style: 'width:100%;min-height:220px;padding:13px 15px;'
         + 'font:inherit;font-size:13.5px;line-height:1.6;border:1px solid var(--rule);'
         + 'border-radius:6px;background:var(--card);color:var(--ink);resize:vertical' });
-      box.value = message;
-      issued.appendChild(box);
+      draftBox.value = message;
+      issued.appendChild(draftBox);
       issued.appendChild(el('div', { class: 'acts' },
-        el('button', { class: 'btn btn-sm', onclick: () => copy(box.value, 'Message') },
+        el('button', { class: 'btn btn-sm', onclick: () => copy(draftBox.value, 'Message') },
           'Copy the message'),
         el('button', { class: 'btn btn-sm btn-quiet',
-          onclick: () => { box.value = message; toast('Back to the original.'); } }, 'Reset')));
+          onclick: () => { draftBox.value = message; toast('Back to the original.'); } }, 'Reset')));
     }
 
-    // Send-an-email panel: To/CC/BCC with saved-address suggestions, a preview,
-    // then send from nada.osama@taranis.net with the calendar (.ics) attached.
+    // Send-an-email panel: recipients with saved-address suggestions and an
+    // editable subject. It sends the draft above -- with your edits -- from
+    // nada.osama@taranis.net, with the calendar (.ics) attached.
     if (meta && meta.meeting_id) {
       let dl = document.getElementById('mtg-email-sug');
       if (!dl) { dl = el('datalist', { id: 'mtg-email-sug' }); document.body.appendChild(dl); }
       clear(dl);
+      const contactNames = {};   // email -> name, for a smarter greeting
       readRows('contacts_app', 'select=email,name&email=not.is.null&order=name.asc&limit=800', 'contacts.emails', {})
-        .then((rows) => { (rows || []).forEach((r) => { if (r.email) { const o = el('option', { value: r.email }); o.label = r.name || ''; dl.appendChild(o); } }); })
+        .then((rows) => { (rows || []).forEach((r) => { if (r.email) {
+          const o = el('option', { value: r.email }); o.label = r.name || ''; dl.appendChild(o);
+          if (r.name) contactNames[String(r.email).toLowerCase()] = r.name;
+        } }); })
         .catch(() => {});
 
       const wrap = el('div', { style: 'margin-top:18px;border-top:1px solid var(--rule);padding-top:14px' });
@@ -4541,49 +4548,72 @@ RENDER.meetings = function (body) {
       const toI = field('To \u2014 name or email');
       const ccI = field('CC (optional)');
       const bccI = field('BCC (optional)');
+      if (invited) toI.value = invited;   // prefill with whoever is already on the meeting
+      const subjI = el('input', { class: 'search', style: 'margin:0', value: 'Invitation: ' + (meta.title || 'Meeting') });
       const lbl = (t, n) => el('label', { class: 'field', style: 'margin-top:8px' }, el('span', null, t), n);
       const parse = (s) => String(s || '').split(/[,;\s]+/).map((x) => x.trim()).filter((x) => /.+@.+\..+/.test(x));
+
+      /* Smarter greeting: address the note to whoever is actually in the To box.
+         The workflow's draft greets whatever name the form was given (often the
+         sender), which reads oddly to a recipient. When a recipient is set, the
+         opener is rewritten to their name -- from the saved contact if known,
+         otherwise from the email itself -- but only while the opener still looks
+         auto-generated, so a hand-written greeting is never clobbered. */
+      let lastGreeting = '';
+      const firstName = () => {
+        const first = (parse(toI.value)[0] || '').toLowerCase();
+        if (!first) return '';
+        let nm = contactNames[first] || first.split('@')[0].replace(/[._+-]+/g, ' ');
+        nm = String(nm).trim().split(/\s+/)[0] || '';
+        return nm ? nm.charAt(0).toUpperCase() + nm.slice(1) : '';
+      };
+      const personalise = () => {
+        if (!draftBox) return;
+        const nm = firstName();
+        if (!nm) return;
+        const lines = draftBox.value.split('\n');
+        const opener = (lines[0] || '').trim();
+        if (/^(Hello|Bonjour)\b.*,?$/.test(opener) && (lastGreeting === '' || opener === lastGreeting)) {
+          const fr = /^Bonjour\b/.test(opener);
+          lines[0] = (fr ? 'Bonjour ' : 'Hello ') + nm + ',';
+          lastGreeting = lines[0];
+          draftBox.value = lines.join('\n');
+        }
+      };
+      toI.addEventListener('change', personalise);
+      toI.addEventListener('blur', personalise);
 
       panel.appendChild(lbl('To', toI));
       panel.appendChild(lbl('CC', ccI));
       panel.appendChild(lbl('BCC', bccI));
-      const stage = el('div', { style: 'margin-top:12px' });
-      panel.appendChild(el('div', { class: 'acts', style: 'margin-top:10px' },
-        el('button', { class: 'btn btn-sm', onclick: () => doPreview() }, 'Preview the email')));
-      panel.appendChild(stage);
+      panel.appendChild(lbl('Subject', subjI));
+      panel.appendChild(el('div', { style: 'font-size:12px;color:var(--ink-3);margin:10px 0 2px' },
+        draftBox ? 'The message above is what will be sent \u2014 edit it there before sending.'
+                 : 'A short invitation will be sent.'));
+      panel.appendChild(el('div', { style: 'font-size:12px;color:var(--ink-3);margin:0 0 4px' },
+        '\uD83D\uDCC5 A calendar invite (.ics) is attached, so it lands in their calendar.'));
 
-      function doPreview() {
+      const sendNow = el('button', { class: 'btn btn-sm' }, 'Send from nada.osama@taranis.net');
+      sendNow.onclick = async () => {
         const to = parse(toI.value), cc = parse(ccI.value), bcc = parse(bccI.value);
         if (!to.length && !cc.length && !bcc.length) { toast('Add at least one recipient.', true); return; }
-        clear(stage);
-        const subj = el('input', { class: 'search', style: 'margin:0', value: (meta.title || 'Meeting') });
-        const bodyT = el('textarea', { style: 'width:100%;min-height:170px;padding:12px 14px;font:inherit;'
-          + 'font-size:13.5px;line-height:1.6;border:1px solid var(--rule);border-radius:6px;background:var(--card);color:var(--ink);resize:vertical' });
-        bodyT.value = message || '';
-        stage.appendChild(el('div', { style: 'font-size:12px;color:var(--ink-3);margin-bottom:8px' },
-          'To: ' + (to.join(', ') || '\u2014') + (cc.length ? '    CC: ' + cc.join(', ') : '') + (bcc.length ? '    BCC: ' + bcc.join(', ') : '')));
-        stage.appendChild(lbl('Subject', subj));
-        stage.appendChild(lbl('Message', bodyT));
-        stage.appendChild(el('div', { style: 'font-size:12px;color:var(--ink-3);margin:8px 0' },
-          '\uD83D\uDCC5 A calendar invite (.ics) will be attached, so it lands in their calendar.'));
-        const sendNow = el('button', { class: 'btn btn-sm' }, 'Send from nada.osama@taranis.net');
-        sendNow.onclick = async () => {
-          sendNow.disabled = true; sendNow.textContent = 'Sending\u2026';
-          try {
-            await createMeeting({
-              meeting_id: String(meta.meeting_id), provider: meta.provider,
-              title: subj.value, start_utc: meta.start_utc, duration_min: meta.duration_min, tz: meta.tz,
-              to_people: to.map((e) => ({ email: e })), cc: cc, bcc: bcc,
-              subject: subj.value, body: bodyT.value, attach_ics: true, send_invitations: true
-            });
-            for (const e of to.concat(cc, bcc)) { try { await supaInsert('contacts', { email: e }); } catch (_) {} }
-            toast('Sent, with the calendar invite attached.');
-            panel.style.display = 'none';
-          } catch (err) { toast(err.message, true); sendNow.disabled = false; sendNow.textContent = 'Send from nada.osama@taranis.net'; }
-        };
-        stage.appendChild(el('div', { class: 'acts', style: 'margin-top:12px' }, sendNow,
-          el('button', { class: 'btn btn-sm btn-quiet', onclick: () => clear(stage) }, 'Back')));
-      }
+        personalise();
+        sendNow.disabled = true; sendNow.textContent = 'Sending\u2026';
+        try {
+          await createMeeting({
+            meeting_id: String(meta.meeting_id), provider: meta.provider,
+            title: meta.title, start_utc: meta.start_utc, duration_min: meta.duration_min, tz: meta.tz,
+            to_people: to.map((e) => ({ email: e })), cc: cc, bcc: bcc,
+            invitee_name: firstName(),
+            subject: subjI.value, body: draftBox ? draftBox.value : (message || ''),
+            attach_ics: true, send_invitations: true
+          });
+          for (const e of to.concat(cc, bcc)) { try { await supaInsert('contacts', { email: e }); } catch (_) {} }
+          toast('Sent, with the calendar invite attached.');
+          panel.style.display = 'none';
+        } catch (err) { toast(err.message, true); sendNow.disabled = false; sendNow.textContent = 'Send from nada.osama@taranis.net'; }
+      };
+      panel.appendChild(el('div', { class: 'acts', style: 'margin-top:12px' }, sendNow));
     }
   }
 
@@ -5309,20 +5339,19 @@ const RPT_CSS = `
    the Taranis screening criteria, read from the mandate's own fields. */
 const WI_ADDR = ['GB', 'CH', 'US'];
 const WI_ELIG = ['equity_long_short', 'market_neutral', 'quant', 'systematic', 'cta', 'macro', 'multi_strategy'];
-const WI_CRIT = ['In-market (GB/CH/US)', 'Buys hedge funds', 'Eligible strategy', 'AuM on file', 'Contact on file'];
+const WI_CRIT = ['In-market (GB/CH/US)', 'Buys hedge funds', 'Eligible strategy', 'AuM on file'];
 function wiJarr(v) { let x = v; for (let i = 0; i < 2 && typeof x === 'string'; i++) { try { x = JSON.parse(x); } catch (_) { x = []; } } return Array.isArray(x) ? x : []; }
 function wiJobj(v) { let x = v; for (let i = 0; i < 2 && typeof x === 'string'; i++) { try { x = JSON.parse(x); } catch (_) { x = {}; } } return (x && typeof x === 'object' && !Array.isArray(x)) ? x : {}; }
 function wiCrit(m) {
   const c = String(m.investor_country || '').toUpperCase().slice(0, 2);
   const assets = wiJarr(m.asset_classes).map(String);
   const strats = wiJarr(m.strategies).map((s) => String(s).toLowerCase());
-  const ev = wiJobj(m.evidence);
+  // Contact details are operational, not a fit signal, so they are not scored.
   return [
     WI_ADDR.indexOf(c) > -1,
     assets.some((a) => /hedge|alternative|absolute return/i.test(a)),
     strats.some((s) => WI_ELIG.indexOf(s) > -1),
-    Number(m.aum_usd) > 0,
-    !!(m.contact_name || m.linkedin_url || Number(ev.contact_count) > 0)
+    Number(m.aum_usd) > 0
   ];
 }
 
@@ -5354,10 +5383,10 @@ function renderOpenOpps(host) {
       card.appendChild(el('div', { class: 'sub' },
         [m.investor_country, m.aum_band].filter(Boolean).join('  \u00B7  ') || '\u00A0'));
       const sc = el('div', { class: 'sc' });
-      sc.append(el('span', {}, m.qualification || 'open'), el('b', {}, score + '/5'));
+      sc.append(el('span', {}, m.qualification || 'open'), el('b', {}, score + '/' + crit.length));
       card.appendChild(sc);
       const seg = el('div', { class: 'seg' });
-      for (let i = 0; i < 5; i++) seg.appendChild(el('i', { class: i < score ? 'on' : '' }));
+      for (let i = 0; i < crit.length; i++) seg.appendChild(el('i', { class: i < score ? 'on' : '' }));
       card.appendChild(seg);
       const cr = el('div', { class: 'cr' });
       WI_CRIT.forEach((name, i) => {
@@ -7426,8 +7455,8 @@ const FILLABLE = [
   ['asset_classes',     'Asset classes',        'list'],
   ['allocation_timing', 'Allocation timing',    'text'],
   ['contact_name',      'Contact name',         'text'],
-  ['contact_email',     'Contact email',        'text'],
-  ['linkedin_url',      'LinkedIn URL',         'text'],
+  ['emails',            'Emails',               'lines'],
+  ['linkedin_urls',     'LinkedIn URLs',        'lines'],
   ['view_article_url',  'Article URL',          'text'],
   ['view_intention_url','Intention URL',        'text'],
   ['view_investor_url', 'Investor page URL',    'text'],
@@ -7451,19 +7480,29 @@ function fillSheet(m) {
        typed is stripped back to digits on save, so pasting "USD 1.5m" or
        "2,500,000" both work. */
     const shown = kind === 'list'   ? asText(cur)
+                : kind === 'lines'  ? jsonArr(cur).join('\n')
                 : kind === 'number' ? num(cur)
                 : (cur == null ? '' : String(cur));
     const empty = shown === '';
     was[key] = shown;
 
-    const input = el('input', {
-      class: 'search',
-      type: 'text',
-      inputmode: kind === 'number' ? 'numeric' : 'text',
-      value: shown,
-      placeholder: kind === 'list' ? 'comma separated'
-                 : (empty ? 'not stated in the alert' : '')
-    });
+    // A 'lines' field (emails, LinkedIn URLs) holds more than one value, one per
+    // line, so it gets a small textarea rather than a single-line input.
+    let input;
+    if (kind === 'lines') {
+      input = el('textarea', { class: 'search', rows: '3',
+        placeholder: empty ? 'one per line \u2014 add as many as you like' : 'one per line',
+        style: 'min-height:78px;resize:vertical;font:inherit;line-height:1.5' });
+    } else {
+      input = el('input', {
+        class: 'search',
+        type: 'text',
+        inputmode: kind === 'number' ? 'numeric' : 'text',
+        placeholder: kind === 'list' ? 'comma separated'
+                   : (empty ? 'not stated in the alert' : '')
+      });
+    }
+    input.value = shown;
     if (kind === 'number') {
       // Regroup as they type, so the field reads the way it will be stored.
       input.addEventListener('blur', () => {
@@ -7534,12 +7573,22 @@ function fillSheet(m) {
         patch[key] = v === '' ? null : Number(v.replace(/[^0-9.-]/g, ''));
       } else if (kind === 'list') {
         patch[key] = v === '' ? null : v.split(',').map(s => s.trim()).filter(Boolean);
+      } else if (kind === 'lines') {
+        // Multiple values, one per line (also tolerant of commas / semicolons).
+        // Stored as a JSON array; an empty box clears it to [].
+        patch[key] = v.split(/[\n,;]+/).map(s => s.trim()).filter(Boolean);
       } else {
         patch[key] = v === '' ? null : v;
       }
       filled.push(key);
     }
     if (!filled.length) { closeSheet(); return toast('Nothing changed.'); }
+
+    // The single linkedin_url column still powers the profile button and the
+    // network lookups, so keep it pointed at the first of the LinkedIn URLs.
+    if ('linkedin_urls' in patch) {
+      patch.linkedin_url = (Array.isArray(patch.linkedin_urls) ? patch.linkedin_urls : [])[0] || null;
+    }
 
     // Provenance, so a hand-typed figure never passes as something WI said.
     let src = m.field_sources;
@@ -7555,11 +7604,12 @@ function fillSheet(m) {
       Object.assign(m, patch);
 
       /* A filled gap can change the picture, so the console re-scores from the
-         five criteria and moves the band to match -- a mandate that now meets
-         four of five reads as Matched without anyone re-scoring it by hand. The
-         write is best-effort: the fields are already saved, and a stale score is
-         better than losing them. Rejection is left alone; that is a decision, not
-         a score. */
+         four fit criteria and moves the band to match -- a mandate that now meets
+         three of four reads as Matched without anyone re-scoring it by hand.
+         Contact info is not one of those criteria, so adding an email or a
+         LinkedIn URL never shifts the score. The write is best-effort: the fields
+         are already saved, and a stale score is better than losing them.
+         Rejection is left alone; that is a decision, not a score. */
       let scoreMsg = '';
       try {
         const ns = Math.round(matchScore(m) * 100) / 100;
