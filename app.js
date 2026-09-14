@@ -451,6 +451,19 @@ function scoreChip(v, m) {
       style: 'color:var(--ink-3);font-size:12px;margin:0 0 18px' },
       t + '   \u00B7   ' + (m ? String(m.qualification || '').replace(/_/g,' ') : 'scoring bands')));
 
+    /* Where With Intelligence's own figure differs, say so. Its score runs high
+       on the report feeds (HFA & FOC), which is why the console computes its own
+       from the five criteria instead -- so a report and an alert are comparable. */
+    if (m && m.fit_score !== null && m.fit_score !== undefined && m.fit_score !== '') {
+      const wi = scoreText(m.fit_score);
+      const same = parseFloat(Number(m.fit_score).toFixed(2)) === parseFloat(Number(v).toFixed(2));
+      box.appendChild(el('p', { style: 'margin:0 0 18px;font-size:12.5px;color:var(--ink-3);line-height:1.55' },
+        same
+          ? 'Computed by the console from the five criteria below, so every source is scored the same way.'
+          : 'Computed by the console from the five criteria below, so every source is scored the same way. '
+            + 'With Intelligence stated ' + wi + ' for this mandate \u2014 not used for the Matched band, because it runs high on the report feeds.'));
+    }
+
     if (m) {
       const head = (a, bb) => el('div', { style: 'display:grid;grid-template-columns:26px 1fr 1fr;'
         + 'gap:14px;padding:0 0 7px;border-bottom:1px solid var(--rule)' },
@@ -1040,7 +1053,11 @@ function signOut() {
 /* ------------------------------------------------------------------ tabs */
 
 const TABS = [
-  { id: 'today',    icon: '\u25CF', label: 'Today',        title: 'Today',
+  /* Today was folded into Opportunities: the pipeline is the one place to look,
+     and a second landing page that answered "what arrived" only ever repeated a
+     slice of it. Archived rather than deleted so any link still resolves and
+     RENDER.today keeps working if something calls it. */
+  { id: 'today', archived: true, icon: '\u25CF', label: 'Today',        title: 'Today',
     sub: 'What arrived while you were away, and what is waiting on you.' },
   { id: 'opps',     icon: '\u25B8', label: 'Opportunities', title: 'Opportunities', group: 'wi',
     sub: 'The live pipeline. Filter by read and by approved rather than moving between queues.' },
@@ -1080,7 +1097,7 @@ const TABS = [
     sub: 'Every tool, vendor and counterparty Taranis uses, and where each one stands.' }
 ];
 
-let current = 'today';
+let current = 'opps';
 
 function buildNav() {
   const list = $('navlist');
@@ -1210,6 +1227,28 @@ function critOf(m) {
   ];
 }
 
+/* One score, computed the same way for every mandate no matter where it came
+   from. The upstream fit_score With Intelligence writes runs hot for the report
+   feeds (HFA & FOC) and cannot be compared like-for-like with alert-sourced
+   rows, so the console derives its own from the five criteria every card already
+   shows. The number and the ticks can then never disagree, a report and an alert
+   are scored on identical footing, and filling a gap moves the score at once
+   because it is read from the fields rather than frozen at intake.
+   Range: 0, .2, .4, .6, .8, 1 (n of five criteria met). */
+function matchScore(m) {
+  const crit = critOf(m);
+  if (!crit.length) return 0;
+  return crit.filter(Boolean).length / crit.length;
+}
+
+/* Which band a mandate sits in. Rejected is only ever an explicit decision;
+   matched is 0.75 and up (four of five criteria or better); everything else is
+   still under review. Used by the two headline buttons on Opportunities. */
+function scoreBand(m) {
+  if (String(m.qualification || '').toLowerCase() === 'rejected') return 'rejected';
+  return matchScore(m) >= 0.75 ? 'matched' : 'review';
+}
+
 function ensureMatchCss() {
   if (document.getElementById('taranis-matchcard-css')) return;
   const s = document.createElement('style');
@@ -1324,6 +1363,17 @@ function matchCard(m, opts) {
       card.appendChild(box);
     }
   }
+  // Optional controls (e.g. the qualification drop list) sit between the body
+  // and the action row so a value can be changed in place without opening the
+  // mandate.
+  if (opts.controls) {
+    const list = Array.isArray(opts.controls) ? opts.controls : [opts.controls];
+    for (const c of list) if (c) {
+      const wrap = el('div', { style: 'margin-top:14px' }, c);
+      card.appendChild(wrap);
+    }
+  }
+
   if (acts.length) {
     const row = el('div', { class: 'acts', style: 'margin-top:14px' });
     for (const a of acts) {
@@ -1332,6 +1382,63 @@ function matchCard(m, opts) {
     card.appendChild(row);
   }
   return card;
+}
+
+/* The standard qualification values, in the order they read as a pipeline.
+   'uncertain' is the stored value; it is shown to a person as "Under review",
+   which is the word the team actually uses for it. */
+const QUALIFICATIONS = [
+  ['matched',   'Matched'],
+  ['uncertain', 'Under review'],
+  ['rejected',  'Rejected']
+];
+
+/* An editable qualification, as a drop list, wherever a mandate is shown. It
+   writes straight to the row the moment it changes -- no confirm dialog, because
+   a dropdown that argues with every choice is worse than the buttons it replaces
+   -- and "Custom..." lets a value the standard three do not cover be typed in and
+   stored, so the list can grow from inside the app. `after(to)` is called once
+   the write lands so the calling view can repaint. */
+function qualificationControl(m, after) {
+  const cur = String(m.qualification || 'uncertain').toLowerCase();
+  const sel = el('select', { class: 'search', style: 'flex:none;min-width:150px' });
+  let known = false;
+  for (const [v, label] of QUALIFICATIONS) {
+    const o = el('option', { value: v }, label);
+    if (v === cur) { o.selected = true; known = true; }
+    sel.appendChild(o);
+  }
+  // A stored value outside the standard three (a custom label set earlier) keeps
+  // its place at the top of the list rather than silently resetting on open.
+  if (!known && cur) {
+    const o = el('option', { value: cur }, cur.replace(/_/g, ' '));
+    o.selected = true;
+    sel.insertBefore(o, sel.firstChild);
+  }
+  sel.appendChild(el('option', { value: '__custom' }, 'Custom\u2026'));
+
+  sel.addEventListener('change', async () => {
+    let to = sel.value;
+    if (to === '__custom') {
+      to = String(prompt('New qualification label') || '').trim().toLowerCase().replace(/\s+/g, '_');
+      if (!to) { sel.value = cur; return; }
+    }
+    if (to === cur) return;
+    sel.disabled = true;
+    try {
+      await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), { qualification: to });
+      m.qualification = to;
+      toast('Qualification set to ' + to.replace(/_/g, ' ') + '.');
+      if (typeof after === 'function') after(to);
+    } catch (e) {
+      toast(e.message, true);
+      sel.value = cur;
+      sel.disabled = false;
+    }
+  });
+
+  return el('label', { class: 'field', style: 'margin-bottom:0' },
+    el('span', null, 'Qualification'), sel);
 }
 
 function ensureTodayCss() {
@@ -3215,9 +3322,54 @@ RENDER.inbox = function (body) {
   run();
 };
 let oppsView = 'all';
+/* The headline lens: 'review' is the whole working pile (everything not
+   rejected), 'matched' narrows it to 0.75 and up. Two buttons, one of them
+   always on. */
+let oppsMode = 'review';
+/* The finer filters that sit under the buttons. Empty means "no constraint".
+   Kept at module scope so switching tabs and coming back does not lose them. */
+let oppsFilters = { q: '', country: '', type: '', strategy: '', asset: '', tmin: '' };
+let oppsFilterOpen = false;
+
+/* Names for the country codes the rows carry, so the filter reads "Switzerland"
+   rather than "CH". Anything not listed shows its raw code. */
+const OPPS_COUNTRY_NAMES = { GB: 'United Kingdom', US: 'United States', CH: 'Switzerland',
+  SG: 'Singapore', AE: 'UAE', SA: 'Saudi Arabia', DE: 'Germany', FR: 'France',
+  HK: 'Hong Kong', CA: 'Canada', AU: 'Australia', IE: 'Ireland', NL: 'Netherlands',
+  SE: 'Sweden', NO: 'Norway', DK: 'Denmark', IT: 'Italy', ES: 'Spain', LU: 'Luxembourg',
+  IL: 'Israel', JP: 'Japan', CN: 'China', IN: 'India' };
+
+/* Does a mandate pass the finer filters under the two headline buttons?
+   Empty filters never constrain. */
+function oppsPasses(m) {
+  const F = oppsFilters;
+  const jarr = (v) => {
+    let x = v;
+    for (let i = 0; i < 2 && typeof x === 'string'; i++) { try { x = JSON.parse(x); } catch (_) { x = []; } }
+    return Array.isArray(x) ? x.map(s => String(s).toLowerCase()) : [];
+  };
+  if (F.country && String(m.investor_country || '').toUpperCase() !== F.country) return false;
+  if (F.type && !String(m.investor_type || '').toLowerCase().includes(F.type)) return false;
+  if (F.strategy && !jarr(m.strategies).some(s => s.includes(F.strategy))) return false;
+  if (F.asset && !jarr(m.asset_classes).some(a => a.includes(F.asset))) return false;
+  if (F.tmin) {
+    const t = Number(m.ticket_max_usd || m.ticket_min_usd || 0);
+    if (!(t >= Number(F.tmin))) return false;
+  }
+  if (F.q) {
+    const hay = [m.investor_name, m.organization_name, m.investor_city, m.investor_country,
+      m.investor_type, asText(m.strategies), asText(m.fit_reason)]
+      .filter(Boolean).join(' ').toLowerCase();
+    if (!hay.includes(F.q.toLowerCase())) return false;
+  }
+  return true;
+}
 
 RENDER.opps = function (body) {
   clear(body);
+
+  const modeRow = el('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px' });
+  const filterBar = el('div', { style: 'margin-bottom:14px' });
   const chips = el('div', { class: 'chips', style: 'margin-bottom:14px' });
   const list  = el('div');
 
@@ -3227,7 +3379,7 @@ RENDER.opps = function (body) {
   body.appendChild(el('div', { class: 'toolbar', style: 'margin-bottom:12px' },
     el('button', { class: 'btn btn-sm btn-quiet', onclick: () => importSheet() },
       'Import an investor list')));
-  body.append(chips, list);
+  body.append(modeRow, filterBar, chips, list);
 
   const VIEWS = [
     ['all',      'Everything',    'accent'],
@@ -3246,13 +3398,115 @@ RENDER.opps = function (body) {
     : k === 'approved' ? isApproved(m)
     :                    !isApproved(m);
 
+  // The two headline lenses. 'review' is the whole pile that survived rejection;
+  // 'matched' is the 0.75-and-up subset of it, scored the console's consistent
+  // way so a report-sourced mandate is judged like any other.
+  const inMode = (m) => oppsMode === 'matched' ? matchScore(m) >= 0.75 : true;
+
   fill(list, () => readRows('wi_mandates',
         'select=*&qualification=neq.rejected&order=id.desc&limit=200',
         'wi.mandates.list', { limit: 40 }), (all) => {
     all = dedupeInvestors(all);
+
+    /* ---- the two big buttons ------------------------------------------- */
+    const nMatched = all.filter(m => matchScore(m) >= 0.75).length;
+    const nReview  = all.length;
+    const bigBtn = (mode, label, count, tone) => {
+      const on = oppsMode === mode;
+      const b = el('button', {
+        class: 'btn' + (on ? '' : ' btn-quiet'),
+        style: 'flex:1;min-width:200px;padding:16px 20px;font-size:16px;border-radius:12px;'
+             + 'display:flex;flex-direction:column;align-items:flex-start;gap:2px;'
+             + (on ? 'background:var(--' + tone + ');border-color:var(--' + tone + ');color:#fff' : ''),
+        onclick: () => { oppsMode = mode; go('opps'); }
+      },
+        el('span', { style: 'font-family:var(--font-display);font-weight:600' }, label),
+        el('span', { style: 'font-size:12px;opacity:.8;letter-spacing:.02em' },
+          count + (mode === 'matched' ? ' scoring 0.75\u20131.00' : ' not rejected')));
+      return b;
+    };
+    modeRow.append(
+      bigBtn('matched', 'Matched',      nMatched, 'good'),
+      bigBtn('review',  'Under review', nReview,  'signal'));
+
+    /* ---- the filter panel ---------------------------------------------- */
+    const F = oppsFilters;
+    const anyFilter = !!(F.q || F.country || F.type || F.strategy || F.asset || F.tmin);
+    const toggle = el('button', { class: 'btn btn-sm btn-quiet',
+      onclick: () => { oppsFilterOpen = !oppsFilterOpen; go('opps'); } },
+      (oppsFilterOpen ? '\u25BE ' : '\u25B8 ') + 'Filters' + (anyFilter ? '  \u00B7  on' : ''));
+    filterBar.appendChild(toggle);
+
+    if (oppsFilterOpen) {
+      const panel = el('div', { class: 'card', style: 'padding:16px;margin-top:10px' });
+      const mk = (label, node, key) => {
+        node.value = F[key] || '';
+        node.addEventListener(node.tagName === 'SELECT' ? 'change' : 'input',
+          () => { F[key] = node.value; go('opps'); });
+        return el('label', { class: 'field' }, el('span', null, label), node);
+      };
+      const sel = (opts) => {
+        const s = el('select', { class: 'search' });
+        for (const [v, l] of opts) s.appendChild(el('option', { value: v }, l));
+        return s;
+      };
+
+      // Country: always offer the three in-market codes, then any other code
+      // present in the loaded rows, each with a count.
+      const geos = new Map();
+      for (const r of all) {
+        const c = String(r.investor_country || '').trim().toUpperCase();
+        if (c) geos.set(c, (geos.get(c) || 0) + 1);
+      }
+      for (const base of ['GB', 'CH', 'US']) if (!geos.has(base)) geos.set(base, 0);
+      const fGeo = sel([['', 'Anywhere']]);
+      for (const [v, n] of [...geos].sort((a, b) => b[1] - a[1])) {
+        fGeo.appendChild(el('option', { value: v },
+          (OPPS_COUNTRY_NAMES[v] || v) + (n ? '  (' + n + ')' : '')));
+      }
+
+      const types = new Map();
+      for (const r of all) {
+        const t = String(r.investor_type || '').trim().toLowerCase();
+        if (t) types.set(t, (types.get(t) || 0) + 1);
+      }
+      const fType = sel([['', 'Any investor type']]);
+      for (const [v, n] of [...types].sort((a, b) => b[1] - a[1])) {
+        fType.appendChild(el('option', { value: v },
+          v.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()) + '  (' + n + ')'));
+      }
+
+      const fStrat = sel([['', 'Any strategy'], ['equity_long_short', 'Equity long/short'],
+        ['macro', 'Macro'], ['cta', 'CTA / managed futures'], ['market_neutral', 'Market neutral'],
+        ['quant', 'Quant / systematic'], ['multi_strategy', 'Multi-strategy'], ['event', 'Event driven']]);
+      const fAsset = sel([['', 'Any asset class'], ['hedge', 'Hedge funds'], ['equit', 'Equities'],
+        ['credit', 'Credit'], ['private', 'Private markets'], ['real', 'Real assets'],
+        ['multi', 'Multi-asset']]);
+      const fTick = sel([['', 'Any ticket'], ['500000', 'USD 500k and up'],
+        ['1000000', 'USD 1m and up'], ['5000000', 'USD 5m and up'], ['10000000', 'USD 10m and up']]);
+      const fQ = el('input', { class: 'search', type: 'search',
+        placeholder: 'Name, organisation or what the alert said\u2026' });
+
+      panel.append(
+        mk('Search', fQ, 'q'),
+        el('div', { class: 'grid2' }, mk('Geography', fGeo, 'country'), mk('Investor type', fType, 'type')),
+        el('div', { class: 'grid2' }, mk('Strategy', fStrat, 'strategy'), mk('Asset class', fAsset, 'asset')),
+        mk('Minimum ticket', fTick, 'tmin'));
+
+      const clearBtn = el('button', { class: 'btn btn-sm btn-quiet', style: 'margin-top:10px' }, 'Clear filters');
+      clearBtn.addEventListener('click', () => {
+        oppsFilters = { q: '', country: '', type: '', strategy: '', asset: '', tmin: '' };
+        go('opps');
+      });
+      panel.appendChild(clearBtn);
+      filterBar.appendChild(panel);
+    }
+
+    /* ---- the read/approved chips (within the chosen mode + filters) ----- */
+    const scoped = all.filter(m => inMode(m) && oppsPasses(m));
     for (const [k, lbl, tone] of VIEWS) {
       const on = k === oppsView;
-      const n  = all.filter(m => inView(m, k)).length;
+      const n  = scoped.filter(m => inView(m, k)).length;
       const c  = el('button', { class: 'chip',
         onclick: () => { oppsView = k; go('opps'); } }, lbl + '  ' + n);
       c.style.borderColor = on ? 'var(--' + tone + ')' : '';
@@ -3262,17 +3516,17 @@ RENDER.opps = function (body) {
       chips.appendChild(c);
     }
 
-    const rows = all.filter(m => inView(m, oppsView));
+    const rows = scoped.filter(m => inView(m, oppsView));
     if (!rows.length) {
       return list.appendChild(all.length
-        ? empty('Nothing under that filter', 'Try Everything.')
+        ? empty('Nothing under these filters',
+            anyFilter ? 'Loosen a filter, or switch to Under review.' : 'Try Under review.')
         : empty('No opportunities yet', 'Screened mandates from With Intelligence land here.'));
     }
-    const body = list;
     const grid = el('div', { class: 'matchgrid' });
-    body.appendChild(grid);
+    list.appendChild(grid);
     for (const m of rows) {
-      const tone = m.qualification === 'matched' ? 'good' : m.qualification === 'uncertain' ? 'signal' : 'bad';
+      const tone = matchScore(m) >= 0.75 ? 'good' : 'signal';
 
       /* Why is this waiting on you? The stored fit_reason is often stale --
          "Hard criteria failure" from before the rules changed. The honest
@@ -3283,30 +3537,10 @@ RENDER.opps = function (body) {
         for (let i = 0; i < 2 && typeof x === 'string'; i++) { try { x = JSON.parse(x); } catch (_) { x = []; } }
         return Array.isArray(x) ? x.map(s => String(s).trim()).filter(Boolean) : [];
       };
-      const fails   = jarr(m.hard_fail_reasons);
-      const soft    = jarr(m.soft_flags);
-      const missing = jarr(m.missing_hard_fields);
-      const q       = String(m.qualification || '').toLowerCase();
-
-      let verdict;
-      if (q === 'matched') {
-        verdict = { label: 'Matched', tone: 'good', text: 'Meets every criterion outright.' };
-      } else if (fails.length === 1) {
-        verdict = { label: 'Missed only on', tone: 'signal', text: fails[0] };
-      } else if (fails.length > 1) {
-        verdict = { label: 'Missed on ' + fails.length, tone: 'bad', text: fails.join('   \u00B7   ') };
-      } else if (soft.length) {
-        verdict = { label: 'Worth a look because', tone: 'signal', text: soft.join('   \u00B7   ') };
-      } else if (missing.length) {
-        verdict = { label: 'The alert didn\u2019t mention', tone: 'signal',
-          text: missing.join(', ').replace(/_/g, ' ') };
-      } else {
-        verdict = { label: 'Waiting on you', tone: 'signal',
-          text: asText(m.fit_reason) || 'No reason recorded \u2014 worth opening.' };
-      }
 
       grid.appendChild(matchCard(m, {
         tone,
+        controls: qualificationControl(m, () => go('opps')),
         actions: [
           { label: 'View the mandate', primary: true, run: () => { markSeen(m); openMandate(m); } },
           { label: 'Fill a gap', run: () => fillSheet(m) },
@@ -3318,7 +3552,7 @@ RENDER.opps = function (body) {
         }))
       }));
     }
-    body.appendChild(el('p', { class: 'mono',
+    list.appendChild(el('p', { class: 'mono',
       style: 'color:var(--ink-3);font-size:12px;margin-top:18px' }, 'Showing ' + rows.length));
   });
 };
@@ -6322,8 +6556,8 @@ async function openMandate(m) {
       el('div', { style: 'font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;'
         + 'color:var(--ink-3);margin-bottom:3px' }, 'Fit score'),
       el('div', { style: 'font-size:16px;font-weight:600;line-height:1.5' },
-        scoreChip(full.fit_score, full))),
-    field('Qualification', full.qualification),
+        scoreChip(matchScore(full), full))),
+    el('div', { style: 'margin-bottom:14px' }, qualificationControl(full, () => openMandate(full))),
     field('Approved', full.approved_at
       ? (fmtDate(full.approved_at) + (full.approved_by ? '  by ' + full.approved_by : ''))
       : 'not approved yet'),
@@ -7154,11 +7388,12 @@ const FILLABLE = [
 function fillSheet(m) {
   const who = (session && session.email) || 'console';
   const F = {}, was = {};
-  const rows = [];
-  let emptyCount = 0;
+  const gapRows = [], filledRows = [];   // split so the panel can lead with gaps
+  let total = 0;
 
   for (const [key, label, kind] of FILLABLE) {
     if (!(key in m)) continue;                 // the column does not exist here
+    total++;
     const cur = m[key];
     /* A ticket of 25000000 is a number nobody can read at a glance, and this
        panel is where somebody checks a figure before acting on it. It is shown
@@ -7170,7 +7405,6 @@ function fillSheet(m) {
                 : kind === 'number' ? num(cur)
                 : (cur == null ? '' : String(cur));
     const empty = shown === '';
-    if (empty) emptyCount++;
     was[key] = shown;
 
     const input = el('input', {
@@ -7190,19 +7424,55 @@ function fillSheet(m) {
     }
     F[key] = { input, kind };
 
-    rows.push(el('label', { class: 'field' },
-      el('span', null, label + (empty ? '' : '   \u2713')), input));
+    const row = el('label', { class: 'field' },
+      el('span', null, label + (empty ? '' : '   \u2713')), input);
+    (empty ? gapRows : filledRows).push(row);
   }
 
+  const emptyCount = gapRows.length;
+
+  // Only the gaps need attention, so the panel leads with them. The fields the
+  // alert already stated stay one click away rather than filling the screen --
+  // they are still in the DOM, so any correction to them still saves.
+  const pair = (arr) => {
+    const g = el('div');
+    for (let i = 0; i < arr.length; i += 2) {
+      g.appendChild(el('div', { class: 'grid2' }, arr[i], arr[i + 1] || el('div')));
+    }
+    return g;
+  };
+  const gapGrid    = pair(gapRows);
+  const filledGrid = pair(filledRows);
+  filledGrid.style.display = emptyCount ? 'none' : '';   // hidden while gaps exist
+
   const grid = el('div', { style: 'min-width:min(720px,74vw)' });
-  for (let i = 0; i < rows.length; i += 2) {
-    grid.appendChild(el('div', { class: 'grid2' }, rows[i], rows[i + 1] || el('div')));
+  if (emptyCount) {
+    grid.appendChild(el('p', { class: 'mono',
+      style: 'font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px' },
+      'To update'));
+  }
+  grid.appendChild(gapGrid);
+
+  // A toggle for the fields already on file, so a correction is still possible
+  // without them getting in the way of the gaps.
+  if (filledRows.length && emptyCount) {
+    const toggle = el('label', {
+      style: 'display:inline-flex;align-items:center;gap:8px;margin:14px 0 10px;'
+           + 'font-size:12.5px;color:var(--ink-2);cursor:pointer' });
+    const box = el('input', { type: 'checkbox' });
+    box.addEventListener('change', () => { filledGrid.style.display = box.checked ? '' : 'none'; });
+    toggle.append(box, el('span', null, 'Show ' + filledRows.length
+      + (filledRows.length === 1 ? ' field already on file' : ' fields already on file')));
+    grid.appendChild(toggle);
+    grid.appendChild(filledGrid);
+  } else if (filledRows.length) {
+    grid.appendChild(filledGrid);
   }
 
   const head = el('p', { class: 'mono', style: 'font-size:12px;color:var(--ink-3);margin:0 0 14px' },
     emptyCount === 0
       ? 'Every field on this mandate is already filled. Anything you change here is recorded as a correction.'
-      : emptyCount + ' of ' + rows.length + ' fields were never stated in the alert. A tick marks the ones that were.');
+      : emptyCount + ' of ' + total + ' fields were never stated in the alert. Fill any of them and the score updates on save.');
 
   const save = el('button', { class: 'btn btn-sm' }, 'Save what I filled in');
   save.addEventListener('click', async () => {
@@ -7234,7 +7504,26 @@ function fillSheet(m) {
     try {
       await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), patch);
       Object.assign(m, patch);
-      toast(filled.length === 1 ? 'One field saved.' : filled.length + ' fields saved.');
+
+      /* A filled gap can change the picture, so the console re-scores from the
+         five criteria and moves the band to match -- a mandate that now meets
+         four of five reads as Matched without anyone re-scoring it by hand. The
+         write is best-effort: the fields are already saved, and a stale score is
+         better than losing them. Rejection is left alone; that is a decision, not
+         a score. */
+      let scoreMsg = '';
+      try {
+        const ns = Math.round(matchScore(m) * 100) / 100;
+        const sp = { fit_score: ns };
+        if (String(m.qualification || '').toLowerCase() !== 'rejected') {
+          sp.qualification = ns >= 0.75 ? 'matched' : 'uncertain';
+        }
+        await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), sp);
+        Object.assign(m, sp);
+        scoreMsg = '  Score is now ' + scoreText(ns) + '.';
+      } catch (_) { /* keep the field save even if the re-score write fails */ }
+
+      toast((filled.length === 1 ? 'One field saved.' : filled.length + ' fields saved.') + scoreMsg);
       closeSheet();
       if (current === 'mandate') openMandate(m); else go(current);
     } catch (e) {
@@ -7683,7 +7972,7 @@ function start() {
   $('app').className = 'on';
   $('who').textContent = DEMO ? 'Sample data' : (session.email || 'Signed in');
   buildNav();
-  go('today');
+  go('opps');
   mountRefresh();
   if (!DEMO) {
     poll();
