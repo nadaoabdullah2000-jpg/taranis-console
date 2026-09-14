@@ -1385,11 +1385,11 @@ function matchCard(m, opts) {
 }
 
 /* The standard qualification values, in the order they read as a pipeline.
-   'uncertain' is the stored value; it is shown to a person as "Under review",
-   which is the word the team actually uses for it. */
+   'uncertain' is the stored value; it is shown to a person as "Waiting for
+   decision", the same words the headline button uses, so the two never disagree. */
 const QUALIFICATIONS = [
   ['matched',   'Matched'],
-  ['uncertain', 'Under review'],
+  ['uncertain', 'Waiting for decision'],
   ['rejected',  'Rejected']
 ];
 
@@ -3329,7 +3329,7 @@ let oppsMode = 'review';
 /* The finer filters that sit under the buttons. Empty means "no constraint".
    Kept at module scope so switching tabs and coming back does not lose them. */
 let oppsFilters = { q: '', country: '', type: '', strategy: '', asset: '', tmin: '' };
-let oppsFilterOpen = false;
+let oppsFilterOpen = true;
 
 /* Names for the country codes the rows carry, so the filter reads "Switzerland"
    rather than "CH". Anything not listed shows its raw code. */
@@ -3398,10 +3398,10 @@ RENDER.opps = function (body) {
     : k === 'approved' ? isApproved(m)
     :                    !isApproved(m);
 
-  // The two headline lenses. 'review' is the whole pile that survived rejection;
-  // 'matched' is the 0.75-and-up subset of it, scored the console's consistent
-  // way so a report-sourced mandate is judged like any other.
-  const inMode = (m) => oppsMode === 'matched' ? matchScore(m) >= 0.75 : true;
+  // The two headline lenses, now mutually exclusive. 'matched' is 0.75 and up;
+  // 'review' is everything else that survived rejection (below 0.75). A mandate
+  // is in exactly one of the two, never both.
+  const inMode = (m) => oppsMode === 'matched' ? matchScore(m) >= 0.75 : matchScore(m) < 0.75;
 
   fill(list, () => readRows('wi_mandates',
         'select=*&qualification=neq.rejected&order=id.desc&limit=200',
@@ -3410,7 +3410,7 @@ RENDER.opps = function (body) {
 
     /* ---- the two big buttons ------------------------------------------- */
     const nMatched = all.filter(m => matchScore(m) >= 0.75).length;
-    const nReview  = all.length;
+    const nReview  = all.filter(m => matchScore(m) < 0.75).length;
     const bigBtn = (mode, label, count, tone) => {
       const on = oppsMode === mode;
       const b = el('button', {
@@ -3422,12 +3422,12 @@ RENDER.opps = function (body) {
       },
         el('span', { style: 'font-family:var(--font-display);font-weight:600' }, label),
         el('span', { style: 'font-size:12px;opacity:.8;letter-spacing:.02em' },
-          count + (mode === 'matched' ? ' scoring 0.75\u20131.00' : ' not rejected')));
+          count + (mode === 'matched' ? ' scoring 0.75\u20131.00' : ' scoring below 0.75')));
       return b;
     };
     modeRow.append(
-      bigBtn('matched', 'Matched',      nMatched, 'good'),
-      bigBtn('review',  'Under review', nReview,  'signal'));
+      bigBtn('matched', 'Matched',              nMatched, 'good'),
+      bigBtn('review',  'Waiting for decision', nReview,  'signal'));
 
     /* ---- the filter panel ---------------------------------------------- */
     const F = oppsFilters;
@@ -3520,7 +3520,7 @@ RENDER.opps = function (body) {
     if (!rows.length) {
       return list.appendChild(all.length
         ? empty('Nothing under these filters',
-            anyFilter ? 'Loosen a filter, or switch to Under review.' : 'Try Under review.')
+            anyFilter ? 'Loosen a filter, or switch to Waiting for decision.' : 'Try Waiting for decision.')
         : empty('No opportunities yet', 'Screened mandates from With Intelligence land here.'));
     }
     const grid = el('div', { class: 'matchgrid' });
@@ -4216,7 +4216,15 @@ RENDER.meetings = function (body) {
   const mTitle = el('input', { class: 'search', placeholder: 'What is the meeting? e.g. TMS review with Pictet' });
   const mWhen  = el('input', { class: 'search', type: 'datetime-local' });
   const mMins  = el('input', { class: 'search', type: 'number', value: '30', min: '15', step: '15' });
-  const mTz    = el('input', { class: 'search', value: 'Africa/Cairo' });
+  /* A short list rather than free text: these are the three the desk actually
+     books across. Values are IANA zones (Geneva is Europe/Zurich) so the
+     workflow gets a zone it can compute with; the labels read the way the team
+     says them. */
+  const mTz = el('select', { class: 'search' });
+  for (const [v, l] of [['Africa/Cairo', 'Africa/Cairo'], ['Europe/Zurich', 'Geneva'], ['Europe/London', 'London, UK']]) {
+    mTz.appendChild(el('option', { value: v }, l));
+  }
+  mTz.value = 'Africa/Cairo';
 
   /* Which platform issues the meeting. The choice is remembered between
      bookings, because in practice a firm uses one of these almost always and
@@ -4336,12 +4344,18 @@ RENDER.meetings = function (body) {
     'Schedule and send the invitation');
   const linkBtn = el('button', { class: 'btn btn-quiet', onclick: () => book(false) },
     'Just get me a link');
+  /* The third intention: book a slot and go straight to writing an email about
+     it. It creates the meeting the same way "Just get me a link" does, then
+     opens the compose panel already loaded with the invitation, so a message can
+     go out without a second trip through the form. */
+  const emailBtn = el('button', { class: 'btn', onclick: () => book(false, { openEmail: true }) },
+    '\u2709 Send an email');
   /* Where the link lands the moment it exists. Sits directly under the button
      rather than in a toast, because a join link is something you copy, and a
      toast disappears while you are still reaching for it. */
   const issued = el('div');
 
-  async function book(sendInvites) {
+  async function book(sendInvites, opts) {
     if (!mTitle.value.trim()) return toast('Give the meeting a title.', true);
     if (!mWhen.value) return toast('Pick a date and time.', true);
     // No guest list required. Booking a slot to send on by hand is a normal
@@ -4365,9 +4379,10 @@ RENDER.meetings = function (body) {
       invitee_name: mFor.value.trim()
     };
 
-    const pressed = sendInvites === false ? linkBtn : bookBtn;
+    const pressed = (opts && opts.openEmail) ? emailBtn
+                  : (sendInvites === false ? linkBtn : bookBtn);
     const pressedLabel = pressed.textContent;
-    bookBtn.disabled = true; linkBtn.disabled = true;
+    bookBtn.disabled = true; linkBtn.disabled = true; emailBtn.disabled = true;
     pressed.textContent = 'Creating the meeting\u2026';
     clear(issued);
     try {
@@ -4379,7 +4394,8 @@ RENDER.meetings = function (body) {
         showLink(label, url, r.passcode, r.message, r.invited,
           buildGcalUrl(payload.title, payload.start_utc, payload.duration_min, url),
           { meeting_id: r.meeting_id || r.id, title: payload.title, start_utc: payload.start_utc,
-            duration_min: payload.duration_min, tz: payload.tz, provider: payload.provider });
+            duration_min: payload.duration_min, tz: payload.tz, provider: payload.provider },
+          opts && opts.openEmail);
         toast(label + ' meeting created.');
       } else {
         /* The gateway answered but has no link for us -- almost always a
@@ -4415,7 +4431,7 @@ RENDER.meetings = function (body) {
         toast(e2.message, true);
       }
     } finally {
-      bookBtn.disabled = false; linkBtn.disabled = false;
+      bookBtn.disabled = false; linkBtn.disabled = false; emailBtn.disabled = false;
       pressed.textContent = pressedLabel;
     }
   }
@@ -4432,7 +4448,7 @@ RENDER.meetings = function (body) {
       + '&location=' + encodeURIComponent(joinUrl || '');
   }
 
-  function showLink(label, url, passcode, message, invited, calUrl, meta) {
+  function showLink(label, url, passcode, message, invited, calUrl, meta, autoEmail) {
     clear(issued);
     issued.appendChild(el('div', { class: 'callout good', style: 'margin-top:14px' },
       el('span', { class: 'callout-k' }, label),
@@ -4487,6 +4503,9 @@ RENDER.meetings = function (body) {
       } }, '\u2709 Send an email'));
       wrap.appendChild(panel);
       issued.appendChild(wrap);
+      // Opened straight away when the user pressed "Send an email" on the form,
+      // so the compose fields are in front of them without a second click.
+      if (autoEmail) { panel.style.display = ''; setTimeout(() => { try { wrap.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {} }, 60); }
 
       const field = (ph) => el('input', { class: 'search', list: 'mtg-email-sug', placeholder: ph, style: 'margin:0' });
       const toI = field('To \u2014 name or email');
@@ -4552,7 +4571,7 @@ RENDER.meetings = function (body) {
     el('div', { class: 'grid2' }, lbl('Minutes', mMins), lbl('Timezone', mTz)),
     el('div', { class: 'grid2' }, lbl('Platform', mProv), lbl('Invitation language', mLang)),
     lbl('Address the message to', mFor), mForSugg,
-    el('div', { class: 'acts', style: 'margin-top:16px' }, linkBtn),
+    el('div', { class: 'acts', style: 'margin-top:16px' }, linkBtn, emailBtn),
     issued);
   body.appendChild(form);
 
