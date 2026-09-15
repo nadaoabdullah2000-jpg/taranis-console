@@ -1229,6 +1229,28 @@ function critOf(m) {
   ];
 }
 
+/* Why a criterion is not met, so a cross can say which kind it is:
+     'yes'     - met;
+     'no'      - the data is on file and it genuinely does not qualify (a real
+                 miss, e.g. an out-of-market country, or strategies that are all
+                 ineligible);
+     'unknown' - the field was never stated, so the cross is an absence of
+                 information rather than a disqualification.
+   Kept in step with critOf: 'yes' here is exactly a true there. */
+function critStatus(m) {
+  const cc     = String(m.investor_country || '').trim().toUpperCase().slice(0, 2);
+  const assets = jsonArr(m.asset_classes);
+  const strats = jsonArr(m.strategies);
+  const aumOk  = m.aum_usd !== null && m.aum_usd !== undefined
+               && String(m.aum_usd).trim() !== '' && Number(m.aum_usd) > 0;
+  return [
+    !cc            ? 'unknown' : (ADDRESSABLE.has(cc) ? 'yes' : 'no'),
+    !assets.length ? 'unknown' : (assets.some(a => /hedge|alternative|absolute return/i.test(String(a))) ? 'yes' : 'no'),
+    !strats.length ? 'unknown' : (strats.some(s => ELIGIBLE.has(String(s).toLowerCase())) ? 'yes' : 'no'),
+    aumOk          ? 'yes' : 'unknown'
+  ];
+}
+
 /* One score, computed the same way for every mandate no matter where it came
    from. The upstream fit_score With Intelligence writes runs hot for the report
    feeds (HFA & FOC) and cannot be compared like-for-like with alert-sourced
@@ -1273,6 +1295,8 @@ function ensureMatchCss() {
   + ".mcard-c .mk{width:16px;height:16px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex:none}"
   + ".mcard-c .mk.yes{background:rgba(30,158,99,.14);color:var(--good)}"
   + ".mcard-c .mk.no{background:rgba(198,64,43,.12);color:var(--bad)}"
+  + ".mcard-c .mk.unk{background:rgba(90,110,130,.14);color:var(--ink-3)}"
+  + ".mcard-unk{margin-left:auto;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);background:var(--rule-2,#E9EFF3);padding:1px 7px;border-radius:10px;flex:none}"
   + ".mcard .acts{display:flex;gap:8px;flex-wrap:wrap}"
   + ".mcard-reason{margin-top:13px;padding:10px 12px;border-radius:8px;font-size:12.5px;line-height:1.45;background:rgba(198,64,43,.07);border:1px solid rgba(198,64,43,.18)}"
   + ".mcard-reason.signal{background:rgba(200,144,0,.08);border-color:rgba(200,144,0,.25)}"
@@ -1312,11 +1336,18 @@ function matchCard(m, opts) {
   for (let i = 0; i < crit.length; i++) seg.appendChild(el('div', { class: 'seg' + (i < score ? ' on' : '') }));
   card.appendChild(seg);
 
+  const stat = critStatus(m);
   const cr = el('div', { class: 'mcard-crit' });
   MATCH_CRITERIA.forEach((name, i) => {
-    const yes = !!crit[i];
-    cr.appendChild(el('div', { class: 'mcard-c' },
-      el('span', { class: 'mk ' + (yes ? 'yes' : 'no') }, yes ? '\u2713' : '\u2717'), name));
+    const st   = crit[i] ? 'yes' : (stat[i] === 'unknown' ? 'unknown' : 'no');
+    const mark = st === 'yes' ? '\u2713' : st === 'unknown' ? '?' : '\u2717';
+    const cls  = st === 'yes' ? 'yes' : st === 'unknown' ? 'unk' : 'no';
+    const row  = el('div', { class: 'mcard-c' },
+      el('span', { class: 'mk ' + cls }, mark), el('span', null, name));
+    // An absence of information is labelled as such, so it does not read like a
+    // confirmed disqualification.
+    if (st === 'unknown') row.appendChild(el('span', { class: 'mcard-unk' }, 'unknown'));
+    cr.appendChild(row);
   });
   card.appendChild(cr);
 
@@ -5389,10 +5420,17 @@ function renderOpenOpps(host) {
       for (let i = 0; i < crit.length; i++) seg.appendChild(el('i', { class: i < score ? 'on' : '' }));
       card.appendChild(seg);
       const cr = el('div', { class: 'cr' });
+      const rstat = critStatus(m);
       WI_CRIT.forEach((name, i) => {
-        const yes = !!crit[i];
-        cr.appendChild(el('div', { class: 'c' },
-          el('span', { class: 'mk ' + (yes ? 'y' : 'no') }, yes ? '\u2713' : '\u2717'), name));
+        const st   = crit[i] ? 'yes' : (rstat[i] === 'unknown' ? 'unknown' : 'no');
+        const mark = st === 'yes' ? '\u2713' : st === 'unknown' ? '?' : '\u2717';
+        const cls  = st === 'yes' ? 'y' : st === 'unknown' ? 'no' : 'no';
+        const row  = el('div', { class: 'c' },
+          el('span', { class: 'mk ' + cls, style: st === 'unknown' ? 'background:rgba(90,110,130,.14);color:var(--ink-3)' : '' }, mark),
+          el('span', null, name));
+        if (st === 'unknown') row.appendChild(el('span', {
+          style: 'margin-left:auto;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)' }, 'unknown'));
+        cr.appendChild(row);
       });
       card.appendChild(cr);
       const btns = el('div', { class: 'btns' });
