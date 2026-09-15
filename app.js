@@ -1251,6 +1251,27 @@ function critStatus(m) {
   ];
 }
 
+/* The criteria a rejected mandate FAILED, decision-first: recorded hard-fail
+   reasons, else the fields it was missing to qualify, else it cleared the hard
+   criteria and was turned away on the score alone. Used to count and colour the
+   rejected card. Self-contained so any card can compute it from the row. */
+function rejectFails(m) {
+  let w = m.hard_fail_reasons;
+  for (let i = 0; i < 2 && typeof w === 'string'; i++) { try { w = JSON.parse(w); } catch (_) { w = []; } }
+  const why = [], seen = {};
+  if (Array.isArray(w)) for (const r of w) {
+    const s = String(r == null ? '' : r).trim();
+    if (!s) continue;
+    const k = s.toLowerCase().replace(/\s+/g, ' ');
+    if (!seen[k]) { seen[k] = true; why.push(s); }
+  }
+  if (why.length) return why;
+  const miss = jsonArr(m.missing_hard_fields).map(s => String(s).replace(/_/g, ' ')).filter(Boolean);
+  if (miss.length) return miss;
+  return ['Rejected on the score'
+    + (m.fit_score === null || m.fit_score === undefined ? '' : ' (' + scoreText(m.fit_score) + ')')];
+}
+
 /* One score, computed the same way for every mandate no matter where it came
    from. The upstream fit_score With Intelligence writes runs hot for the report
    feeds (HFA & FOC) and cannot be compared like-for-like with alert-sourced
@@ -1290,6 +1311,7 @@ function ensureMatchCss() {
   + ".mcard-seg{display:flex;gap:4px;margin-bottom:15px}"
   + ".mcard-seg .seg{height:8px;flex:1;border-radius:3px;background:var(--rule-2,#E9EFF3)}"
   + ".mcard-seg .seg.on{background:linear-gradient(90deg,#00A8D0,#00A8C8)}"
+  + ".mcard-seg .seg.miss{background:var(--bad)}"
   + ".mcard-crit{display:flex;flex-direction:column;gap:8px}"
   + ".mcard-c{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--ink-2)}"
   + ".mcard-c .mk{width:16px;height:16px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex:none}"
@@ -1329,27 +1351,49 @@ function matchCard(m, opts) {
   card.appendChild(el('div', { class: 'mcard-sub' },
     [m.investor_country, m.aum_band].filter(Boolean).join('  \u00B7  ') || '\u00A0'));
 
-  card.appendChild(el('div', { class: 'mcard-score' },
-    el('span', null, q.toUpperCase()), el('b', null, score + '/' + crit.length)));
+  /* The card's whole character follows the mandate's current qualification, so
+     the same record reads correctly wherever it lands. Rejected -> the red
+     mirror image that counts what it FAILED. Anything else (matched, waiting,
+     custom) -> the blue opportunity card that counts what it MEETS. Move a
+     mandate between the two and its colour, its number and its ticks flip to
+     match, with no per-tab special-casing. */
+  const rejected = String(m.qualification || '').toLowerCase() === 'rejected';
+  if (rejected) {
+    const fails = (Array.isArray(opts.reject) && opts.reject.length) ? opts.reject : rejectFails(m);
+    const n = fails.length;
+    card.appendChild(el('div', { class: 'mcard-score' },
+      el('span', { style: 'color:var(--bad)' }, 'REJECTED'),
+      el('b', { style: 'color:var(--bad)' }, n + (n === 1 ? ' criterion missed' : ' criteria missed'))));
+    const seg = el('div', { class: 'mcard-seg' });
+    for (let i = 0; i < n; i++) seg.appendChild(el('div', { class: 'seg miss' }));
+    card.appendChild(seg);
+    const cr = el('div', { class: 'mcard-crit' });
+    fails.forEach((name) => cr.appendChild(el('div', { class: 'mcard-c' },
+      el('span', { class: 'mk no' }, '\u2717'), el('span', null, name))));
+    card.appendChild(cr);
+  } else {
+    card.appendChild(el('div', { class: 'mcard-score' },
+      el('span', null, q.toUpperCase()), el('b', null, score + '/' + crit.length)));
 
-  const seg = el('div', { class: 'mcard-seg' });
-  for (let i = 0; i < crit.length; i++) seg.appendChild(el('div', { class: 'seg' + (i < score ? ' on' : '') }));
-  card.appendChild(seg);
+    const seg = el('div', { class: 'mcard-seg' });
+    for (let i = 0; i < crit.length; i++) seg.appendChild(el('div', { class: 'seg' + (i < score ? ' on' : '') }));
+    card.appendChild(seg);
 
-  const stat = critStatus(m);
-  const cr = el('div', { class: 'mcard-crit' });
-  MATCH_CRITERIA.forEach((name, i) => {
-    const st   = crit[i] ? 'yes' : (stat[i] === 'unknown' ? 'unknown' : 'no');
-    const mark = st === 'yes' ? '\u2713' : st === 'unknown' ? '?' : '\u2717';
-    const cls  = st === 'yes' ? 'yes' : st === 'unknown' ? 'unk' : 'no';
-    const row  = el('div', { class: 'mcard-c' },
-      el('span', { class: 'mk ' + cls }, mark), el('span', null, name));
-    // An absence of information is labelled as such, so it does not read like a
-    // confirmed disqualification.
-    if (st === 'unknown') row.appendChild(el('span', { class: 'mcard-unk' }, 'unknown'));
-    cr.appendChild(row);
-  });
-  card.appendChild(cr);
+    const stat = critStatus(m);
+    const cr = el('div', { class: 'mcard-crit' });
+    MATCH_CRITERIA.forEach((name, i) => {
+      const st   = crit[i] ? 'yes' : (stat[i] === 'unknown' ? 'unknown' : 'no');
+      const mark = st === 'yes' ? '\u2713' : st === 'unknown' ? '?' : '\u2717';
+      const cls  = st === 'yes' ? 'yes' : st === 'unknown' ? 'unk' : 'no';
+      const row  = el('div', { class: 'mcard-c' },
+        el('span', { class: 'mk ' + cls }, mark), el('span', null, name));
+      // An absence of information is labelled as such, so it does not read like a
+      // confirmed disqualification.
+      if (st === 'unknown') row.appendChild(el('span', { class: 'mcard-unk' }, 'unknown'));
+      cr.appendChild(row);
+    });
+    card.appendChild(cr);
+  }
 
   // Optional "why" line — used by Rejected cards to say what it was turned
   // away for (failed criteria and/or missing fields), since the score alone
@@ -4151,62 +4195,28 @@ RENDER.rejected = function (body) {
     for (const m of rows) {
       const why = reasons(m);
       const miss = jsonArr(m.missing_hard_fields).map(s => String(s).replace(/_/g, ' '));
-      // Build the "why rejected" line: failed hard criteria first, else the
-      // missing information that stopped it qualifying, else the score note.
-      let reasonLabel, reasonLine, reasonTone;
-      if (why.length) {
-        reasonLabel = why.length === 1 ? 'Rejected — missed only on' : 'Rejected — failed ' + why.length + ' criteria';
-        reasonLine = why.join('  ·  ');
-        reasonTone = why.length > 1 ? 'bad' : 'signal';
-      } else if (miss.length) {
-        reasonLabel = 'Rejected — missing to qualify (' + miss.length + ')';
-        reasonLine = miss.join(', ');
-        reasonTone = 'signal';
-      } else {
-        reasonLabel = 'Rejected on score';
-        reasonLine = asText(m.fit_reason) || ('Scored below the 0.30 threshold'
-          + (m.fit_score === null || m.fit_score === undefined ? '' : ' (' + scoreText(m.fit_score) + ')'));
-        reasonTone = 'signal';
-      }
+      /* The criteria this mandate FAILED, which is what the card now counts and
+         colours red. Recorded hard-fail reasons first; otherwise the fields it
+         was missing to qualify; otherwise it survived the hard criteria and was
+         turned away on the score alone. */
+      const fails = why.length ? why
+                  : miss.length ? miss
+                  : ['Rejected on the score'
+                     + (m.fit_score === null || m.fit_score === undefined ? '' : ' (' + scoreText(m.fit_score) + ')')];
       grid.appendChild(matchCard(m, {
         tone: 'bad',
-        reasonLabel: reasonLabel,
-        reasonLine: reasonLine,
-        reasonTone: reasonTone,
-        rail: '#' + m.id,
-        action: investorLabel(m),
-        who: [orgLabel(m), asText(m.investor_country), asText(m.investor_type)]
-          .filter(Boolean).join('  \u00B7  '),
-        // Whatever it was turned away for, that is the line to read first --
-        // one reason or four. Amber where a single miss makes it worth
-        // reopening, red where it failed on several counts.
-        callout: why.length ? why.join('   \u00B7   ')
-          : (asText(m.fit_reason)
-             || 'Scored below the 0.30 threshold, and no note was written with it.'),
-        calloutLabel: why.length === 0 ? 'Judged, not screened out'
-          : why.length === 1 ? 'Missed only on'
-          : 'Missed on ' + why.length,
-        calloutTone: why.length > 1 ? 'bad' : 'signal',
-        evidence: [
-          ['failures  ', why.length === 0
-              ? ('none \u2014 it met the hard criteria and was rejected on the score'
-                 + (m.fit_score === null || m.fit_score === undefined
-                    ? '' : ' of ' + scoreText(m.fit_score)))
-              : missCount(why.length)],
-          ['strategy  ', asText(m.strategies)],
-          ['ticket    ', money(m.ticket_min_usd)
-              + (tone === 'ticket' ? '   \u2014 below the floor, but not why it was turned away' : '')]
-        ],
-        tags: [['rejected', 'bad'],
-               why.length === 0 ? ['rejected on score', 'signal']
-               : why.length === 1 ? ['one miss', 'signal']
-               : [why.length + ' misses', 'quiet']].filter(Boolean),
+        reject: fails,
+        // Same drop list as an opportunity card: pick Matched or Waiting for
+        // decision here and the mandate is reconsidered on the spot, moving to
+        // Opportunities where it renders as a blue opportunity (met count, ticks
+        // and all). routeAfterQualification sends it to the right lens.
+        controls: qualificationControl(m, (to) => routeAfterQualification(m, to)),
         actions: [
           { label: 'View the mandate', primary: true, run: () => openMandate(m) }
         ].concat(verdictActions(m, (to) => {
           // Follow it. A mandate that silently disappears from this list
           // leaves you wondering whether the click did anything.
-          if (to === 'rejected') { all = null; load(); } else { go('opps'); }
+          if (to === 'rejected') { all = null; load(); } else { routeAfterQualification(m, to); }
         }))
       }));
     }
