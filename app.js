@@ -1272,13 +1272,48 @@ function rejectFails(m) {
   const st = critStatus(m);
   const noLabel = ['Outside GB/CH/US', 'Does not buy hedge funds', 'No eligible strategy', ''];
   for (let i = 0; i < st.length; i++) if (st[i] === 'no' && noLabel[i]) add(noLabel[i]);
+  // A ticket that is on file and below the USD 500k floor is a real
+  // contradiction (the figure exists and it is too small), unlike a blank ticket.
+  const tmax = Number(m.ticket_max_usd || m.ticket_min_usd || 0);
+  if (tmax > 0 && tmax < 500000) add('Ticket below USD 500k floor');
   // Recorded hard-fail reasons are confirmed contradictions too (an ineligible
-  // investor type, a ticket below the floor). The separate "missing hard fields"
-  // list is intentionally ignored: those are blanks, i.e. unknown, not conflicts.
+  // investor type, etc.). The separate "missing hard fields" list is intentionally
+  // ignored: those are blanks, i.e. unknown, not conflicts.
   let w = m.hard_fail_reasons;
   for (let i = 0; i < 2 && typeof w === 'string'; i++) { try { w = JSON.parse(w); } catch (_) { w = []; } }
   if (Array.isArray(w)) for (const r of w) add(r);
   return out;
+}
+
+/* Records WI files that were never investor mandates (launches, market trends,
+   people moves...). They are set aside before the criteria run, so they must NOT
+   be reclaimed into Opportunities just because no criterion contradicts them. */
+const NOT_MANDATE_RE = /launch|new manager|market trend|service provider|people move|performance|fundrais|regulat|top story|top insight|managers insight/i;
+function wiReasonsOf(m) {
+  let r = m.hard_fail_reasons;
+  if (typeof r === 'string') { try { r = JSON.parse(r); } catch (_) { r = []; } }
+  if (!Array.isArray(r) || !r.length) r = m.fit_reason ? [m.fit_reason] : [];
+  return r.map(String);
+}
+function isNotMandate(m) {
+  return /not an investor mandate/i.test(wiReasonsOf(m).join(' '))
+    || NOT_MANDATE_RE.test(String(m.investor_tag || ''));
+}
+
+/* The console's own notion of rejected, which overrides a stale upstream label:
+   a record only counts as rejected if it CONTRADICTS Taranis on file, or it was
+   never a mandate. A mandate stored as rejected but with nothing contradicting
+   Taranis is not rejected here -- it is an opportunity that was turned away on
+   the score or on blanks, and it belongs in the pipeline. */
+function effectivelyRejected(m) {
+  if (String(m.qualification || '').trim().toLowerCase() !== 'rejected') return false;
+  return isNotMandate(m) || rejectFails(m).length > 0;
+}
+/* Stored rejected, but a real mandate that contradicts nothing: reclaim it as an
+   opportunity so it shows in the pipeline, blue, not in Rejected. */
+function reclaimedOpportunity(m) {
+  return String(m.qualification || '').trim().toLowerCase() === 'rejected'
+    && !isNotMandate(m) && rejectFails(m).length === 0;
 }
 
 /* One score, computed the same way for every mandate no matter where it came
@@ -1353,7 +1388,10 @@ function matchCard(m, opts) {
   const crit  = critOf(m);
   const score = crit.filter(Boolean).length;
   const q     = String(m.qualification || 'uncertain').trim().toLowerCase();
-  const tone  = opts.tone || (q === 'matched' ? 'good' : q === 'rejected' ? 'bad' : 'signal');
+  // The console's own view of rejection (contradiction-based) can override a
+  // stale upstream 'rejected' label, and drives the card's whole character.
+  const rej0  = opts.reject ? true : effectivelyRejected(m);
+  const tone  = opts.tone || (rej0 ? 'bad' : q === 'matched' ? 'good' : 'signal');
 
   const card = el('div', { class: 'mcard ' + tone });
   card.appendChild(el('h4', { class: 'mcard-h' }, investorLabel(m)));
@@ -1366,39 +1404,30 @@ function matchCard(m, opts) {
      custom) -> the blue opportunity card that counts what it MEETS. Move a
      mandate between the two and its colour, its number and its ticks flip to
      match, with no per-tab special-casing. */
-  const rejected = q === 'rejected';
+  const rejected = rej0;
   if (rejected) {
-    const fails = (Array.isArray(opts.reject) && opts.reject.length) ? opts.reject : rejectFails(m);
+    let fails = (Array.isArray(opts.reject) && opts.reject.length) ? opts.reject : rejectFails(m);
+    if (!fails.length) fails = [isNotMandate(m) ? 'Not an investor mandate' : 'Rejected'];
     const n = fails.length;
-    if (n === 0) {
-      /* Rejected, yet nothing on file actually contradicts Taranis -- it was
-         turned away on the score or on blanks (unknown fields). This is the
-         "opportunity sitting in Rejected" case: say so in amber and let the
-         person reconsider it, rather than inventing a red miss. */
-      card.appendChild(el('div', { class: 'mcard-score' },
-        el('span', { style: 'color:var(--signal)' }, 'REJECTED'),
-        el('b', { style: 'color:var(--signal);font-family:var(--font-body);font-weight:600;font-size:12.5px;letter-spacing:.01em;text-transform:none' },
-          'nothing contradicts Taranis')));
-      card.appendChild(el('div', { class: 'mcard-crit' },
-        el('div', { class: 'mcard-c' },
-          el('span', { class: 'mk unk' }, '?'),
-          el('span', null, 'On file it meets Taranis \u2014 turned away on the score or on blanks. Worth reconsidering.'))));
-    } else {
-      card.appendChild(el('div', { class: 'mcard-score' },
-        el('span', { style: 'color:var(--bad)' }, 'REJECTED'),
-        el('b', { style: 'color:var(--bad);font-family:var(--font-body);font-weight:600;font-size:12.5px;letter-spacing:.01em;text-transform:none' },
-          n + (n === 1 ? ' criterion contradicts Taranis' : ' criteria contradict Taranis'))));
-      const seg = el('div', { class: 'mcard-seg' });
-      for (let i = 0; i < n; i++) seg.appendChild(el('div', { class: 'seg miss' }));
-      card.appendChild(seg);
-      const cr = el('div', { class: 'mcard-crit' });
-      fails.forEach((name) => cr.appendChild(el('div', { class: 'mcard-c' },
-        el('span', { class: 'mk no' }, '\u2717'), el('span', null, name))));
-      card.appendChild(cr);
-    }
-  } else {
     card.appendChild(el('div', { class: 'mcard-score' },
-      el('span', null, q.toUpperCase()), el('b', null, score + '/' + crit.length)));
+      el('span', { style: 'color:var(--bad)' }, 'REJECTED'),
+      el('b', { style: 'color:var(--bad);font-family:var(--font-body);font-weight:600;font-size:12.5px;letter-spacing:.01em;text-transform:none' },
+        isNotMandate(m) ? 'not an investor mandate'
+          : n + (n === 1 ? ' criterion contradicts Taranis' : ' criteria contradict Taranis'))));
+    const seg = el('div', { class: 'mcard-seg' });
+    for (let i = 0; i < n; i++) seg.appendChild(el('div', { class: 'seg miss' }));
+    card.appendChild(seg);
+    const cr = el('div', { class: 'mcard-crit' });
+    fails.forEach((name) => cr.appendChild(el('div', { class: 'mcard-c' },
+      el('span', { class: 'mk no' }, '\u2717'), el('span', null, name))));
+    card.appendChild(cr);
+  } else {
+    /* If a record stored as rejected reaches the blue card, the console reclaimed
+       it (nothing on file contradicts Taranis). Label it RECLAIMED so that is
+       clear; everything else is an ordinary opportunity. */
+    const qLabel = (q === 'rejected') ? 'RECLAIMED' : q.toUpperCase();
+    card.appendChild(el('div', { class: 'mcard-score' },
+      el('span', null, qLabel), el('b', null, score + '/' + crit.length)));
 
     const seg = el('div', { class: 'mcard-seg' });
     for (let i = 0; i < crit.length; i++) seg.appendChild(el('div', { class: 'seg' + (i < score ? ' on' : '') }));
@@ -3526,9 +3555,33 @@ RENDER.opps = function (body) {
   // is in exactly one of the two, never both.
   const inMode = (m) => oppsMode === 'matched' ? matchScore(m) >= 0.75 : matchScore(m) < 0.75;
 
-  fill(list, () => readRows('wi_mandates',
-        'select=*&qualification=neq.rejected&order=id.desc&limit=200',
-        'wi.mandates.list', { limit: 40 }), (all) => {
+  fill(list, async () => {
+    // The live pipeline: everything not rejected upstream.
+    const main = await readRows('wi_mandates',
+      'select=*&qualification=neq.rejected&order=id.desc&limit=200',
+      'wi.mandates.list', { limit: 40 });
+    /* Plus the ones the console reclaims: stored rejected, but real mandates that
+       contradict nothing on Taranis's criteria. They belong in the pipeline, so
+       they are pulled in here and rendered as blue opportunities (labelled
+       RECLAIMED). Best-effort -- if this second read fails, the pipeline still
+       shows. */
+    let reclaimed = [];
+    try {
+      const rej = await readRows('wi_mandates',
+        'select=*&qualification=eq.rejected&order=id.desc&limit=500',
+        'wi.mandates.list', { limit: 500 });
+      reclaimed = (rej || []).filter(reclaimedOpportunity);
+    } catch (_) { /* leave the pipeline as it is */ }
+    // Belt and suspenders: the two reads are disjoint by qualification, but dedupe
+    // by id anyway so a record can never appear twice in the pipeline.
+    const merged = (main || []).concat(reclaimed), byId = {}, uniq = [];
+    for (const m of merged) {
+      const id = m && m.id;
+      if (id == null) { uniq.push(m); continue; }
+      if (!byId[id]) { byId[id] = 1; uniq.push(m); }
+    }
+    return uniq;
+  }, (all) => {
     all = dedupeInvestors(all);
 
     /* ---- the two big buttons ------------------------------------------- */
@@ -4070,9 +4123,11 @@ RENDER.rejected = function (body) {
       // The counts will not add up to the total, and should not: a mandate
       // that missed on three criteria is counted under all three.
       if (all) {
-        // Every count but 'Not a mandate' is taken over real mandates only,
-        // so the numbers agree with what each filter actually shows.
-        const mand = all.filter(m => !notMandate(m));
+        // Every count but 'Not a mandate' is taken over mandates that are
+        // genuinely rejected (they contradict Taranis). Reclaimed ones -- stored
+        // rejected but contradicting nothing -- have moved to Opportunities and
+        // are not counted here.
+        const mand = all.filter(m => !notMandate(m) && rejectFails(m).length > 0);
         const n = k === 'news' ? all.filter(notMandate).length
                 : k === 'all'  ? mand.length
                 : mand.filter(m => passes(m, k)).length;
@@ -4187,7 +4242,7 @@ RENDER.rejected = function (body) {
     if (!all) return;
     const q = find.value.trim().toLowerCase();
     const pool = (tone === 'news') ? all.filter(notMandate)
-                                   : all.filter(m => !notMandate(m));
+                                   : all.filter(m => !notMandate(m) && rejectFails(m).length > 0);
     let rows = pool;
 
     rows = rows.filter(m => passes(m, tone));
