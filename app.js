@@ -1251,25 +1251,34 @@ function critStatus(m) {
   ];
 }
 
-/* The criteria a rejected mandate FAILED, decision-first: recorded hard-fail
-   reasons, else the fields it was missing to qualify, else it cleared the hard
-   criteria and was turned away on the score alone. Used to count and colour the
-   rejected card. Self-contained so any card can compute it from the row. */
+/* Why a mandate genuinely fails Taranis: the CONTRADICTIONS only -- criteria
+   where the information is on file and it is the opposite of what Taranis wants.
+   Blank/unknown fields are deliberately NOT counted: a missing figure or an
+   unstated field is not a reason to reject (that is the distinction the user
+   drew). So this returns, e.g., "Outside GB/CH/US" when a country is on file and
+   out of scope, but nothing for a mandate whose country was simply never stated.
+   An empty result means nothing on file contradicts Taranis -- the record looks
+   like an opportunity that was turned away on the score or on blanks. */
 function rejectFails(m) {
+  const out = [], seen = {};
+  const add = (s) => {
+    s = String(s == null ? '' : s).trim();
+    if (!s) return;
+    const k = s.toLowerCase().replace(/\s+/g, ' ');
+    if (!seen[k]) { seen[k] = true; out.push(s); }
+  };
+  // The four Taranis criteria, but only where the status is a confirmed 'no'
+  // (info present, opposite to Taranis). 'unknown' and 'yes' contribute nothing.
+  const st = critStatus(m);
+  const noLabel = ['Outside GB/CH/US', 'Does not buy hedge funds', 'No eligible strategy', ''];
+  for (let i = 0; i < st.length; i++) if (st[i] === 'no' && noLabel[i]) add(noLabel[i]);
+  // Recorded hard-fail reasons are confirmed contradictions too (an ineligible
+  // investor type, a ticket below the floor). The separate "missing hard fields"
+  // list is intentionally ignored: those are blanks, i.e. unknown, not conflicts.
   let w = m.hard_fail_reasons;
   for (let i = 0; i < 2 && typeof w === 'string'; i++) { try { w = JSON.parse(w); } catch (_) { w = []; } }
-  const why = [], seen = {};
-  if (Array.isArray(w)) for (const r of w) {
-    const s = String(r == null ? '' : r).trim();
-    if (!s) continue;
-    const k = s.toLowerCase().replace(/\s+/g, ' ');
-    if (!seen[k]) { seen[k] = true; why.push(s); }
-  }
-  if (why.length) return why;
-  const miss = jsonArr(m.missing_hard_fields).map(s => String(s).replace(/_/g, ' ')).filter(Boolean);
-  if (miss.length) return miss;
-  return ['Rejected on the score'
-    + (m.fit_score === null || m.fit_score === undefined ? '' : ' (' + scoreText(m.fit_score) + ')')];
+  if (Array.isArray(w)) for (const r of w) add(r);
+  return out;
 }
 
 /* One score, computed the same way for every mandate no matter where it came
@@ -1343,7 +1352,7 @@ function matchCard(m, opts) {
   ensureMatchCss();
   const crit  = critOf(m);
   const score = crit.filter(Boolean).length;
-  const q     = String(m.qualification || 'uncertain').toLowerCase();
+  const q     = String(m.qualification || 'uncertain').trim().toLowerCase();
   const tone  = opts.tone || (q === 'matched' ? 'good' : q === 'rejected' ? 'bad' : 'signal');
 
   const card = el('div', { class: 'mcard ' + tone });
@@ -1357,20 +1366,36 @@ function matchCard(m, opts) {
      custom) -> the blue opportunity card that counts what it MEETS. Move a
      mandate between the two and its colour, its number and its ticks flip to
      match, with no per-tab special-casing. */
-  const rejected = String(m.qualification || '').toLowerCase() === 'rejected';
+  const rejected = q === 'rejected';
   if (rejected) {
     const fails = (Array.isArray(opts.reject) && opts.reject.length) ? opts.reject : rejectFails(m);
     const n = fails.length;
-    card.appendChild(el('div', { class: 'mcard-score' },
-      el('span', { style: 'color:var(--bad)' }, 'REJECTED'),
-      el('b', { style: 'color:var(--bad)' }, n + (n === 1 ? ' criterion missed' : ' criteria missed'))));
-    const seg = el('div', { class: 'mcard-seg' });
-    for (let i = 0; i < n; i++) seg.appendChild(el('div', { class: 'seg miss' }));
-    card.appendChild(seg);
-    const cr = el('div', { class: 'mcard-crit' });
-    fails.forEach((name) => cr.appendChild(el('div', { class: 'mcard-c' },
-      el('span', { class: 'mk no' }, '\u2717'), el('span', null, name))));
-    card.appendChild(cr);
+    if (n === 0) {
+      /* Rejected, yet nothing on file actually contradicts Taranis -- it was
+         turned away on the score or on blanks (unknown fields). This is the
+         "opportunity sitting in Rejected" case: say so in amber and let the
+         person reconsider it, rather than inventing a red miss. */
+      card.appendChild(el('div', { class: 'mcard-score' },
+        el('span', { style: 'color:var(--signal)' }, 'REJECTED'),
+        el('b', { style: 'color:var(--signal);font-family:var(--font-body);font-weight:600;font-size:12.5px;letter-spacing:.01em;text-transform:none' },
+          'nothing contradicts Taranis')));
+      card.appendChild(el('div', { class: 'mcard-crit' },
+        el('div', { class: 'mcard-c' },
+          el('span', { class: 'mk unk' }, '?'),
+          el('span', null, 'On file it meets Taranis \u2014 turned away on the score or on blanks. Worth reconsidering.'))));
+    } else {
+      card.appendChild(el('div', { class: 'mcard-score' },
+        el('span', { style: 'color:var(--bad)' }, 'REJECTED'),
+        el('b', { style: 'color:var(--bad);font-family:var(--font-body);font-weight:600;font-size:12.5px;letter-spacing:.01em;text-transform:none' },
+          n + (n === 1 ? ' criterion contradicts Taranis' : ' criteria contradict Taranis'))));
+      const seg = el('div', { class: 'mcard-seg' });
+      for (let i = 0; i < n; i++) seg.appendChild(el('div', { class: 'seg miss' }));
+      card.appendChild(seg);
+      const cr = el('div', { class: 'mcard-crit' });
+      fails.forEach((name) => cr.appendChild(el('div', { class: 'mcard-c' },
+        el('span', { class: 'mk no' }, '\u2717'), el('span', null, name))));
+      card.appendChild(cr);
+    }
   } else {
     card.appendChild(el('div', { class: 'mcard-score' },
       el('span', null, q.toUpperCase()), el('b', null, score + '/' + crit.length)));
@@ -1503,8 +1528,12 @@ function qualificationControl(m, after) {
     if (to === cur) return;
     sel.disabled = true;
     try {
-      await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), { qualification: to });
-      m.qualification = to;
+      // Rejecting via the drop list withdraws any approval too, so a mandate is
+      // never both approved and rejected.
+      const patch = { qualification: to };
+      if (to === 'rejected') { patch.approved_at = null; patch.approved_by = null; }
+      await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), patch);
+      Object.assign(m, patch);
       toast('Qualification set to ' + to.replace(/_/g, ' ') + '.');
       if (typeof after === 'function') after(to);
     } catch (e) {
@@ -2182,6 +2211,10 @@ RENDER.approvals = function (body) {
       + 'ticket_min_usd,fit_score,fit_reason,approved_at,approved_by,seen_at,qualification'
       // approved_at, not qualification. See isApproved().
       + '&approved_at=not.is.null'
+      // ...but a rejected mandate is never an approved opportunity, even if it
+      // still carries an old approval timestamp. Approving and rejecting are
+      // contradictory, so a rejected record is kept out of this list.
+      + '&qualification=neq.rejected'
       + '&order=approved_at.desc.nullslast&limit=200',
       'wi.reviews.pending', {});
     return { rows: rows.map(r => Object.assign({}, r, {
@@ -3917,6 +3950,11 @@ async function setApproved(m, on, after) {
   const patch = on
     ? { approved_at: new Date().toISOString(), approved_by: (session && session.email) || null }
     : { approved_at: null, approved_by: null };
+  // Approving a rejected mandate is a reconsideration: clear the rejection so it
+  // is not both approved and rejected at once.
+  if (on && String(m.qualification || '').trim().toLowerCase() === 'rejected') {
+    patch.qualification = 'uncertain';
+  }
   try {
     await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), patch);
     Object.assign(m, patch);
@@ -3938,8 +3976,12 @@ async function setQualification(m, to, said, after) {
       : 'Move this back to Opportunities for a decision?';
   if (!confirm(ask)) return;
   try {
-    await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), { qualification: to });
-    m.qualification = to;
+    // Rejecting withdraws any standing approval: a rejected mandate must not
+    // linger in Approved opportunities.
+    const patch = { qualification: to };
+    if (to === 'rejected') { patch.approved_at = null; patch.approved_by = null; }
+    await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), patch);
+    Object.assign(m, patch);
     toast(said);
     if (typeof after === 'function') after(to);
   } catch (e) {
@@ -4193,23 +4235,13 @@ RENDER.rejected = function (body) {
     const grid = el('div', { class: 'matchgrid' });
     out.appendChild(grid);
     for (const m of rows) {
-      const why = reasons(m);
-      const miss = jsonArr(m.missing_hard_fields).map(s => String(s).replace(/_/g, ' '));
-      /* The criteria this mandate FAILED, which is what the card now counts and
-         colours red. Recorded hard-fail reasons first; otherwise the fields it
-         was missing to qualify; otherwise it survived the hard criteria and was
-         turned away on the score alone. */
-      const fails = why.length ? why
-                  : miss.length ? miss
-                  : ['Rejected on the score'
-                     + (m.fit_score === null || m.fit_score === undefined ? '' : ' (' + scoreText(m.fit_score) + ')')];
       grid.appendChild(matchCard(m, {
         tone: 'bad',
-        reject: fails,
+        // The card computes its own reasons now (rejectFails): the criteria that
+        // are CONTRADICTED on file, not the fields that are merely blank/unknown.
         // Same drop list as an opportunity card: pick Matched or Waiting for
         // decision here and the mandate is reconsidered on the spot, moving to
-        // Opportunities where it renders as a blue opportunity (met count, ticks
-        // and all). routeAfterQualification sends it to the right lens.
+        // Opportunities where it renders as a blue opportunity.
         controls: qualificationControl(m, (to) => routeAfterQualification(m, to)),
         actions: [
           { label: 'View the mandate', primary: true, run: () => openMandate(m) }
