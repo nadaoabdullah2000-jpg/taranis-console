@@ -212,6 +212,30 @@ let meetingProvider = 'zoom';
 const MEETING_LANGUAGES = [['en', 'English'], ['fr', 'Français']];
 let meetingLanguage = 'en';
 
+/* Turn the wall-clock value from the datetime-local picker into the correct UTC
+   instant FOR THE MEETING'S CHOSEN TIMEZONE, not the browser's. Picking 15:00
+   with the Timezone set to Geneva must mean 15:00 in Geneva, whoever is booking
+   and wherever they sit. The zone's offset at that date is computed (so summer
+   time is handled) and subtracted. Without this the event lands at the booker's
+   local hour instead of the meeting's. */
+function zonedTimeToUtc(local, tz) {
+  const m = String(local || '').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!m) return new Date(local).toISOString();
+  const y = +m[1], mo = +m[2], d = +m[3], h = +m[4], mi = +m[5];
+  const guess = Date.UTC(y, mo - 1, d, h, mi);
+  let offset = 0;
+  try {
+    const dtf = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const p = {}; for (const part of dtf.formatToParts(new Date(guess))) p[part.type] = part.value;
+    const hr = p.hour === '24' ? 0 : +p.hour;
+    const asTz = Date.UTC(+p.year, +p.month - 1, +p.day, hr, +p.minute, +p.second);
+    offset = asTz - guess;
+  } catch (_) { offset = 0; }
+  return new Date(guess - offset).toISOString();
+}
+
 /* Set when a record hands a LinkedIn handle to the Network tab, cleared as
    soon as that tab reads it. */
 let networkPrefill = '';
@@ -1300,20 +1324,32 @@ function isNotMandate(m) {
     || NOT_MANDATE_RE.test(String(m.investor_tag || ''));
 }
 
+/* Switzerland is a priority market, so a Swiss firm is always kept as an
+   opportunity -- never rejected -- regardless of any other criterion it
+   contradicts. (News/launch items are not investor mandates, so the exception
+   does not apply to them.) */
+function isSwiss(m) {
+  return String(m.investor_country || '').trim().toUpperCase().slice(0, 2) === 'CH';
+}
+
 /* The console's own notion of rejected, which overrides a stale upstream label:
    a record only counts as rejected if it CONTRADICTS Taranis on file, or it was
    never a mandate. A mandate stored as rejected but with nothing contradicting
    Taranis is not rejected here -- it is an opportunity that was turned away on
-   the score or on blanks, and it belongs in the pipeline. */
+   the score or on blanks, and it belongs in the pipeline. Swiss firms are never
+   rejected. */
 function effectivelyRejected(m) {
   if (String(m.qualification || '').trim().toLowerCase() !== 'rejected') return false;
+  if (isSwiss(m) && !isNotMandate(m)) return false;   // Switzerland exception
   return isNotMandate(m) || rejectFails(m).length > 0;
 }
-/* Stored rejected, but a real mandate that contradicts nothing: reclaim it as an
-   opportunity so it shows in the pipeline, blue, not in Rejected. */
+/* Stored rejected, but belongs in the pipeline: a Swiss firm, or a real mandate
+   that contradicts nothing. Reclaim it as an opportunity so it shows blue, not
+   in Rejected. */
 function reclaimedOpportunity(m) {
-  return String(m.qualification || '').trim().toLowerCase() === 'rejected'
-    && !isNotMandate(m) && rejectFails(m).length === 0;
+  if (String(m.qualification || '').trim().toLowerCase() !== 'rejected') return false;
+  if (isNotMandate(m)) return false;
+  return isSwiss(m) || rejectFails(m).length === 0;
 }
 
 /* One score, computed the same way for every mandate no matter where it came
@@ -1618,13 +1654,22 @@ function ensureTodayCss() {
 // (e.g. repeated daily alerts, or the same investor across emails), keep only
 // the best — enriched first, then higher fit score, then newest. Rows with no
 // investor name are never collapsed. Result stays newest-first.
+function investorKey(m) {
+  // The identity actually shown on the card: investor_name, or organization_name
+  // when investor_name is blank, normalised. Using the displayed identity means
+  // two records that read as the same firm are treated as the same firm --
+  // which is what keeps a rejected firm out of Opportunities even when its two
+  // records fill different name fields.
+  return String(resolvedInvestor(m).name || '').toLowerCase().replace(/[.,]/g, '').replace(/\s+/g, ' ').trim();
+}
+
 function dedupeInvestors(rows) {
   if (!Array.isArray(rows)) return rows;
   const rank = (m) => [m && m.wi_enriched_at ? 1 : 0, Number(m && m.fit_score) || 0, Number(m && m.id) || 0];
   const better = (a, b) => { const ra = rank(a), rb = rank(b); for (let i = 0; i < 3; i++) { if (ra[i] !== rb[i]) return ra[i] > rb[i]; } return false; };
   const groups = new Map(), unnamed = [];
   for (const m of rows) {
-    const key = String((m && m.investor_name) || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const key = investorKey(m);
     if (!key) { unnamed.push(m); continue; }
     let g = groups.get(key);
     if (!g) { g = []; groups.set(key, g); }
@@ -3566,16 +3611,30 @@ RENDER.opps = function (body) {
        RECLAIMED). Best-effort -- if this second read fails, the pipeline still
        shows. */
     let reclaimed = [];
+    const rejectedKeys = new Set();
     try {
       const rej = await readRows('wi_mandates',
         'select=*&qualification=eq.rejected&order=id.desc&limit=500',
         'wi.mandates.list', { limit: 500 });
-      reclaimed = (rej || []).filter(reclaimedOpportunity);
+      const rejList = rej || [];
+      reclaimed = rejList.filter(reclaimedOpportunity);
+      /* An investor that contradicts Taranis on ANY record (e.g. "refuses
+         emerging managers") is a rejected investor, full stop -- even if a newer
+         alert for the same firm reads as a clean match. Collect those firms so
+         they are kept out of the pipeline entirely, which is what stops the same
+         investor showing in both Opportunities and Rejected. */
+      for (const m of rejList) {
+        if (!isNotMandate(m) && !isSwiss(m) && rejectFails(m).length > 0) {
+          const k = investorKey(m); if (k) rejectedKeys.add(k);
+        }
+      }
     } catch (_) { /* leave the pipeline as it is */ }
-    // Belt and suspenders: the two reads are disjoint by qualification, but dedupe
-    // by id anyway so a record can never appear twice in the pipeline.
+    // Merge, drop any firm that is rejected somewhere, and dedupe by id so a
+    // record can never appear twice.
     const merged = (main || []).concat(reclaimed), byId = {}, uniq = [];
     for (const m of merged) {
+      const k = investorKey(m);
+      if (k && rejectedKeys.has(k)) continue;   // rejected investor -> not here
       const id = m && m.id;
       if (id == null) { uniq.push(m); continue; }
       if (!byId[id]) { byId[id] = 1; uniq.push(m); }
@@ -4127,7 +4186,7 @@ RENDER.rejected = function (body) {
         // genuinely rejected (they contradict Taranis). Reclaimed ones -- stored
         // rejected but contradicting nothing -- have moved to Opportunities and
         // are not counted here.
-        const mand = all.filter(m => !notMandate(m) && rejectFails(m).length > 0);
+        const mand = all.filter(m => !notMandate(m) && !isSwiss(m) && rejectFails(m).length > 0);
         const n = k === 'news' ? all.filter(notMandate).length
                 : k === 'all'  ? mand.length
                 : mand.filter(m => passes(m, k)).length;
@@ -4242,7 +4301,7 @@ RENDER.rejected = function (body) {
     if (!all) return;
     const q = find.value.trim().toLowerCase();
     const pool = (tone === 'news') ? all.filter(notMandate)
-                                   : all.filter(m => !notMandate(m) && rejectFails(m).length > 0);
+                                   : all.filter(m => !notMandate(m) && !isSwiss(m) && rejectFails(m).length > 0);
     let rows = pool;
 
     rows = rows.filter(m => passes(m, tone));
@@ -4527,7 +4586,7 @@ RENDER.meetings = function (body) {
     const payload = {
       provider:     provider,
       title:        mTitle.value.trim(),
-      start_utc:    new Date(mWhen.value).toISOString(),
+      start_utc:    zonedTimeToUtc(mWhen.value, mTz.value.trim() || 'Africa/Cairo'),
       duration_min: Number(mMins.value) || 30,
       tz:           mTz.value.trim() || 'Africa/Cairo',
       to_people:    invited,
@@ -4728,17 +4787,24 @@ RENDER.meetings = function (body) {
         personalise();
         sendNow.disabled = true; sendNow.textContent = 'Sending\u2026';
         try {
-          await createMeeting({
+          const r = await createMeeting({
             meeting_id: String(meta.meeting_id), provider: meta.provider,
             title: meta.title, start_utc: meta.start_utc, duration_min: meta.duration_min, tz: meta.tz,
             to_people: to.map((e) => ({ email: e })), cc: cc, bcc: bcc,
             invitee_name: firstName(),
             subject: subjI.value, body: draftBox ? draftBox.value : (message || ''),
             attach_ics: true, send_invitations: true
-          });
+          }) || {};
           for (const e of to.concat(cc, bcc)) { try { await supaInsert('contacts', { email: e }); } catch (_) {} }
-          toast('Sent, with the calendar invite attached.');
-          panel.style.display = 'none';
+          // Tell the truth about whether it actually left. The function books the
+          // meeting either way, but the email only goes if the mail server is
+          // configured and accepted it.
+          if (r.emailed === false && r.email_status) {
+            toast('Meeting saved, but the email did not send: ' + r.email_status, true);
+          } else {
+            toast('Sent, with the calendar invite attached.');
+            panel.style.display = 'none';
+          }
         } catch (err) { toast(err.message, true); sendNow.disabled = false; sendNow.textContent = 'Send from nada.osama@taranis.net'; }
       };
       panel.appendChild(el('div', { class: 'acts', style: 'margin-top:12px' }, sendNow));
