@@ -4713,10 +4713,15 @@ RENDER.meetings = function (body) {
       if (!dl) { dl = el('datalist', { id: 'mtg-email-sug' }); document.body.appendChild(dl); }
       clear(dl);
       const contactNames = {};   // email -> name, for a smarter greeting
+      const nameToEmail = {};    // name (lowercased) -> email, so a typed name resolves
       readRows('contacts_app', 'select=email,name&email=not.is.null&order=name.asc&limit=800', 'contacts.emails', {})
         .then((rows) => { (rows || []).forEach((r) => { if (r.email) {
           const o = el('option', { value: r.email }); o.label = r.name || ''; dl.appendChild(o);
-          if (r.name) contactNames[String(r.email).toLowerCase()] = r.name;
+          const em = String(r.email).toLowerCase();
+          if (r.name) {
+            contactNames[em] = r.name;
+            nameToEmail[String(r.name).toLowerCase().replace(/\s+/g, ' ').trim()] = em;
+          }
         } }); })
         .catch(() => {});
 
@@ -4732,13 +4737,34 @@ RENDER.meetings = function (body) {
       if (autoEmail) { panel.style.display = ''; setTimeout(() => { try { wrap.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {} }, 60); }
 
       const field = (ph) => el('input', { class: 'search', list: 'mtg-email-sug', placeholder: ph, style: 'margin:0' });
-      const toI = field('To \u2014 name or email');
+      const toI = field('To \u2014 names or emails, comma-separated');
       const ccI = field('CC (optional)');
       const bccI = field('BCC (optional)');
       if (invited) toI.value = invited;   // prefill with whoever is already on the meeting
       const subjI = el('input', { class: 'search', style: 'margin:0', value: 'Invitation: ' + (meta.title || 'Meeting') });
       const lbl = (t, n) => el('label', { class: 'field', style: 'margin-top:8px' }, el('span', null, t), n);
-      const parse = (s) => String(s || '').split(/[,;\s]+/).map((x) => x.trim()).filter((x) => /.+@.+\..+/.test(x));
+      /* Split on commas / semicolons / new lines only -- NOT spaces, so a
+         multi-word name survives -- then resolve each entry: an email is kept,
+         a name is looked up in the contact book. Anything that is neither a valid
+         email nor a known contact is returned as 'unresolved' so the sender is
+         told rather than having it silently vanish. */
+      const resolveList = (s) => {
+        const emails = [], unresolved = [], seen = {};
+        for (const raw of String(s || '').split(/[,;\n]+/)) {
+          const e = raw.trim();
+          if (!e) continue;
+          if (/.+@.+\..+/.test(e)) {
+            const em = e.toLowerCase();
+            if (!seen[em]) { seen[em] = 1; emails.push(em); }
+          } else {
+            const hit = nameToEmail[e.toLowerCase().replace(/\s+/g, ' ').trim()];
+            if (hit) { if (!seen[hit]) { seen[hit] = 1; emails.push(hit); } }
+            else unresolved.push(e);
+          }
+        }
+        return { emails, unresolved };
+      };
+      const parse = (s) => resolveList(s).emails;
 
       /* Smarter greeting: address the note to whoever is actually in the To box.
          The workflow's draft greets whatever name the form was given (often the
@@ -4782,7 +4808,13 @@ RENDER.meetings = function (body) {
 
       const sendNow = el('button', { class: 'btn btn-sm' }, 'Send from nada.osama@taranis.net');
       sendNow.onclick = async () => {
-        const to = parse(toI.value), cc = parse(ccI.value), bcc = parse(bccI.value);
+        const toR = resolveList(toI.value), ccR = resolveList(ccI.value), bccR = resolveList(bccI.value);
+        const to = toR.emails, cc = ccR.emails, bcc = bccR.emails;
+        const unresolved = toR.unresolved.concat(ccR.unresolved, bccR.unresolved);
+        if (unresolved.length) {
+          toast('No email found for: ' + unresolved.join(', ') + '. Pick them from the suggestions or type their address.', true);
+          return;
+        }
         if (!to.length && !cc.length && !bcc.length) { toast('Add at least one recipient.', true); return; }
         personalise();
         sendNow.disabled = true; sendNow.textContent = 'Sending\u2026';
