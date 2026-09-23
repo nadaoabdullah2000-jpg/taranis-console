@@ -4437,13 +4437,22 @@ RENDER.meetings = function (body) {
   mWhen.addEventListener('change', drawTzNote);
   drawTzNote();
 
-  /* Off unless somebody turns it on. When on, the Fireflies notetaker's
-     address is added to the calendar invitation, which is how Fireflies is
-     asked into a meeting; when off, nothing about Fireflies is sent. */
-  const mFireflies = el('input', { type: 'checkbox', id: 'mtg-fireflies' });
-  const mFirefliesLbl = el('label', { for: 'mtg-fireflies',
-    style: 'display:flex;gap:7px;align-items:center;font-size:13px;color:var(--ink-2);margin:4px 0 8px' },
-    mFireflies, 'Add Fireflies notetaker (records and transcribes the meeting)');
+  /* Off unless somebody turns it on. When on, the Fireflies notetaker is sent
+     a calendar invitation for the meeting, which is the only way Fireflies
+     joins; when off, nothing about Fireflies is sent. The same box appears
+     wherever a meeting is booked or its invitation sent. */
+  const firefliesBox = (id) => {
+    const box = el('input', { type: 'checkbox', id });
+    const label = el('label', { for: id,
+      style: 'display:flex;gap:7px;align-items:center;font-size:13px;color:var(--ink-2);margin:4px 0 8px' },
+      box, 'Add Fireflies notetaker (records and transcribes the meeting)');
+    return { box, label };
+  };
+  /* What the function said about Fireflies, as the words shown to a person. */
+  const firefliesText = (st) => st === 'on' ? 'Fireflies: on'
+    : st && st.startsWith('not invited') ? 'Fireflies: not invited \u2014 ' + st.replace(/^not invited:\s*/, '')
+    : 'Fireflies: off';
+  const { box: mFireflies, label: mFirefliesLbl } = firefliesBox('mtg-fireflies');
 
   /* Which platform issues the meeting. The choice is remembered between
      bookings, because in practice a firm uses one of these almost always and
@@ -4615,10 +4624,10 @@ RENDER.meetings = function (body) {
           buildGcalUrl(payload.title, payload.start_utc, payload.duration_min, url),
           { meeting_id: r.meeting_id || r.id, title: payload.title, start_utc: payload.start_utc,
             duration_min: payload.duration_min, tz: payload.tz, provider: payload.provider,
-            add_fireflies: payload.add_fireflies },
+            fireflies: r.fireflies || 'off' },
           opts && opts.openEmail);
         if (r.time_warning) toast(r.time_warning, true);
-        else if (payload.add_fireflies && r.fireflies && r.fireflies !== 'invited') toast('Meeting created, but Fireflies was ' + r.fireflies, true);
+        else if (payload.add_fireflies && r.fireflies !== 'on') toast('Meeting created, but ' + firefliesText(r.fireflies || 'not invited: no answer from the server'), true);
         else toast(label + ' meeting created.');
       } else {
         /* The gateway answered but has no link for us -- almost always a
@@ -4676,10 +4685,10 @@ RENDER.meetings = function (body) {
     issued.appendChild(el('div', { class: 'callout good', style: 'margin-top:14px' },
       el('span', { class: 'callout-k' }, label),
       el('span', { class: 'callout-v', style: 'word-break:break-all' }, url)));
+    const ffLine = el('span', null, firefliesText(meta && meta.fireflies));
     if (meta && meta.start_utc) {
       issued.appendChild(el('p', { style: 'margin:6px 0 0;font-size:13px;color:var(--ink-2)' },
-        'Starts ' + fmtInZone(meta.start_utc, meta.tz)
-        + (meta.add_fireflies ? '  \u00B7  Fireflies notetaker invited' : '')));
+        'Starts ' + fmtInZone(meta.start_utc, meta.tz) + '  \u00B7  ', ffLine));
     }
     if (passcode) {
       issued.appendChild(el('p', { style: 'margin:6px 0 0;font-size:13px;color:var(--ink-2)' },
@@ -4876,6 +4885,20 @@ RENDER.meetings = function (body) {
       panel.appendChild(lbl('CC', ccI));
       panel.appendChild(lbl('BCC', bccI));
       panel.appendChild(lbl('Subject', subjI));
+      /* Fireflies can be asked in here too, if it was not at booking. Once it
+         is on the meeting it is not offered again: a second invitation would
+         only be a duplicate. */
+      const ffNote = el('div', { style: 'font-size:12px;color:var(--ink-3);margin:10px 0 0' });
+      const ff = firefliesBox('mtg-email-fireflies');
+      const drawFf = () => {
+        const on = meta.fireflies === 'on';
+        ff.label.style.display = on ? 'none' : 'flex';
+        ffNote.textContent = on ? 'Fireflies: on \u2014 already invited to this meeting.' : '';
+        ffLine.textContent = firefliesText(meta.fireflies);
+      };
+      drawFf();
+      panel.appendChild(ff.label);
+      panel.appendChild(ffNote);
       panel.appendChild(el('div', { style: 'font-size:12px;color:var(--ink-3);margin:10px 0 2px' },
         draftBox ? 'The message above is what will be sent \u2014 edit it there before sending.'
                  : 'A short invitation will be sent.'));
@@ -4901,14 +4924,21 @@ RENDER.meetings = function (body) {
             to_people: to.map((e) => ({ email: e })), cc: cc, bcc: bcc,
             invitee_name: firstName(),
             subject: subjI.value, body: draftBox ? draftBox.value : (message || ''),
-            attach_ics: true, send_invitations: true
+            attach_ics: true, send_invitations: true,
+            add_fireflies: ff.box.checked === true
           }) || {};
+          const askedFf = ff.box.checked;
+          if (r.fireflies) meta.fireflies = r.fireflies === 'on' ? 'on' : meta.fireflies;
+          ff.box.checked = false; drawFf();
+          if (askedFf && r.fireflies !== 'on') toast('Sent, but ' + firefliesText(r.fireflies || 'not invited: no answer from the server'), true);
           for (const e of to.concat(cc, bcc)) { try { await supaInsert('contacts', { email: e }); } catch (_) {} }
           // Tell the truth about whether it actually left. The function books the
           // meeting either way, but the email only goes if the mail server is
           // configured and accepted it.
           if (r.emailed === false && r.email_status) {
             toast('Meeting saved, but the email did not send: ' + r.email_status, true);
+          } else if (askedFf && r.fireflies !== 'on') {
+            panel.style.display = 'none';
           } else {
             toast('Sent, with the calendar invite attached.');
             panel.style.display = 'none';
@@ -4985,6 +5015,7 @@ RENDER.meetings = function (body) {
             ['starts   ', m.start_utc ? fmtInZone(m.start_utc, m.tz) : null],
             ['minutes  ', m.duration_min],
             ['zone     ', m.tz ? timezoneLabel(m.tz, m.start_utc) : null],
+            ['fireflies', m.fireflies === true ? 'on' : 'off'],
             ['join     ', m.meet_url],
             ['passcode ', m.passcode]
           ],
@@ -5023,21 +5054,39 @@ RENDER.meetings = function (body) {
             /* Only for rows that never got a link -- a booking made while the
                gateway was down, or one that arrived from Telegram. */
             (st === 'pending' || !m.meet_url) ? { label: 'Issue the link', primary: true,
-              run: async () => {
+              run: () => {
                 const label = providerLabel(m.provider) || 'the meeting';
-                if (!confirm('Create ' + label + ' and email the invitation to everyone on it?')) return;
-                toast('Creating\u2026');
-                try {
-                  const r = await createMeeting({
-                    meeting_id: String(m.id), provider: m.provider || meetingProvider,
-                    title: m.title, start_utc: m.start_utc,
-                    duration_min: m.duration_min, tz: m.tz,
-                    to_people: m.to_people || [] }) || {};
-                  const url = r.join_url || r.meet_url || r.url;
-                  toast(url ? 'Created. The invitation is on its way.'
-                            : 'Booked, but no link came back.', !url);
-                  run();
-                } catch (e) { toast(e.message, true); }
+                /* Asked in a sheet rather than confirm() so the Fireflies box
+                   can sit with the question, off unless ticked. */
+                const ff = firefliesBox('mtg-issue-fireflies');
+                const go = el('button', { class: 'btn btn-sm', onclick: async () => {
+                  closeSheet();
+                  toast('Creating\u2026');
+                  try {
+                    const r = await createMeeting({
+                      meeting_id: String(m.id), provider: m.provider || meetingProvider,
+                      title: m.title, start_utc: m.start_utc,
+                      duration_min: m.duration_min, tz: m.tz,
+                      to_people: m.to_people || [],
+                      add_fireflies: ff.box.checked === true }) || {};
+                    const url = r.join_url || r.meet_url || r.url;
+                    if (url && ff.box.checked && r.fireflies !== 'on') {
+                      toast('Created, but ' + firefliesText(r.fireflies || 'not invited: no answer from the server'), true);
+                    } else {
+                      toast(url ? 'Created. The invitation is on its way.'
+                                : 'Booked, but no link came back.', !url);
+                    }
+                    run();
+                  } catch (e) { toast(e.message, true); }
+                } }, 'Create and send');
+                sheet('Issue the link', [
+                  el('p', { style: 'margin:0 0 10px;font-size:14px' },
+                    'Create ' + label + ' and email the invitation to everyone on it?'),
+                  ff.label
+                ], [
+                  el('button', { class: 'btn btn-sm btn-quiet', onclick: closeSheet }, 'Cancel'),
+                  go
+                ]);
               } } : null
           ].filter(Boolean)
         }));
