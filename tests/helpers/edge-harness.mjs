@@ -34,7 +34,12 @@ globalThis.fetch = async (url, init = {}) => {
   }
   if (u.startsWith('https://oauth2.googleapis.com/token')) return ok({ access_token: 'gt' });
   if (u.startsWith('https://www.googleapis.com/calendar/v3/calendars/primary/events')) {
-    return ok({ hangoutLink: 'https://meet.google.com/abc-defg-hij', id: 'ev1' });
+    // One Google event, 'ev1', kept across calls so guests can be added to it.
+    const g = globalThis.__edge.google ||= { attendees: [], sequence: 0 };
+    if ((init.method || 'GET') === 'POST') { g.attendees = body.attendees || []; g.sequence = 0; }
+    if (init.method === 'PATCH') { g.attendees = body.attendees || []; g.sequence += 1; }
+    return ok({ hangoutLink: 'https://meet.google.com/abc-defg-hij', id: 'ev1', iCalUID: 'ev1@google.com',
+      sequence: g.sequence, organizer: { email: 'calendar-owner@taranis.net' }, attendees: g.attendees });
   }
   if (u.startsWith('https://login.microsoftonline.com/')) return ok({ access_token: 'mt' });
   if (u.startsWith('https://graph.microsoft.com/')) return ok({ joinWebUrl: 'https://teams.microsoft.com/l/x', id: 't1' });

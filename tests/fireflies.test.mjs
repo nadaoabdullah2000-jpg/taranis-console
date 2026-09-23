@@ -19,7 +19,8 @@ const BOOKING = { provider: 'zoom', title: 'Cap Intro', start_utc: '2026-09-23T0
 const GUESTS = [{ email: 'guest@example.com' }];
 
 const S = () => globalThis.__edge;
-const ics = (m) => (m.mimeContent.find((c) => c.mimeType.startsWith('text/calendar')) || {}).content || '';
+// The invite, with folded lines joined back up (RFC 5545 folds at 75 octets).
+const ics = (m) => ((m.mimeContent.find((c) => c.mimeType.startsWith('text/calendar')) || {}).content || '').replace(/\r\n[ \t]/g, '');
 const toFred = () => S().mail.filter((m) => [].concat(m.to || [], m.cc || [], m.bcc || []).includes(FRED));
 const everything = () => JSON.stringify({ mail: S().mail, calls: S().calls, writes: S().writes });
 const meetingRow = (id) => S().db.crm_meetings.find((r) => r.id === id);
