@@ -1,5 +1,6 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { computeZone, zoomBookedSameInstant, zoomStartFields } from './zoom-time.js';
+import { FIREFLIES_DEFAULT, firefliesPlan } from './fireflies.js';
 
 const CORS = {
   'Access-Control-Allow-Origin': Deno.env.get('CONSOLE_ORIGIN') ??
@@ -154,14 +155,14 @@ function buildInvitation(lang: Lang, a: { inviteeName: string; title: string; wh
   return { subject: 'Meeting — ' + a.title, body };
 }
 
-function buildICS(a: { title: string; startUtc: string; endUtc: string; joinUrl: string; body: string; organizer: string; attendees: string[]; }): string {
+function buildICS(a: { title: string; startUtc: string; endUtc: string; joinUrl: string; body: string; organizer: string; attendees: string[]; uid?: string; }): string {
   const stamp = (iso: string) => new Date(iso).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
   const esc = (s: string) => String(s || '').replace(/([,;\\])/g, '\\$1').replace(/\r?\n/g, '\\n');
   const att = (a.attendees || []).map((e) => 'ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE;CN=' + e + ':mailto:' + e);
   return [
     'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Taranis//CRM//EN', 'CALSCALE:GREGORIAN', 'METHOD:REQUEST',
     'BEGIN:VEVENT',
-    'UID:' + crypto.randomUUID() + '@taranis.crm',
+    'UID:' + (a.uid || crypto.randomUUID()) + '@taranis.crm',
     'DTSTAMP:' + stamp(new Date().toISOString()),
     'DTSTART:' + stamp(a.startUtc),
     'DTEND:' + stamp(a.endUtc),
@@ -208,9 +209,13 @@ type Meeting = { title: string; startUtc: string; endUtc: string; minutes: numbe
 type Issued = { join_url: string; passcode: string; external_id: string; warning?: string };
 
 /* The Fireflies notetaker joins a meeting when its address is on the calendar
-   invitation. It is only ever added when the booking asked for it
-   (add_fireflies: true, a checkbox on the form that is off by default). */
-const FIREFLIES = (Deno.env.get('FIREFLIES_INVITE_EMAIL') || 'fred@fireflies.ai').toLowerCase();
+   invitation. It is only ever added when the call asked for it
+   (add_fireflies: true, from a checkbox that is off by default). See
+   fireflies.js for how the invitation reaches it. */
+const FIREFLIES = (Deno.env.get('FIREFLIES_INVITE_EMAIL') || FIREFLIES_DEFAULT).toLowerCase();
+// The calendar connected to the Fireflies account. It gets a copy of Fred's
+// invitation, so the event with Fred on it is in the calendar Fireflies reads.
+const FIREFLIES_CALENDAR = (Deno.env.get('FIREFLIES_CALENDAR_EMAIL') || 'nada.o.abdullah2000@gmail.com').toLowerCase();
 const PLATFORM: Record<string, string> = { zoom: 'Zoom', teams: 'Microsoft Teams', meet: 'Google Meet' };
 const MAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 function addresses(v: unknown): string[] {
@@ -282,6 +287,10 @@ Deno.serve(async (req) => {
   let effProvider = provider;
 
   const reuseRow = reuseId ? (await admin.from('crm_meetings').select('*').eq('id', reuseId).maybeSingle()).data : null;
+  const fromAddr = Deno.env.get('SMTP_FROM') || 'nada.osama@taranis.net';
+  const ff = firefliesPlan({ requested: addFireflies, alreadyInvited: reuseRow?.fireflies === true,
+    provider: String(reuseRow?.meet_url ? (reuseRow.provider ?? provider) : provider), isReuse: !!reuseRow?.meet_url,
+    recipients: [...invite, ...cc, ...bcc], organizer: FIREFLIES_CALENDAR, fireflies: FIREFLIES });
 
   if (reuseRow && reuseRow.meet_url) {
     isReuse = true;
@@ -296,7 +305,7 @@ Deno.serve(async (req) => {
     const end0 = new Date(start.getTime() + minutes * 60000);
     const guests = send ? invite : [];
     const meeting: Meeting = { title, minutes, tz, startUtc: start.toISOString(), endUtc: end0.toISOString(),
-      invite: addFireflies && !guests.includes(FIREFLIES) ? guests.concat(FIREFLIES) : guests };
+      invite: ff.addToEvent ? guests.concat(FIREFLIES) : guests };
     try {
       issued = provider === 'zoom' ? await createZoom(meeting) : provider === 'teams' ? await createTeams(meeting) : await createMeet(meeting);
     } catch (e) {
@@ -324,25 +333,28 @@ Deno.serve(async (req) => {
   let emailStatus = '';
   let emailed = false;
   const wantsEmail = send && (invite.length || cc.length || bcc.length);
-  const fromAddr = Deno.env.get('SMTP_FROM') || 'nada.osama@taranis.net';
-  const onInvite = [...invite, ...cc, ...bcc];
-  /* Fireflies gets the calendar invitation only when asked for, and only when
-     the meeting is first booked -- a later "Send an email" for the same
-     meeting must not invite it a second time. With guests it rides along as a
-     hidden (BCC) copy and an attendee on the .ics; with none, the invitation
-     goes to Fireflies alone. Google Meet already invited it on the event. */
-  const fireflies = addFireflies && !isReuse && effProvider !== 'meet' && !onInvite.includes(FIREFLIES);
+  const uid = crypto.randomUUID();
   if (wantsEmail) {
-    const ics = buildICS({ title, startUtc: start.toISOString(), endUtc: end.toISOString(), joinUrl: issued.join_url, body: invitationText, organizer: fromAddr, attendees: invite.concat(cc, fireflies ? [FIREFLIES] : []) });
-    emailStatus = await sendEmail({ to: invite, cc, bcc: fireflies ? bcc.concat(FIREFLIES) : bcc, subject, text: invitationText, ics });
+    const ics = buildICS({ title, startUtc: start.toISOString(), endUtc: end.toISOString(), joinUrl: issued.join_url, body: invitationText, organizer: fromAddr, attendees: invite.concat(cc), uid });
+    emailStatus = await sendEmail({ to: invite, cc, bcc, subject, text: invitationText, ics });
     emailed = emailStatus === '';
-  } else if (fireflies) {
-    const ics = buildICS({ title, startUtc: start.toISOString(), endUtc: end.toISOString(), joinUrl: issued.join_url, body: invitationText, organizer: fromAddr, attendees: [FIREFLIES] });
-    emailStatus = await sendEmail({ to: [FIREFLIES], cc: [], bcc: [], subject, text: invitationText, ics });
   }
-  const firefliesStatus = !addFireflies || isReuse ? 'not requested'
-    : effProvider === 'meet' || onInvite.includes(FIREFLIES) || emailStatus === '' ? 'invited'
-    : 'not invited: ' + emailStatus;
+
+  /* Fireflies: its own invitation, to Fred with a copy to the calendar
+     Fireflies watches (listed as an attendee too, so the calendar adds it),
+     for the same event (same UID) the guests were sent. Recorded on the row
+     only once it has actually gone. */
+  let firefliesStatus = ff.on ? 'on' : 'off';
+  if (ff.sendInvite) {
+    const ics = buildICS({ title, startUtc: start.toISOString(), endUtc: end.toISOString(), joinUrl: issued.join_url, body: invitationText, organizer: fromAddr, attendees: invite.concat(cc, ff.inviteCc, [FIREFLIES]), uid });
+    const why = await sendEmail({ to: ff.inviteTo, cc: ff.inviteCc, bcc: [], subject, text: invitationText, ics });
+    if (why) firefliesStatus = 'not invited: ' + why;
+  }
+  if (firefliesStatus === 'on' && rowId && reuseRow?.fireflies !== true) {
+    // A separate write, so a database without the column (schema-8 not yet
+    // applied) still books the meeting.
+    await admin.from('crm_meetings').update({ fireflies: true }).eq('id', rowId);
+  }
 
   return json({ ok: true, join_url: issued.join_url, passcode: issued.passcode, provider: effProvider, meeting_id: rowId, status: 'scheduled', reused: isReuse, message: invitationText, subject, language, invited: invite.join(','), when_local: when, tz, emailed, email_status: wantsEmail ? (emailStatus || 'sent') : 'not requested', fireflies: firefliesStatus, time_warning: issued.warning || '' });
 });
