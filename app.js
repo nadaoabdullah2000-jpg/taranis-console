@@ -212,29 +212,8 @@ let meetingProvider = 'zoom';
 const MEETING_LANGUAGES = [['en', 'English'], ['fr', 'Français']];
 let meetingLanguage = 'en';
 
-/* Turn the wall-clock value from the datetime-local picker into the correct UTC
-   instant FOR THE MEETING'S CHOSEN TIMEZONE, not the browser's. Picking 15:00
-   with the Timezone set to Geneva must mean 15:00 in Geneva, whoever is booking
-   and wherever they sit. The zone's offset at that date is computed (so summer
-   time is handled) and subtracted. Without this the event lands at the booker's
-   local hour instead of the meeting's. */
-function zonedTimeToUtc(local, tz) {
-  const m = String(local || '').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
-  if (!m) return new Date(local).toISOString();
-  const y = +m[1], mo = +m[2], d = +m[3], h = +m[4], mi = +m[5];
-  const guess = Date.UTC(y, mo - 1, d, h, mi);
-  let offset = 0;
-  try {
-    const dtf = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour12: false,
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    const p = {}; for (const part of dtf.formatToParts(new Date(guess))) p[part.type] = part.value;
-    const hr = p.hour === '24' ? 0 : +p.hour;
-    const asTz = Date.UTC(+p.year, +p.month - 1, +p.day, hr, +p.minute, +p.second);
-    offset = asTz - guess;
-  } catch (_) { offset = 0; }
-  return new Date(guess - offset).toISOString();
-}
+/* zonedTimeToUtc, the Zoom time-zone list and the other time-zone helpers
+   live in meeting-time.js, loaded before this file. */
 
 /* Set when a record hands a LinkedIn handle to the Network tab, cleared as
    soon as that tab reads it. */
@@ -4435,15 +4414,36 @@ RENDER.meetings = function (body) {
   const mTitle = el('input', { class: 'search', placeholder: 'What is the meeting? e.g. TMS review with Pictet' });
   const mWhen  = el('input', { class: 'search', type: 'datetime-local' });
   const mMins  = el('input', { class: 'search', type: 'number', value: '30', min: '15', step: '15' });
-  /* A short list rather than free text: these are the three the desk actually
-     books across. Values are IANA zones (Geneva is Europe/Zurich) so the
-     workflow gets a zone it can compute with; the labels read the way the team
-     says them. */
+  /* Every zone Zoom accepts, by the id Zoom accepts, so whatever is picked
+     here is exactly what the platform books in. It starts on the zone of the
+     device doing the booking rather than on any one city. */
   const mTz = el('select', { class: 'search' });
-  for (const [v, l] of [['Africa/Cairo', 'Africa/Cairo'], ['Europe/Zurich', 'Geneva'], ['Europe/London', 'London, UK']]) {
-    mTz.appendChild(el('option', { value: v }, l));
+  for (const [v] of ZOOM_TIMEZONES) mTz.appendChild(el('option', { value: v }, timezoneLabel(v)));
+  mTz.value = defaultTimezone();
+  /* Says in words what the picked time is, in the meeting's zone and in the
+     booker's own when those differ, so a wrong zone is visible before booking
+     rather than after. */
+  const mTzNote = el('div', { style: 'font-size:12px;color:var(--ink-3);margin:-4px 0 10px' });
+  function drawTzNote() {
+    const tz = mTz.value || 'UTC';
+    if (!mWhen.value) { mTzNote.textContent = 'Times are in ' + timezoneLabel(tz) + '.'; return; }
+    const utc = zonedTimeToUtc(mWhen.value, tz);
+    const mine = defaultTimezone();
+    mTzNote.textContent = 'Starts ' + fmtInZone(utc, tz)
+      + (mine !== tz ? '  \u00B7  ' + fmtInZone(utc, mine) + ' for you' : '');
   }
-  mTz.value = 'Africa/Cairo';
+  mTz.addEventListener('change', drawTzNote);
+  mWhen.addEventListener('input', drawTzNote);
+  mWhen.addEventListener('change', drawTzNote);
+  drawTzNote();
+
+  /* Off unless somebody turns it on. When on, the Fireflies notetaker's
+     address is added to the calendar invitation, which is how Fireflies is
+     asked into a meeting; when off, nothing about Fireflies is sent. */
+  const mFireflies = el('input', { type: 'checkbox', id: 'mtg-fireflies' });
+  const mFirefliesLbl = el('label', { for: 'mtg-fireflies',
+    style: 'display:flex;gap:7px;align-items:center;font-size:13px;color:var(--ink-2);margin:4px 0 8px' },
+    mFireflies, 'Add Fireflies notetaker (records and transcribes the meeting)');
 
   /* Which platform issues the meeting. The choice is remembered between
      bookings, because in practice a firm uses one of these almost always and
@@ -4586,16 +4586,17 @@ RENDER.meetings = function (body) {
     const payload = {
       provider:     provider,
       title:        mTitle.value.trim(),
-      start_utc:    zonedTimeToUtc(mWhen.value, mTz.value.trim() || 'Africa/Cairo'),
+      start_utc:    zonedTimeToUtc(mWhen.value, mTz.value || 'UTC'),
       duration_min: Number(mMins.value) || 30,
-      tz:           mTz.value.trim() || 'Africa/Cairo',
+      tz:           mTz.value || 'UTC',
       to_people:    invited,
       // Recorded either way -- who a meeting is with is worth knowing even
       // when the invitation went out by hand. This only decides whether the
       // workflow sends it.
       send_invitations: sendInvites !== false && invited.length > 0,
       language:     mLang.value || 'en',
-      invitee_name: mFor.value.trim()
+      invitee_name: mFor.value.trim(),
+      add_fireflies: mFireflies.checked === true
     };
 
     const pressed = (opts && opts.openEmail) ? emailBtn
@@ -4613,17 +4614,20 @@ RENDER.meetings = function (body) {
         showLink(label, url, r.passcode, r.message, r.invited,
           buildGcalUrl(payload.title, payload.start_utc, payload.duration_min, url),
           { meeting_id: r.meeting_id || r.id, title: payload.title, start_utc: payload.start_utc,
-            duration_min: payload.duration_min, tz: payload.tz, provider: payload.provider },
+            duration_min: payload.duration_min, tz: payload.tz, provider: payload.provider,
+            add_fireflies: payload.add_fireflies },
           opts && opts.openEmail);
-        toast(label + ' meeting created.');
+        if (r.time_warning) toast(r.time_warning, true);
+        else if (payload.add_fireflies && r.fireflies && r.fireflies !== 'invited') toast('Meeting created, but Fireflies was ' + r.fireflies, true);
+        else toast(label + ' meeting created.');
       } else {
         /* The gateway answered but has no link for us -- almost always a
            provider whose credential is not connected yet. Say which one. */
         showPending(label, r.message || 'The gateway did not return a join link.');
         toast('Booked, but no link came back.', true);
       }
-      mTitle.value = ''; mWhen.value = ''; mFor.value = '';
-      clear(mForSugg); invited = []; drawInvited();
+      mTitle.value = ''; mWhen.value = ''; mFor.value = ''; mFireflies.checked = false;
+      clear(mForSugg); invited = []; drawInvited(); drawTzNote();
       run();
     } catch (e) {
       /* Gateway unreachable. Keep the booking rather than lose it. */
@@ -4644,7 +4648,7 @@ RENDER.meetings = function (body) {
         });
         showPending(label, e.message);
         toast('Saved without a link \u2014 ' + e.message, true);
-        mTitle.value = ''; mWhen.value = ''; invited = []; drawInvited();
+        mTitle.value = ''; mWhen.value = ''; mFireflies.checked = false; invited = []; drawInvited(); drawTzNote();
         run();
       } catch (e2) {
         toast(e2.message, true);
@@ -4672,6 +4676,11 @@ RENDER.meetings = function (body) {
     issued.appendChild(el('div', { class: 'callout good', style: 'margin-top:14px' },
       el('span', { class: 'callout-k' }, label),
       el('span', { class: 'callout-v', style: 'word-break:break-all' }, url)));
+    if (meta && meta.start_utc) {
+      issued.appendChild(el('p', { style: 'margin:6px 0 0;font-size:13px;color:var(--ink-2)' },
+        'Starts ' + fmtInZone(meta.start_utc, meta.tz)
+        + (meta.add_fireflies ? '  \u00B7  Fireflies notetaker invited' : '')));
+    }
     if (passcode) {
       issued.appendChild(el('p', { style: 'margin:6px 0 0;font-size:13px;color:var(--ink-2)' },
         'Passcode ' + passcode));
@@ -4709,20 +4718,20 @@ RENDER.meetings = function (body) {
     // editable subject. It sends the draft above -- with your edits -- from
     // nada.osama@taranis.net, with the calendar (.ics) attached.
     if (meta && meta.meeting_id) {
-      let dl = document.getElementById('mtg-email-sug');
-      if (!dl) { dl = el('datalist', { id: 'mtg-email-sug' }); document.body.appendChild(dl); }
-      clear(dl);
       const contactNames = {};   // email -> name, for a smarter greeting
       const nameToEmail = {};    // name (lowercased) -> email, so a typed name resolves
+      const book = [];           // { email, name } for suggestions, filled below
+      const learn = (r) => {
+        if (!r || !r.email) return;
+        const em = String(r.email).toLowerCase().trim();
+        if (!book.some((b) => b.email === em)) book.push({ email: em, name: r.name || '' });
+        if (r.name) {
+          contactNames[em] = r.name;
+          nameToEmail[String(r.name).toLowerCase().replace(/\s+/g, ' ').trim()] = em;
+        }
+      };
       readRows('contacts_app', 'select=email,name&email=not.is.null&order=name.asc&limit=800', 'contacts.emails', {})
-        .then((rows) => { (rows || []).forEach((r) => { if (r.email) {
-          const o = el('option', { value: r.email }); o.label = r.name || ''; dl.appendChild(o);
-          const em = String(r.email).toLowerCase();
-          if (r.name) {
-            contactNames[em] = r.name;
-            nameToEmail[String(r.name).toLowerCase().replace(/\s+/g, ' ').trim()] = em;
-          }
-        } }); })
+        .then((rows) => { (rows || []).forEach(learn); })
         .catch(() => {});
 
       const wrap = el('div', { style: 'margin-top:18px;border-top:1px solid var(--rule);padding-top:14px' });
@@ -4736,13 +4745,80 @@ RENDER.meetings = function (body) {
       // so the compose fields are in front of them without a second click.
       if (autoEmail) { panel.style.display = ''; setTimeout(() => { try { wrap.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {} }, 60); }
 
-      const field = (ph) => el('input', { class: 'search', list: 'mtg-email-sug', placeholder: ph, style: 'margin:0' });
+      /* To, CC and BCC are the same control three times: as you type, the
+         entry after the last comma is matched against the contact book (name
+         or address), and picking a suggestion swaps that entry for the
+         address. A browser <datalist> could not do this -- it matched the
+         whole box, so after the first address in a field, or in a To box that
+         came prefilled, it stopped suggesting anything. */
+      const field = (ph) => {
+        const input = el('input', { class: 'search', placeholder: ph, style: 'margin:0', autocomplete: 'off' });
+        const sugg = el('div', { class: 'chips', style: 'margin:6px 0 0' });
+        let t = null, seq = 0;
+        const current = () => {
+          const v = input.value;
+          const cut = Math.max(v.lastIndexOf(','), v.lastIndexOf(';'), v.lastIndexOf('\n'));
+          return { head: v.slice(0, cut + 1), term: v.slice(cut + 1).trim() };
+        };
+        const pick = (email) => {
+          const { head } = current();
+          input.value = (head ? head.replace(/\s*$/, ' ') : '') + email + ', ';
+          clear(sugg); input.focus();
+          input.dispatchEvent(new Event('change'));
+        };
+        const draw = (term, extra) => {
+          clear(sugg);
+          if (!term) return;
+          const q = term.toLowerCase();
+          const already = input.value.toLowerCase();
+          const hits = [];
+          for (const c of book.concat(extra || [])) {
+            if (hits.length >= 6) break;
+            if (!c.email || hits.some((h) => h.email === c.email)) continue;
+            if (already.includes(c.email + ',')) continue;
+            if (c.email.includes(q) || String(c.name || '').toLowerCase().includes(q)) hits.push(c);
+          }
+          for (const c of hits) {
+            sugg.appendChild(el('button', { class: 'chip', type: 'button',
+              onclick: () => pick(c.email) },
+              c.email + (c.name ? '  \u00B7  ' + c.name : '')));
+          }
+        };
+        const suggest = () => {
+          const { term } = current();
+          draw(term);
+          clearTimeout(t);
+          if (term.length < 2 || DEMO) return;
+          const mine = ++seq;
+          /* The preloaded list is capped, so the book is also asked directly;
+             whatever it finds joins the list and the suggestions redraw. */
+          t = setTimeout(async () => {
+            try {
+              const k = lk(term);
+              const rows = await readRows('contacts_app',
+                'select=email,name&email=not.is.null&limit=8&or=(name.ilike.' + k + ',email.ilike.' + k + ',company.ilike.' + k + ')',
+                'contacts.search', { q: term, filter: 'all' });
+              (rows || []).forEach(learn);
+              if (mine === seq) draw(current().term);
+            } catch (_) { /* suggestions are a convenience; typing still works */ }
+          }, 250);
+        };
+        input.addEventListener('input', suggest);
+        input.addEventListener('focus', suggest);
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && sugg.firstChild) { e.preventDefault(); sugg.firstChild.click(); }
+          else if (e.key === 'Escape') clear(sugg);
+        });
+        input.sugg = sugg;
+        return input;
+      };
       const toI = field('To \u2014 names or emails, comma-separated');
       const ccI = field('CC (optional)');
       const bccI = field('BCC (optional)');
-      if (invited) toI.value = invited;   // prefill with whoever is already on the meeting
+      if (invited) toI.value = invited + ', ';   // prefill with whoever is already on the meeting
       const subjI = el('input', { class: 'search', style: 'margin:0', value: 'Invitation: ' + (meta.title || 'Meeting') });
-      const lbl = (t, n) => el('label', { class: 'field', style: 'margin-top:8px' }, el('span', null, t), n);
+      const lbl = (t, n) => el('div', null,
+        el('label', { class: 'field', style: 'margin-top:8px' }, el('span', null, t), n), n.sugg || null);
       /* Split on commas / semicolons / new lines only -- NOT spaces, so a
          multi-word name survives -- then resolve each entry: an email is kept,
          a name is looked up in the contact book. Anything that is neither a valid
@@ -4854,8 +4930,10 @@ RENDER.meetings = function (body) {
   const lbl = (t, n) => el('label', { class: 'field' }, el('span', null, t), n);
   const form = el('div', { style: 'max-width:900px;margin:0 0 24px' },
     el('div', { class: 'grid2' }, lbl('Title', mTitle), lbl('When', mWhen)),
-    el('div', { class: 'grid2' }, lbl('Minutes', mMins), lbl('Timezone', mTz)),
+    el('div', { class: 'grid2' }, lbl('Minutes', mMins), lbl('Time zone', mTz)),
+    mTzNote,
     el('div', { class: 'grid2' }, lbl('Platform', mProv), lbl('Invitation language', mLang)),
+    mFirefliesLbl,
     lbl('Address the message to', mFor), mForSugg,
     el('div', { class: 'acts', style: 'margin-top:16px' }, linkBtn, emailBtn),
     issued);
@@ -4904,9 +4982,9 @@ RENDER.meetings = function (body) {
           who: people(m),
           evidence: [
             ['platform ', providerLabel(m.provider)],
-            ['starts   ', m.start_utc ? fmtDate(m.start_utc) : null],
+            ['starts   ', m.start_utc ? fmtInZone(m.start_utc, m.tz) : null],
             ['minutes  ', m.duration_min],
-            ['zone     ', m.tz],
+            ['zone     ', m.tz ? timezoneLabel(m.tz, m.start_utc) : null],
             ['join     ', m.meet_url],
             ['passcode ', m.passcode]
           ],
