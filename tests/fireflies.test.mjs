@@ -13,6 +13,7 @@ register('./helpers/edge-loader.mjs', import.meta.url);
 
 const FRED = 'fred@fireflies.ai';
 const ORGANISER = 'nada.osama@taranis.net';
+const FF_CALENDAR = 'nada.o.abdullah2000@gmail.com';
 const ENV = {
   SUPABASE_URL: 'https://db.test', SUPABASE_ANON_KEY: 'anon', SUPABASE_SERVICE_ROLE_KEY: 'service',
   ZOOM_CLIENT_ID: 'z', ZOOM_CLIENT_SECRET: 'z', ZOOM_ACCOUNT_ID: 'z',
@@ -78,7 +79,7 @@ test('ticked, Zoom, no guests: Fred gets a calendar invite with the join link', 
   const sent = toFred();
   assert.equal(sent.length, 1);
   assert.deepEqual(sent[0].to, [FRED]);
-  assert.deepEqual(sent[0].cc, [ORGANISER], 'a copy lands in the calendar Fireflies watches, whatever SMTP_FROM is');
+  assert.deepEqual(sent[0].cc, [FF_CALENDAR], 'a copy lands in the calendar Fireflies watches, whatever SMTP_FROM is');
   const cal = ics(sent[0]);
   assert.match(cal, /METHOD:REQUEST/);
   assert.match(cal, /ATTENDEE;[^\n]*:mailto:fred@fireflies\.ai/);

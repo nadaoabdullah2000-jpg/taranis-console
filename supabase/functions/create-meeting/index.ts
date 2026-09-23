@@ -215,7 +215,7 @@ type Issued = { join_url: string; passcode: string; external_id: string; warning
 const FIREFLIES = (Deno.env.get('FIREFLIES_INVITE_EMAIL') || FIREFLIES_DEFAULT).toLowerCase();
 // The calendar connected to the Fireflies account. It gets a copy of Fred's
 // invitation, so the event with Fred on it is in the calendar Fireflies reads.
-const FIREFLIES_CALENDAR = (Deno.env.get('FIREFLIES_CALENDAR_EMAIL') || 'nada.osama@taranis.net').toLowerCase();
+const FIREFLIES_CALENDAR = (Deno.env.get('FIREFLIES_CALENDAR_EMAIL') || 'nada.o.abdullah2000@gmail.com').toLowerCase();
 const PLATFORM: Record<string, string> = { zoom: 'Zoom', teams: 'Microsoft Teams', meet: 'Google Meet' };
 const MAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 function addresses(v: unknown): string[] {
