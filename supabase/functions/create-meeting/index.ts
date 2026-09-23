@@ -287,6 +287,9 @@ Deno.serve(async (req) => {
   let effProvider = provider;
 
   const reuseRow = reuseId ? (await admin.from('crm_meetings').select('*').eq('id', reuseId).maybeSingle()).data : null;
+  // A row that is in the diary but was never issued ("Issue the link"). The
+  // meeting created for it is written back onto that row, not onto a new one.
+  const pendingRow = reuseRow && !reuseRow.meet_url ? reuseRow : null;
   const fromAddr = Deno.env.get('SMTP_FROM') || 'nada.osama@taranis.net';
   const ff = firefliesPlan({ requested: addFireflies, alreadyInvited: reuseRow?.fireflies === true,
     provider: String(reuseRow?.meet_url ? (reuseRow.provider ?? provider) : provider), isReuse: !!reuseRow?.meet_url,
@@ -309,6 +312,9 @@ Deno.serve(async (req) => {
     try {
       issued = provider === 'zoom' ? await createZoom(meeting) : provider === 'teams' ? await createTeams(meeting) : await createMeet(meeting);
     } catch (e) {
+      if (pendingRow) {
+        return json({ ok: false, join_url: '', provider, status: 'pending', meeting_id: String(pendingRow.id), message: String((e as Error).message ?? e) });
+      }
       const { data: row } = await admin.from('crm_meetings').insert({ title, start_utc: meeting.startUtc, duration_min: minutes, tz, to_people: people, provider, status: 'pending', created_by: email }).select('id').maybeSingle();
       return json({ ok: false, join_url: '', provider, status: 'pending', meeting_id: row?.id ?? null, message: String((e as Error).message ?? e) });
     }
@@ -325,6 +331,9 @@ Deno.serve(async (req) => {
 
   if (isReuse && rowId) {
     await admin.from('crm_meetings').update({ title, duration_min: minutes, tz, to_people: people, status: 'scheduled', invitation_subject: subject, invitation_body: invitationText, invitation_language: language, updated_at: new Date().toISOString() }).eq('id', rowId);
+  } else if (pendingRow) {
+    rowId = String(pendingRow.id);
+    await admin.from('crm_meetings').update({ title, start_utc: start.toISOString(), duration_min: minutes, tz, to_people: people, provider, status: 'scheduled', meet_url: issued.join_url, passcode: issued.passcode || null, event_id: issued.external_id || null, invitation_subject: subject, invitation_body: invitationText, invitation_language: language, updated_at: new Date().toISOString() }).eq('id', rowId);
   } else {
     const { data: row } = await admin.from('crm_meetings').insert({ title, start_utc: start.toISOString(), duration_min: minutes, tz, to_people: people, provider, status: 'scheduled', meet_url: issued.join_url, passcode: issued.passcode || null, event_id: issued.external_id || null, created_by: email, invitation_subject: subject, invitation_body: invitationText, invitation_language: language }).select('id').maybeSingle();
     rowId = row?.id ?? null;
