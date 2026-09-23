@@ -6,65 +6,21 @@
    is not. */
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { register } from 'node:module';
 import { firefliesPlan } from '../supabase/functions/create-meeting/fireflies.js';
-
-register('./helpers/edge-loader.mjs', import.meta.url);
+import { call, env, reset, ORGANISER } from './helpers/edge-harness.mjs';
 
 const FRED = 'fred@fireflies.ai';
-const ORGANISER = 'nada.osama@taranis.net';
-const FF_CALENDAR = 'nada.o.abdullah2000@gmail.com';
-const ENV = {
-  SUPABASE_URL: 'https://db.test', SUPABASE_ANON_KEY: 'anon', SUPABASE_SERVICE_ROLE_KEY: 'service',
-  ZOOM_CLIENT_ID: 'z', ZOOM_CLIENT_SECRET: 'z', ZOOM_ACCOUNT_ID: 'z',
-  GOOGLE_CLIENT_ID: 'g', GOOGLE_CLIENT_SECRET: 'g', GOOGLE_REFRESH_TOKEN: 'g',
-  MS_TENANT_ID: 'm', MS_CLIENT_ID: 'm', MS_CLIENT_SECRET: 'm', MS_ORGANISER_ID: 'organiser',
-  SMTP_HOST: 'smtp.test', SMTP_USER: 'u', SMTP_PASS: 'p', SMTP_FROM: 'sender@taranis.net'
-};
-let env = { ...ENV };
-let handler = null;
+const FF_CALENDAR = 'fireflies-calendar@example.com';
 
-globalThis.Deno = { env: { get: (k) => env[k] }, serve: (h) => { handler = h; } };
-globalThis.fetch = async (url, init = {}) => {
-  const u = String(url);
-  const body = init.body && typeof init.body === 'string' ? JSON.parse(init.body) : null;
-  globalThis.__edge.calls.push({ url: u, method: init.method, body });
-  const ok = (x) => new Response(JSON.stringify(x), { status: 200 });
-  if (u.startsWith('https://zoom.us/oauth/token')) return ok({ access_token: 'zt' });
-  if (u === 'https://api.zoom.us/v2/users/me/meetings') {
-    return ok({ join_url: 'https://zoom.us/j/123', password: 'pw', id: 123, timezone: body.timezone,
-      start_time: '2026-09-23T09:00:00Z' });
-  }
-  if (u.startsWith('https://oauth2.googleapis.com/token')) return ok({ access_token: 'gt' });
-  if (u.startsWith('https://www.googleapis.com/calendar/v3/calendars/primary/events')) {
-    return ok({ hangoutLink: 'https://meet.google.com/abc-defg-hij', id: 'ev1' });
-  }
-  if (u.startsWith('https://login.microsoftonline.com/')) return ok({ access_token: 'mt' });
-  if (u.startsWith('https://graph.microsoft.com/')) return ok({ joinWebUrl: 'https://teams.microsoft.com/l/x', id: 't1' });
-  throw new Error('Unexpected fetch ' + u);
-};
-
-beforeEach(() => {
-  env = { ...ENV };
-  globalThis.__edge = { user: ORGANISER, mail: [], writes: [], calls: [],
-    db: { console_users: [{ email: ORGANISER }], crm_meetings: [] } };
-});
-
-await import('../supabase/functions/create-meeting/index.ts');
-
-async function call(body) {
-  const res = await handler(new Request('https://edge.test/create-meeting', {
-    method: 'POST', headers: { Authorization: 'Bearer t', 'Content-Type': 'application/json' },
-    body: JSON.stringify(body) }));
-  return res.json();
-}
+beforeEach(reset);
 
 const BOOKING = { provider: 'zoom', title: 'Cap Intro', start_utc: '2026-09-23T09:00:00.000Z',
   duration_min: 30, tz: 'Africa/Cairo', to_people: [], send_invitations: false, language: 'en' };
 const GUESTS = [{ email: 'guest@example.com' }];
 
 const S = () => globalThis.__edge;
-const ics = (m) => (m.mimeContent.find((c) => c.mimeType.startsWith('text/calendar')) || {}).content || '';
+// The invite, with folded lines joined back up (RFC 5545 folds at 75 octets).
+const ics = (m) => ((m.mimeContent.find((c) => c.mimeType.startsWith('text/calendar')) || {}).content || '').replace(/\r\n[ \t]/g, '');
 const toFred = () => S().mail.filter((m) => [].concat(m.to || [], m.cc || [], m.bcc || []).includes(FRED));
 const everything = () => JSON.stringify({ mail: S().mail, calls: S().calls, writes: S().writes });
 const meetingRow = (id) => S().db.crm_meetings.find((r) => r.id === id);
@@ -83,7 +39,7 @@ test('ticked, Zoom, no guests: Fred gets a calendar invite with the join link', 
   const cal = ics(sent[0]);
   assert.match(cal, /METHOD:REQUEST/);
   assert.match(cal, /ATTENDEE;[^\n]*:mailto:fred@fireflies\.ai/);
-  assert.match(cal, /ATTENDEE;[^\n]*:mailto:nada\.o\.abdullah2000@gmail\.com/, 'the Fireflies calendar is on the event');
+  assert.match(cal, /ATTENDEE;[^\n]*:mailto:fireflies-calendar@example\.com/, 'the Fireflies calendar is on the event');
   assert.match(cal, /LOCATION:https:\/\/zoom\.us\/j\/123/);
   assert.match(cal, /DTSTART:20260923T090000Z/);
   assert.equal(sent[0].attachments[0].filename, 'invite.ics');
@@ -145,6 +101,27 @@ test('ticked again on a meeting Fred is already on: no duplicate invite', async 
     send_invitations: true, add_fireflies: true });
   assert.equal(r.fireflies, 'on');
   assert.equal(toFred().length, 0);
+});
+
+test('ticked, but FIREFLIES_CALENDAR_EMAIL is not set: Fred is still invited, the copy is skipped, a warning is logged', async (t) => {
+  delete env.FIREFLIES_CALENDAR_EMAIL;
+  const warn = t.mock.method(console, 'warn', () => {});
+  const r = await call({ ...BOOKING, add_fireflies: true });
+  assert.equal(r.fireflies, 'on');
+  const sent = toFred();
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0].to, [FRED]);
+  assert.equal(sent[0].cc, undefined, 'no copy, and no fallback address');
+  assert.doesNotMatch(ics(sent[0]), /example\.com|gmail/);
+  assert.equal(warn.mock.callCount(), 1);
+  assert.match(warn.mock.calls[0].arguments[0], /FIREFLIES_CALENDAR_EMAIL is not set/);
+});
+
+test('unticked with FIREFLIES_CALENDAR_EMAIL not set: no warning', async (t) => {
+  delete env.FIREFLIES_CALENDAR_EMAIL;
+  const warn = t.mock.method(console, 'warn', () => {});
+  await call({ ...BOOKING });
+  assert.equal(warn.mock.callCount(), 0);
 });
 
 test('ticked, but the mail server is not configured: says Fred was not invited, and does not record him', async () => {

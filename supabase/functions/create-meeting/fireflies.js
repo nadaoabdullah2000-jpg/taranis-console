@@ -5,8 +5,8 @@
    fred@fireflies.ai on it. It goes two ways at once, because Fireflies can
    pick it up either way:
      - to Fred directly, and
-     - to the calendar connected to the Fireflies account
-       (nada.o.abdullah2000@gmail.com, or FIREFLIES_CALENDAR_EMAIL), so the
+     - to the calendar connected to the Fireflies account (the
+       FIREFLIES_CALENDAR_EMAIL secret; skipped when it is not set), so the
        event with Fred on it lands in the calendar Fireflies watches.
    Guests' invitations are never touched: they are the same whether or not
    Fireflies is on. For Google Meet the calendar event itself carries Fred as

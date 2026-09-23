@@ -1,6 +1,7 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { computeZone, zoomBookedSameInstant, zoomStartFields } from './zoom-time.js';
 import { FIREFLIES_DEFAULT, firefliesPlan } from './fireflies.js';
+import { buildICS, eventUid, guestCopies } from './invite.js';
 
 const CORS = {
   'Access-Control-Allow-Origin': Deno.env.get('CONSOLE_ORIGIN') ??
@@ -106,7 +107,32 @@ async function createMeet(m: Meeting) {
   if (!res.ok) throw new Error('Google refused the event: ' + (body?.error?.message ?? res.status));
   const link = body.hangoutLink ?? body.conferenceData?.entryPoints?.find((e: { uri?: string }) => e.uri)?.uri ?? '';
   if (!link) throw new Error('Google created the event but issued no Meet link. The account may not have conferencing enabled.');
-  return { join_url: link as string, passcode: '', external_id: String(body.id ?? '') };
+  return { join_url: link as string, passcode: '', external_id: String(body.id ?? ''), google: googleIdentity(body) };
+}
+
+/* A Google event's own identity, for any invitation we send by email for it:
+   same UID, current SEQUENCE and organiser, so it is the same calendar event. */
+type GoogleIdentity = { uid: string; sequence: number; organizer: string };
+const googleIdentity = (ev: Record<string, any>): GoogleIdentity =>
+  ({ uid: String(ev.iCalUID ?? ''), sequence: Number(ev.sequence ?? 0), organizer: String(ev.organizer?.email ?? '') });
+
+/* An existing Google Meet event: add guests to it with sendUpdates=all, so
+   Google sends them its own invitation. Attendees already on it are kept. */
+async function googleAddGuests(eventId: string, emails: string[]): Promise<GoogleIdentity> {
+  const token = await googleToken();
+  const base = 'https://www.googleapis.com/calendar/v3/calendars/primary/events/' + encodeURIComponent(eventId);
+  const got = await fetch(base, { headers: { Authorization: 'Bearer ' + token } });
+  const ev = await got.json();
+  if (!got.ok) throw new Error('Google could not find the event: ' + (ev?.error?.message ?? got.status));
+  const have = (ev.attendees ?? []) as { email: string }[];
+  const add = emails.filter((e) => !have.some((a) => String(a.email).toLowerCase() === e));
+  if (!add.length) return googleIdentity(ev);
+  const res = await fetch(base + '?sendUpdates=all', { method: 'PATCH',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ attendees: [...have, ...add.map((email) => ({ email }))] }) });
+  const body = await res.json();
+  if (!res.ok) throw new Error('Google refused to add the guests: ' + (body?.error?.message ?? res.status));
+  return googleIdentity(body);
 }
 
 async function cancelOnPlatform(provider: string, externalId: string): Promise<string> {
@@ -155,27 +181,6 @@ function buildInvitation(lang: Lang, a: { inviteeName: string; title: string; wh
   return { subject: 'Meeting — ' + a.title, body };
 }
 
-function buildICS(a: { title: string; startUtc: string; endUtc: string; joinUrl: string; body: string; organizer: string; attendees: string[]; uid?: string; }): string {
-  const stamp = (iso: string) => new Date(iso).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-  const esc = (s: string) => String(s || '').replace(/([,;\\])/g, '\\$1').replace(/\r?\n/g, '\\n');
-  const att = (a.attendees || []).map((e) => 'ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE;CN=' + e + ':mailto:' + e);
-  return [
-    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Taranis//CRM//EN', 'CALSCALE:GREGORIAN', 'METHOD:REQUEST',
-    'BEGIN:VEVENT',
-    'UID:' + (a.uid || crypto.randomUUID()) + '@taranis.crm',
-    'DTSTAMP:' + stamp(new Date().toISOString()),
-    'DTSTART:' + stamp(a.startUtc),
-    'DTEND:' + stamp(a.endUtc),
-    'SUMMARY:' + esc(a.title),
-    'DESCRIPTION:' + esc(a.body),
-    'LOCATION:' + esc(a.joinUrl),
-    'ORGANIZER;CN=Taranis:mailto:' + a.organizer,
-    ...att,
-    'CLASS:PUBLIC', 'PRIORITY:5', 'STATUS:CONFIRMED', 'SEQUENCE:0', 'TRANSP:OPAQUE', 'X-MICROSOFT-CDO-BUSYSTATUS:BUSY',
-    'END:VEVENT', 'END:VCALENDAR'
-  ].join('\r\n');
-}
-
 async function sendEmail(args: { to: string[]; cc: string[]; bcc: string[]; subject: string; text: string; ics: string; }): Promise<string> {
   const host = Deno.env.get('SMTP_HOST');
   const user = Deno.env.get('SMTP_USER');
@@ -206,16 +211,21 @@ async function sendEmail(args: { to: string[]; cc: string[]; bcc: string[]; subj
 }
 
 type Meeting = { title: string; startUtc: string; endUtc: string; minutes: number; tz: string; invite: string[]; };
-type Issued = { join_url: string; passcode: string; external_id: string; warning?: string };
+type Issued = { join_url: string; passcode: string; external_id: string; warning?: string; google?: GoogleIdentity };
 
 /* The Fireflies notetaker joins a meeting when its address is on the calendar
    invitation. It is only ever added when the call asked for it
    (add_fireflies: true, from a checkbox that is off by default). See
    fireflies.js for how the invitation reaches it. */
 const FIREFLIES = (Deno.env.get('FIREFLIES_INVITE_EMAIL') || FIREFLIES_DEFAULT).toLowerCase();
-// The calendar connected to the Fireflies account. It gets a copy of Fred's
-// invitation, so the event with Fred on it is in the calendar Fireflies reads.
-const FIREFLIES_CALENDAR = (Deno.env.get('FIREFLIES_CALENDAR_EMAIL') || 'nada.o.abdullah2000@gmail.com').toLowerCase();
+/* The calendar connected to the Fireflies account, from the
+   FIREFLIES_CALENDAR_EMAIL secret. It gets a copy of Fred's invitation, so
+   the event with Fred on it is in the calendar Fireflies reads. There is no
+   fallback address: without the secret the copy is skipped (Fred still gets
+   his invitation) and a warning is logged. Only whether it is set is ever
+   logged, never the address. */
+const firefliesCalendar = () => String(Deno.env.get('FIREFLIES_CALENDAR_EMAIL') ?? '').trim().toLowerCase();
+console.log('create-meeting: FIREFLIES_CALENDAR_EMAIL is ' + (firefliesCalendar() ? 'set' : 'NOT set'));
 const PLATFORM: Record<string, string> = { zoom: 'Zoom', teams: 'Microsoft Teams', meet: 'Google Meet' };
 const MAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 function addresses(v: unknown): string[] {
@@ -287,10 +297,17 @@ Deno.serve(async (req) => {
   let effProvider = provider;
 
   const reuseRow = reuseId ? (await admin.from('crm_meetings').select('*').eq('id', reuseId).maybeSingle()).data : null;
+  // A row that is in the diary but was never issued ("Issue the link"). The
+  // meeting created for it is written back onto that row, not onto a new one.
+  const pendingRow = reuseRow && !reuseRow.meet_url ? reuseRow : null;
   const fromAddr = Deno.env.get('SMTP_FROM') || 'nada.osama@taranis.net';
+  const ffCalendar = firefliesCalendar();
   const ff = firefliesPlan({ requested: addFireflies, alreadyInvited: reuseRow?.fireflies === true,
     provider: String(reuseRow?.meet_url ? (reuseRow.provider ?? provider) : provider), isReuse: !!reuseRow?.meet_url,
-    recipients: [...invite, ...cc, ...bcc], organizer: FIREFLIES_CALENDAR, fireflies: FIREFLIES });
+    recipients: [...invite, ...cc, ...bcc], organizer: ffCalendar, fireflies: FIREFLIES });
+  if (ff.sendInvite && !ffCalendar) {
+    console.warn('create-meeting: FIREFLIES_CALENDAR_EMAIL is not set, so the calendar copy of Fred\'s invitation is skipped. Fred is still invited directly.');
+  }
 
   if (reuseRow && reuseRow.meet_url) {
     isReuse = true;
@@ -303,12 +320,16 @@ Deno.serve(async (req) => {
     start = new Date(String(body.start_utc ?? ''));
     if (isNaN(start.getTime())) return refuse('No usable start time was supplied.');
     const end0 = new Date(start.getTime() + minutes * 60000);
-    const guests = send ? invite : [];
+    // Google Meet puts To and CC on the event itself; BCC is sent separately.
+    const guests = send ? [...new Set([...invite, ...cc])] : [];
     const meeting: Meeting = { title, minutes, tz, startUtc: start.toISOString(), endUtc: end0.toISOString(),
       invite: ff.addToEvent ? guests.concat(FIREFLIES) : guests };
     try {
       issued = provider === 'zoom' ? await createZoom(meeting) : provider === 'teams' ? await createTeams(meeting) : await createMeet(meeting);
     } catch (e) {
+      if (pendingRow) {
+        return json({ ok: false, join_url: '', provider, status: 'pending', meeting_id: String(pendingRow.id), message: String((e as Error).message ?? e) });
+      }
       const { data: row } = await admin.from('crm_meetings').insert({ title, start_utc: meeting.startUtc, duration_min: minutes, tz, to_people: people, provider, status: 'pending', created_by: email }).select('id').maybeSingle();
       return json({ ok: false, join_url: '', provider, status: 'pending', meeting_id: row?.id ?? null, message: String((e as Error).message ?? e) });
     }
@@ -325,19 +346,61 @@ Deno.serve(async (req) => {
 
   if (isReuse && rowId) {
     await admin.from('crm_meetings').update({ title, duration_min: minutes, tz, to_people: people, status: 'scheduled', invitation_subject: subject, invitation_body: invitationText, invitation_language: language, updated_at: new Date().toISOString() }).eq('id', rowId);
+  } else if (pendingRow) {
+    rowId = String(pendingRow.id);
+    await admin.from('crm_meetings').update({ title, start_utc: start.toISOString(), duration_min: minutes, tz, to_people: people, provider, status: 'scheduled', meet_url: issued.join_url, passcode: issued.passcode || null, event_id: issued.external_id || null, invitation_subject: subject, invitation_body: invitationText, invitation_language: language, updated_at: new Date().toISOString() }).eq('id', rowId);
   } else {
     const { data: row } = await admin.from('crm_meetings').insert({ title, start_utc: start.toISOString(), duration_min: minutes, tz, to_people: people, provider, status: 'scheduled', meet_url: issued.join_url, passcode: issued.passcode || null, event_id: issued.external_id || null, created_by: email, invitation_subject: subject, invitation_body: invitationText, invitation_language: language }).select('id').maybeSingle();
     rowId = row?.id ?? null;
   }
 
+  /* The calendar invitation. One UID per meeting (the row), SEQUENCE up by
+     one on every send, so resends update the event rather than add one.
+     Google Meet is the exception: Google's own event is the invitation, so
+     To/CC are added to it and Google invites them; anything we send by email
+     for it (BCC copies, Fireflies) carries Google's UID and organiser. */
   let emailStatus = '';
   let emailed = false;
+  let calendarInvite = 'none';
   const wantsEmail = send && (invite.length || cc.length || bcc.length);
-  const uid = crypto.randomUUID();
+  const prior = isReuse ? reuseRow : pendingRow;
+  let uid = eventUid(rowId);
+  let sequence = prior?.ics_sequence == null ? 0 : Number(prior.ics_sequence) + 1;
+  let organizer = { email: fromAddr, name: 'Taranis' };
+  let googleInvites = false;
+  if (effProvider === 'meet' && issued.external_id && (wantsEmail || ff.sendInvite)) {
+    try {
+      const g = isReuse
+        ? await googleAddGuests(issued.external_id, send ? [...new Set([...invite, ...cc])] : [])
+        : issued.google!;
+      if (g?.uid) {
+        uid = g.uid; sequence = g.sequence;
+        if (g.organizer) organizer = { email: g.organizer, name: 'Taranis' };
+        googleInvites = true;
+      }
+    } catch (e) {
+      // Google would not take the guests: fall back to our own invitation.
+      console.warn('create-meeting: ' + String((e as Error).message ?? e) + ' Sending the invitation by email instead.');
+    }
+  }
+  const people2 = people as { email?: string; name?: string }[];
+  const nameOf = (e: string) => people2.find((p) => String(p?.email ?? '').toLowerCase() === e)?.name || e;
+  const asAttendees = (list: string[]) => list.map((email) => ({ email, name: nameOf(email) }));
+  const ics = (attendees: string[]) => buildICS({ uid, sequence, title, startUtc: start.toISOString(), endUtc: end.toISOString(),
+    joinUrl: issued.join_url, passcode: issued.passcode, body: invitationText, organizer, attendees: asAttendees(attendees) });
   if (wantsEmail) {
-    const ics = buildICS({ title, startUtc: start.toISOString(), endUtc: end.toISOString(), joinUrl: issued.join_url, body: invitationText, organizer: fromAddr, attendees: invite.concat(cc), uid });
-    emailStatus = await sendEmail({ to: invite, cc, bcc, subject, text: invitationText, ics });
+    const problems: string[] = [];
+    for (const c of guestCopies({ to: invite, cc, bcc })) {
+      const isBccCopy = !invite.includes(c.to[0]) && !cc.includes(c.to[0]);
+      // With Google Meet, To/CC already have Google's invitation: they get the
+      // message alone, so there is one invitation, not two.
+      const attach = !(googleInvites && !isBccCopy);
+      const why = await sendEmail({ to: c.to, cc: c.cc, bcc: [], subject, text: invitationText, ics: attach ? ics(c.attendees) : '' });
+      if (why) problems.push(why);
+    }
+    emailStatus = [...new Set(problems)].join(' ');
     emailed = emailStatus === '';
+    calendarInvite = googleInvites ? 'google' : 'ics';
   }
 
   /* Fireflies: its own invitation, to Fred with a copy to the calendar
@@ -346,9 +409,13 @@ Deno.serve(async (req) => {
      only once it has actually gone. */
   let firefliesStatus = ff.on ? 'on' : 'off';
   if (ff.sendInvite) {
-    const ics = buildICS({ title, startUtc: start.toISOString(), endUtc: end.toISOString(), joinUrl: issued.join_url, body: invitationText, organizer: fromAddr, attendees: invite.concat(cc, ff.inviteCc, [FIREFLIES]), uid });
-    const why = await sendEmail({ to: ff.inviteTo, cc: ff.inviteCc, bcc: [], subject, text: invitationText, ics });
+    const why = await sendEmail({ to: ff.inviteTo, cc: ff.inviteCc, bcc: [], subject, text: invitationText, ics: ics([...invite, ...cc, ...ff.inviteCc, FIREFLIES]) });
     if (why) firefliesStatus = 'not invited: ' + why;
+  }
+  if ((wantsEmail || ff.sendInvite) && rowId && !googleInvites) {
+    // Remember the SEQUENCE sent, so the next send is newer. A separate
+    // write, so a database without the column (schema-9) still works.
+    await admin.from('crm_meetings').update({ ics_sequence: sequence }).eq('id', rowId);
   }
   if (firefliesStatus === 'on' && rowId && reuseRow?.fireflies !== true) {
     // A separate write, so a database without the column (schema-8 not yet
@@ -356,5 +423,5 @@ Deno.serve(async (req) => {
     await admin.from('crm_meetings').update({ fireflies: true }).eq('id', rowId);
   }
 
-  return json({ ok: true, join_url: issued.join_url, passcode: issued.passcode, provider: effProvider, meeting_id: rowId, status: 'scheduled', reused: isReuse, message: invitationText, subject, language, invited: invite.join(','), when_local: when, tz, emailed, email_status: wantsEmail ? (emailStatus || 'sent') : 'not requested', fireflies: firefliesStatus, time_warning: issued.warning || '' });
+  return json({ ok: true, join_url: issued.join_url, passcode: issued.passcode, provider: effProvider, meeting_id: rowId, status: 'scheduled', reused: isReuse, message: invitationText, subject, language, invited: invite.join(','), when_local: when, tz, emailed, email_status: wantsEmail ? (emailStatus || 'sent') : 'not requested', fireflies: firefliesStatus, calendar_invite: calendarInvite, time_warning: issued.warning || '' });
 });
