@@ -83,6 +83,7 @@ test('ticked, Zoom, no guests: Fred gets a calendar invite with the join link', 
   const cal = ics(sent[0]);
   assert.match(cal, /METHOD:REQUEST/);
   assert.match(cal, /ATTENDEE;[^\n]*:mailto:fred@fireflies\.ai/);
+  assert.match(cal, /ATTENDEE;[^\n]*:mailto:nada\.o\.abdullah2000@gmail\.com/, 'the Fireflies calendar is on the event');
   assert.match(cal, /LOCATION:https:\/\/zoom\.us\/j\/123/);
   assert.match(cal, /DTSTART:20260923T090000Z/);
   assert.equal(sent[0].attachments[0].filename, 'invite.ics');

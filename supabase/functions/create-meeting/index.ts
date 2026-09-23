@@ -340,12 +340,13 @@ Deno.serve(async (req) => {
     emailed = emailStatus === '';
   }
 
-  /* Fireflies: its own invitation, to Fred with a copy to the organiser, for
-     the same event (same UID) the guests were sent. Recorded on the row only
-     once it has actually gone. */
+  /* Fireflies: its own invitation, to Fred with a copy to the calendar
+     Fireflies watches (listed as an attendee too, so the calendar adds it),
+     for the same event (same UID) the guests were sent. Recorded on the row
+     only once it has actually gone. */
   let firefliesStatus = ff.on ? 'on' : 'off';
   if (ff.sendInvite) {
-    const ics = buildICS({ title, startUtc: start.toISOString(), endUtc: end.toISOString(), joinUrl: issued.join_url, body: invitationText, organizer: fromAddr, attendees: invite.concat(cc, [FIREFLIES]), uid });
+    const ics = buildICS({ title, startUtc: start.toISOString(), endUtc: end.toISOString(), joinUrl: issued.join_url, body: invitationText, organizer: fromAddr, attendees: invite.concat(cc, ff.inviteCc, [FIREFLIES]), uid });
     const why = await sendEmail({ to: ff.inviteTo, cc: ff.inviteCc, bcc: [], subject, text: invitationText, ics });
     if (why) firefliesStatus = 'not invited: ' + why;
   }
