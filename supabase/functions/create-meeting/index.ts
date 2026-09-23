@@ -213,6 +213,9 @@ type Issued = { join_url: string; passcode: string; external_id: string; warning
    (add_fireflies: true, from a checkbox that is off by default). See
    fireflies.js for how the invitation reaches it. */
 const FIREFLIES = (Deno.env.get('FIREFLIES_INVITE_EMAIL') || FIREFLIES_DEFAULT).toLowerCase();
+// The calendar connected to the Fireflies account. It gets a copy of Fred's
+// invitation, so the event with Fred on it is in the calendar Fireflies reads.
+const FIREFLIES_CALENDAR = (Deno.env.get('FIREFLIES_CALENDAR_EMAIL') || 'nada.osama@taranis.net').toLowerCase();
 const PLATFORM: Record<string, string> = { zoom: 'Zoom', teams: 'Microsoft Teams', meet: 'Google Meet' };
 const MAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 function addresses(v: unknown): string[] {
@@ -287,7 +290,7 @@ Deno.serve(async (req) => {
   const fromAddr = Deno.env.get('SMTP_FROM') || 'nada.osama@taranis.net';
   const ff = firefliesPlan({ requested: addFireflies, alreadyInvited: reuseRow?.fireflies === true,
     provider: String(reuseRow?.meet_url ? (reuseRow.provider ?? provider) : provider), isReuse: !!reuseRow?.meet_url,
-    recipients: [...invite, ...cc, ...bcc], organizer: fromAddr, fireflies: FIREFLIES });
+    recipients: [...invite, ...cc, ...bcc], organizer: FIREFLIES_CALENDAR, fireflies: FIREFLIES });
 
   if (reuseRow && reuseRow.meet_url) {
     isReuse = true;

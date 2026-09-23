@@ -5,8 +5,9 @@
    fred@fireflies.ai on it. It goes two ways at once, because Fireflies can
    pick it up either way:
      - to Fred directly, and
-     - to the organiser's own mailbox, so the event with Fred on it lands in
-       the calendar Fireflies watches.
+     - to the calendar connected to the Fireflies account (nada.osama@
+       taranis.net, or FIREFLIES_CALENDAR_EMAIL), so the event with Fred on
+       it lands in the calendar Fireflies watches.
    Guests' invitations are never touched: they are the same whether or not
    Fireflies is on. For Google Meet the calendar event itself carries Fred as
    an attendee, and Google sends his invite.
@@ -26,7 +27,7 @@ export const FIREFLIES_DEFAULT = 'fred@fireflies.ai';
  * @param {string}  a.provider        'zoom' | 'teams' | 'meet'
  * @param {boolean} a.isReuse         the meeting already exists (Send an email)
  * @param {string[]} a.recipients     every guest address on this call (to, cc, bcc)
- * @param {string}  a.organizer       the address invitations are sent from
+ * @param {string}  a.organizer       the calendar Fireflies watches, copied on Fred's invite
  * @param {string}  a.fireflies       Fred's address
  */
 export function firefliesPlan(a) {

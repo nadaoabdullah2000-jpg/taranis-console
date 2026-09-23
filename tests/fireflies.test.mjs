@@ -18,7 +18,7 @@ const ENV = {
   ZOOM_CLIENT_ID: 'z', ZOOM_CLIENT_SECRET: 'z', ZOOM_ACCOUNT_ID: 'z',
   GOOGLE_CLIENT_ID: 'g', GOOGLE_CLIENT_SECRET: 'g', GOOGLE_REFRESH_TOKEN: 'g',
   MS_TENANT_ID: 'm', MS_CLIENT_ID: 'm', MS_CLIENT_SECRET: 'm', MS_ORGANISER_ID: 'organiser',
-  SMTP_HOST: 'smtp.test', SMTP_USER: 'u', SMTP_PASS: 'p', SMTP_FROM: ORGANISER
+  SMTP_HOST: 'smtp.test', SMTP_USER: 'u', SMTP_PASS: 'p', SMTP_FROM: 'sender@taranis.net'
 };
 let env = { ...ENV };
 let handler = null;
@@ -78,7 +78,7 @@ test('ticked, Zoom, no guests: Fred gets a calendar invite with the join link', 
   const sent = toFred();
   assert.equal(sent.length, 1);
   assert.deepEqual(sent[0].to, [FRED]);
-  assert.deepEqual(sent[0].cc, [ORGANISER], 'a copy lands in the organiser\'s own calendar');
+  assert.deepEqual(sent[0].cc, [ORGANISER], 'a copy lands in the calendar Fireflies watches, whatever SMTP_FROM is');
   const cal = ics(sent[0]);
   assert.match(cal, /METHOD:REQUEST/);
   assert.match(cal, /ATTENDEE;[^\n]*:mailto:fred@fireflies\.ai/);
