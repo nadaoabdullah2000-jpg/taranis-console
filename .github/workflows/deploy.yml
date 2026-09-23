@@ -46,6 +46,7 @@ jobs:
           };
           JS
           printf '%s' "${BUILD}" > build.txt
+          sed -i "s|<script src=\"./meeting-time.js\"></script>|<script src=\"./meeting-time.js?v=${BUILD}\"></script>|" index.html
           sed -i "s|<script src=\"./app.js\"></script>|<script src=\"./config.js?v=${BUILD}\"></script><script src=\"./app.js?v=${BUILD}\"></script>|" index.html
           echo "Built ${BUILD}"; grep -o 'config.js?v=[a-f0-9]*' index.html
 

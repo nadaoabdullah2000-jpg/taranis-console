@@ -1,4 +1,5 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { computeZone, zoomBookedSameInstant, zoomStartFields } from './zoom-time.js';
 
 const CORS = {
   'Access-Control-Allow-Origin': Deno.env.get('CONSOLE_ORIGIN') ??
@@ -27,15 +28,22 @@ async function zoomToken(): Promise<string> {
 
 async function createZoom(m: Meeting) {
   const token = await zoomToken();
+  // The wall clock in the meeting's zone plus that zone -- never toISOString(),
+  // whose ".000Z" Zoom does not read as GMT (see zoom-time.js).
+  const { start_time, timezone } = zoomStartFields(m.startUtc, m.tz);
   const res = await fetch('https://api.zoom.us/v2/users/me/meetings', {
     method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ topic: m.title, type: 2, start_time: m.startUtc, duration: m.minutes, timezone: m.tz,
+    body: JSON.stringify({ topic: m.title, type: 2, start_time, duration: m.minutes, timezone,
       agenda: 'Scheduled from the Taranis CRM console.',
       settings: { join_before_host: true, mute_upon_entry: true, waiting_room: false } })
   });
   const body = await res.json();
   if (!res.ok) throw new Error('Zoom refused the meeting: ' + (body.message ?? res.status));
-  return { join_url: body.join_url as string, passcode: (body.password ?? '') as string, external_id: String(body.id ?? '') };
+  // Zoom answers with the start it booked, in GMT. If that is not the instant
+  // asked for, say so rather than let a wrong time go out in an invitation.
+  const warning = zoomBookedSameInstant(m.startUtc, body.start_time) ? ''
+    : 'Zoom booked ' + body.start_time + ' (' + (body.timezone ?? timezone) + ') but ' + m.startUtc + ' was asked for. Check the meeting in Zoom.';
+  return { join_url: body.join_url as string, passcode: (body.password ?? '') as string, external_id: String(body.id ?? ''), warning };
 }
 
 async function teamsToken(): Promise<string> {
@@ -197,6 +205,12 @@ async function sendEmail(args: { to: string[]; cc: string[]; bcc: string[]; subj
 }
 
 type Meeting = { title: string; startUtc: string; endUtc: string; minutes: number; tz: string; invite: string[]; };
+type Issued = { join_url: string; passcode: string; external_id: string; warning?: string };
+
+/* The Fireflies notetaker joins a meeting when its address is on the calendar
+   invitation. It is only ever added when the booking asked for it
+   (add_fireflies: true, a checkbox on the form that is off by default). */
+const FIREFLIES = (Deno.env.get('FIREFLIES_INVITE_EMAIL') || 'fred@fireflies.ai').toLowerCase();
 const PLATFORM: Record<string, string> = { zoom: 'Zoom', teams: 'Microsoft Teams', meet: 'Google Meet' };
 const MAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 function addresses(v: unknown): string[] {
@@ -245,13 +259,14 @@ Deno.serve(async (req) => {
 
   const provider = String(body.provider ?? 'zoom').toLowerCase();
   const title = String(body.title ?? '').trim() || 'Meeting';
-  const tz = String(body.tz ?? 'Africa/Cairo').trim() || 'Africa/Cairo';
+  const tz = String(body.tz ?? 'UTC').trim() || 'UTC';
   const minutes = Number(body.duration_min) || 30;
   const inviteeName = String(body.invitee_name ?? '').trim();
   const lang2 = String(body.language ?? 'en').slice(0, 2).toLowerCase();
   const language: Lang = (lang2 === 'fr' || lang2 === 'ar') ? lang2 : 'en';
   const send = body.send_invitations !== false;
   const reuseId = String(body.meeting_id ?? '').trim();
+  const addFireflies = body.add_fireflies === true;
 
   const people = Array.isArray(body.to_people) ? body.to_people : [];
   const invite = addresses(people);
@@ -260,7 +275,7 @@ Deno.serve(async (req) => {
 
   if (!PLATFORM[provider] && !reuseId) return refuse('Taranis books on Zoom, Microsoft Teams or Google Meet. It was asked for "' + provider + '".');
 
-  let issued: { join_url: string; passcode: string; external_id: string };
+  let issued: Issued;
   let rowId: string | null = null;
   let isReuse = false;
   let start: Date;
@@ -279,7 +294,9 @@ Deno.serve(async (req) => {
     start = new Date(String(body.start_utc ?? ''));
     if (isNaN(start.getTime())) return refuse('No usable start time was supplied.');
     const end0 = new Date(start.getTime() + minutes * 60000);
-    const meeting: Meeting = { title, minutes, tz, startUtc: start.toISOString(), endUtc: end0.toISOString(), invite: send ? invite : [] };
+    const guests = send ? invite : [];
+    const meeting: Meeting = { title, minutes, tz, startUtc: start.toISOString(), endUtc: end0.toISOString(),
+      invite: addFireflies && !guests.includes(FIREFLIES) ? guests.concat(FIREFLIES) : guests };
     try {
       issued = provider === 'zoom' ? await createZoom(meeting) : provider === 'teams' ? await createTeams(meeting) : await createMeet(meeting);
     } catch (e) {
@@ -291,7 +308,7 @@ Deno.serve(async (req) => {
   const end = new Date(start.getTime() + minutes * 60000);
 
   const when = new Intl.DateTimeFormat(language === 'fr' ? 'fr-FR' : language === 'ar' ? 'ar' : 'en-GB',
-    { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: tz }).format(start);
+    { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: computeZone(tz) }).format(start);
 
   const built = buildInvitation(language, { inviteeName, title, when, tz, minutes, label: PLATFORM[effProvider] ?? 'Zoom', joinUrl: issued.join_url, passcode: issued.passcode });
   const subject = String(body.subject ?? '').trim() || built.subject;
@@ -307,12 +324,25 @@ Deno.serve(async (req) => {
   let emailStatus = '';
   let emailed = false;
   const wantsEmail = send && (invite.length || cc.length || bcc.length);
+  const fromAddr = Deno.env.get('SMTP_FROM') || 'nada.osama@taranis.net';
+  const onInvite = [...invite, ...cc, ...bcc];
+  /* Fireflies gets the calendar invitation only when asked for, and only when
+     the meeting is first booked -- a later "Send an email" for the same
+     meeting must not invite it a second time. With guests it rides along as a
+     hidden (BCC) copy and an attendee on the .ics; with none, the invitation
+     goes to Fireflies alone. Google Meet already invited it on the event. */
+  const fireflies = addFireflies && !isReuse && effProvider !== 'meet' && !onInvite.includes(FIREFLIES);
   if (wantsEmail) {
-    const fromAddr = Deno.env.get('SMTP_FROM') || 'nada.osama@taranis.net';
-    const ics = buildICS({ title, startUtc: start.toISOString(), endUtc: end.toISOString(), joinUrl: issued.join_url, body: invitationText, organizer: fromAddr, attendees: invite.concat(cc) });
-    emailStatus = await sendEmail({ to: invite, cc, bcc, subject, text: invitationText, ics });
+    const ics = buildICS({ title, startUtc: start.toISOString(), endUtc: end.toISOString(), joinUrl: issued.join_url, body: invitationText, organizer: fromAddr, attendees: invite.concat(cc, fireflies ? [FIREFLIES] : []) });
+    emailStatus = await sendEmail({ to: invite, cc, bcc: fireflies ? bcc.concat(FIREFLIES) : bcc, subject, text: invitationText, ics });
     emailed = emailStatus === '';
+  } else if (fireflies) {
+    const ics = buildICS({ title, startUtc: start.toISOString(), endUtc: end.toISOString(), joinUrl: issued.join_url, body: invitationText, organizer: fromAddr, attendees: [FIREFLIES] });
+    emailStatus = await sendEmail({ to: [FIREFLIES], cc: [], bcc: [], subject, text: invitationText, ics });
   }
+  const firefliesStatus = !addFireflies || isReuse ? 'not requested'
+    : effProvider === 'meet' || onInvite.includes(FIREFLIES) || emailStatus === '' ? 'invited'
+    : 'not invited: ' + emailStatus;
 
-  return json({ ok: true, join_url: issued.join_url, passcode: issued.passcode, provider: effProvider, meeting_id: rowId, status: 'scheduled', reused: isReuse, message: invitationText, subject, language, invited: invite.join(','), when_local: when, emailed, email_status: emailStatus || (wantsEmail ? 'sent' : 'not requested') });
+  return json({ ok: true, join_url: issued.join_url, passcode: issued.passcode, provider: effProvider, meeting_id: rowId, status: 'scheduled', reused: isReuse, message: invitationText, subject, language, invited: invite.join(','), when_local: when, tz, emailed, email_status: wantsEmail ? (emailStatus || 'sent') : 'not requested', fireflies: firefliesStatus, time_warning: issued.warning || '' });
 });
