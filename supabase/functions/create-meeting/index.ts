@@ -213,9 +213,14 @@ type Issued = { join_url: string; passcode: string; external_id: string; warning
    (add_fireflies: true, from a checkbox that is off by default). See
    fireflies.js for how the invitation reaches it. */
 const FIREFLIES = (Deno.env.get('FIREFLIES_INVITE_EMAIL') || FIREFLIES_DEFAULT).toLowerCase();
-// The calendar connected to the Fireflies account. It gets a copy of Fred's
-// invitation, so the event with Fred on it is in the calendar Fireflies reads.
-const FIREFLIES_CALENDAR = (Deno.env.get('FIREFLIES_CALENDAR_EMAIL') || 'nada.o.abdullah2000@gmail.com').toLowerCase();
+/* The calendar connected to the Fireflies account, from the
+   FIREFLIES_CALENDAR_EMAIL secret. It gets a copy of Fred's invitation, so
+   the event with Fred on it is in the calendar Fireflies reads. There is no
+   fallback address: without the secret the copy is skipped (Fred still gets
+   his invitation) and a warning is logged. Only whether it is set is ever
+   logged, never the address. */
+const firefliesCalendar = () => String(Deno.env.get('FIREFLIES_CALENDAR_EMAIL') ?? '').trim().toLowerCase();
+console.log('create-meeting: FIREFLIES_CALENDAR_EMAIL is ' + (firefliesCalendar() ? 'set' : 'NOT set'));
 const PLATFORM: Record<string, string> = { zoom: 'Zoom', teams: 'Microsoft Teams', meet: 'Google Meet' };
 const MAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 function addresses(v: unknown): string[] {
@@ -291,9 +296,13 @@ Deno.serve(async (req) => {
   // meeting created for it is written back onto that row, not onto a new one.
   const pendingRow = reuseRow && !reuseRow.meet_url ? reuseRow : null;
   const fromAddr = Deno.env.get('SMTP_FROM') || 'nada.osama@taranis.net';
+  const ffCalendar = firefliesCalendar();
   const ff = firefliesPlan({ requested: addFireflies, alreadyInvited: reuseRow?.fireflies === true,
     provider: String(reuseRow?.meet_url ? (reuseRow.provider ?? provider) : provider), isReuse: !!reuseRow?.meet_url,
-    recipients: [...invite, ...cc, ...bcc], organizer: FIREFLIES_CALENDAR, fireflies: FIREFLIES });
+    recipients: [...invite, ...cc, ...bcc], organizer: ffCalendar, fireflies: FIREFLIES });
+  if (ff.sendInvite && !ffCalendar) {
+    console.warn('create-meeting: FIREFLIES_CALENDAR_EMAIL is not set, so the calendar copy of Fred\'s invitation is skipped. Fred is still invited directly.');
+  }
 
   if (reuseRow && reuseRow.meet_url) {
     isReuse = true;

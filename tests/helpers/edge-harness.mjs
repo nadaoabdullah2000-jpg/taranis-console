@@ -13,7 +13,8 @@ export const ENV = {
   ZOOM_CLIENT_ID: 'z', ZOOM_CLIENT_SECRET: 'z', ZOOM_ACCOUNT_ID: 'z',
   GOOGLE_CLIENT_ID: 'g', GOOGLE_CLIENT_SECRET: 'g', GOOGLE_REFRESH_TOKEN: 'g',
   MS_TENANT_ID: 'm', MS_CLIENT_ID: 'm', MS_CLIENT_SECRET: 'm', MS_ORGANISER_ID: 'organiser',
-  SMTP_HOST: 'smtp.test', SMTP_USER: 'u', SMTP_PASS: 'p', SMTP_FROM: 'sender@taranis.net'
+  SMTP_HOST: 'smtp.test', SMTP_USER: 'u', SMTP_PASS: 'p', SMTP_FROM: 'sender@taranis.net',
+  FIREFLIES_CALENDAR_EMAIL: 'fireflies-calendar@example.com'
 };
 export const env = { ...ENV };
 let handler = null;

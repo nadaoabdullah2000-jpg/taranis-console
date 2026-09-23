@@ -10,7 +10,7 @@ import { firefliesPlan } from '../supabase/functions/create-meeting/fireflies.js
 import { call, env, reset, ORGANISER } from './helpers/edge-harness.mjs';
 
 const FRED = 'fred@fireflies.ai';
-const FF_CALENDAR = 'nada.o.abdullah2000@gmail.com';
+const FF_CALENDAR = 'fireflies-calendar@example.com';
 
 beforeEach(reset);
 
@@ -38,7 +38,7 @@ test('ticked, Zoom, no guests: Fred gets a calendar invite with the join link', 
   const cal = ics(sent[0]);
   assert.match(cal, /METHOD:REQUEST/);
   assert.match(cal, /ATTENDEE;[^\n]*:mailto:fred@fireflies\.ai/);
-  assert.match(cal, /ATTENDEE;[^\n]*:mailto:nada\.o\.abdullah2000@gmail\.com/, 'the Fireflies calendar is on the event');
+  assert.match(cal, /ATTENDEE;[^\n]*:mailto:fireflies-calendar@example\.com/, 'the Fireflies calendar is on the event');
   assert.match(cal, /LOCATION:https:\/\/zoom\.us\/j\/123/);
   assert.match(cal, /DTSTART:20260923T090000Z/);
   assert.equal(sent[0].attachments[0].filename, 'invite.ics');
@@ -100,6 +100,27 @@ test('ticked again on a meeting Fred is already on: no duplicate invite', async 
     send_invitations: true, add_fireflies: true });
   assert.equal(r.fireflies, 'on');
   assert.equal(toFred().length, 0);
+});
+
+test('ticked, but FIREFLIES_CALENDAR_EMAIL is not set: Fred is still invited, the copy is skipped, a warning is logged', async (t) => {
+  delete env.FIREFLIES_CALENDAR_EMAIL;
+  const warn = t.mock.method(console, 'warn', () => {});
+  const r = await call({ ...BOOKING, add_fireflies: true });
+  assert.equal(r.fireflies, 'on');
+  const sent = toFred();
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0].to, [FRED]);
+  assert.equal(sent[0].cc, undefined, 'no copy, and no fallback address');
+  assert.doesNotMatch(ics(sent[0]), /example\.com|gmail/);
+  assert.equal(warn.mock.callCount(), 1);
+  assert.match(warn.mock.calls[0].arguments[0], /FIREFLIES_CALENDAR_EMAIL is not set/);
+});
+
+test('unticked with FIREFLIES_CALENDAR_EMAIL not set: no warning', async (t) => {
+  delete env.FIREFLIES_CALENDAR_EMAIL;
+  const warn = t.mock.method(console, 'warn', () => {});
+  await call({ ...BOOKING });
+  assert.equal(warn.mock.callCount(), 0);
 });
 
 test('ticked, but the mail server is not configured: says Fred was not invited, and does not record him', async () => {
