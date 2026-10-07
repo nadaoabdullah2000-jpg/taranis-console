@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1000" preserveAspectRatio="xMidYMid slice">
+<!-- The Taranis mark, using the exact geometry of taranis-logo.svg: three hexagons meeting at one vertex, the three dividers and one hatched face each. -->
+<defs>
+<pattern id="hc" width="5.3" height="5.3" patternUnits="userSpaceOnUse"><line x1="0" y1="3.2" x2="3.2" y2="0" stroke="#00657B" stroke-width="1" stroke-opacity=".55"/></pattern>
+<pattern id="hw" width="5.3" height="5.3" patternUnits="userSpaceOnUse"><line x1="0" y1="3.2" x2="3.2" y2="0" stroke="#5F8089" stroke-width="1" stroke-opacity=".4"/></pattern>
+<symbol id="mc" overflow="visible">
+<g fill="none" stroke="#00657B" stroke-width="1.25" stroke-linejoin="round">
+<polygon points="0.02,60.00 25.99,45.00 25.99,14.99 0.02,-0.02" fill="url(#hc)" stroke="none"/>
+<polygon points="-51.96,-29.99 -51.96,-0.05 -25.99,14.96 0.00,0.02" fill="url(#hc)" stroke="none"/>
+<polygon points="51.98,-29.99 25.99,-45.00 0.00,-29.99 0.00,0.02" fill="url(#hc)" stroke="none"/>
+<polygon points="51.96,0.00 51.96,-29.99 25.99,-45.00 0.00,-29.99 0.00,0.00 25.99,15.00"/>
+<polygon points="25.99,45.01 25.99,15.00 0.00,0.00 -25.99,15.00 -25.99,45.01 0.00,60.02"/>
+<polygon points="0.00,0.00 0.00,-29.99 -25.99,-45.00 -51.98,-29.99 -51.98,0.00 -25.99,15.00"/>
+<line x1="0" y1="0" x2="0.02" y2="59.98"/>
+<line x1="0" y1="0" x2="-51.96" y2="-29.99"/>
+<line x1="0" y1="0" x2="51.96" y2="-29.99"/>
+</g>
+</symbol>
+<symbol id="mw" overflow="visible">
+<g fill="none" stroke="#5F8089" stroke-width="1.25" stroke-linejoin="round">
+<polygon points="0.02,60.00 25.99,45.00 25.99,14.99 0.02,-0.02" fill="url(#hw)" stroke="none"/>
+<polygon points="-51.96,-29.99 -51.96,-0.05 -25.99,14.96 0.00,0.02" fill="url(#hw)" stroke="none"/>
+<polygon points="51.98,-29.99 25.99,-45.00 0.00,-29.99 0.00,0.02" fill="url(#hw)" stroke="none"/>
+<polygon points="51.96,0.00 51.96,-29.99 25.99,-45.00 0.00,-29.99 0.00,0.00 25.99,15.00"/>
+<polygon points="25.99,45.01 25.99,15.00 0.00,0.00 -25.99,15.00 -25.99,45.01 0.00,60.02"/>
+<polygon points="0.00,0.00 0.00,-29.99 -25.99,-45.00 -51.98,-29.99 -51.98,0.00 -25.99,15.00"/>
+<line x1="0" y1="0" x2="0.02" y2="59.98"/>
+<line x1="0" y1="0" x2="-51.96" y2="-29.99"/>
+<line x1="0" y1="0" x2="51.96" y2="-29.99"/>
+</g>
+</symbol>
+</defs>
+<use href="#mc" x="-127.5" y="1056.0" opacity="0.111"/>
+<use href="#mc" x="-127.5" y="778.0" opacity="0.100"/>
+<use href="#mw" x="-58.6" y="917.0" opacity="0.107"/>
+<use href="#mc" x="-127.5" y="500.0" opacity="0.033"/>
+<use href="#mw" x="-58.6" y="639.0" opacity="0.034"/>
+<use href="#mc" x="79.3" y="917.0" opacity="0.060"/>
+<use href="#mc" x="148.3" y="1056.0" opacity="0.052"/>
+<use href="#mc" x="-127.5" y="222.0" opacity="0.109"/>
+<use href="#mc" x="10.4" y="500.0" opacity="0.114"/>
+<use href="#mc" x="79.3" y="639.0" opacity="0.109"/>
+<use href="#mc" x="148.3" y="778.0" opacity="0.041"/>
+<use href="#mc" x="217.3" y="917.0" opacity="0.094"/>
+<use href="#mw" x="286.2" y="1056.0" opacity="0.084"/>
+<use href="#mc" x="-127.5" y="-56.0" opacity="0.109"/>
+<use href="#mc" x="-58.6" y="83.0" opacity="0.116"/>
+<use href="#mc" x="79.3" y="361.0" opacity="0.046"/>
+<use href="#mw" x="148.3" y="500.0" opacity="0.100"/>
+<use href="#mc" x="217.3" y="639.0" opacity="0.114"/>
+<use href="#mc" x="424.2" y="1056.0" opacity="0.070"/>
+<use href="#mc" x="10.4" y="-56.0" opacity="0.187"/>
+<use href="#mc" x="148.3" y="222.0" opacity="0.093"/>
+<use href="#mw" x="217.3" y="361.0" opacity="0.082"/>
+<use href="#mc" x="286.2" y="500.0" opacity="0.095"/>
+<use href="#mc" x="355.2" y="639.0" opacity="0.051"/>
+<use href="#mw" x="493.1" y="917.0" opacity="0.062"/>
+<use href="#mc" x="148.3" y="-56.0" opacity="0.036"/>
+<use href="#mc" x="217.3" y="83.0" opacity="0.089"/>
+<use href="#mw" x="286.2" y="222.0" opacity="0.087"/>
+<use href="#mc" x="355.2" y="361.0" opacity="0.112"/>
+<use href="#mw" x="424.2" y="500.0" opacity="0.187"/>
+<use href="#mc" x="493.1" y="639.0" opacity="0.058"/>
+<use href="#mc" x="562.1" y="778.0" opacity="0.084"/>
+<use href="#mc" x="631.0" y="917.0" opacity="0.103"/>
+<use href="#mc" x="700.0" y="1056.0" opacity="0.101"/>
+<use href="#mc" x="355.2" y="83.0" opacity="0.079"/>
+<use href="#mc" x="424.2" y="222.0" opacity="0.069"/>
+<use href="#mc" x="493.1" y="361.0" opacity="0.054"/>
+<use href="#mw" x="631.0" y="639.0" opacity="0.096"/>
+<use href="#mc" x="700.0" y="778.0" opacity="0.062"/>
+<use href="#mc" x="769.0" y="917.0" opacity="0.059"/>
+<use href="#mc" x="424.2" y="-56.0" opacity="0.086"/>
+<use href="#mc" x="493.1" y="83.0" opacity="0.070"/>
+<use href="#mc" x="562.1" y="222.0" opacity="0.187"/>
+<use href="#mc" x="631.0" y="361.0" opacity="0.038"/>
+<use href="#mc" x="906.9" y="917.0" opacity="0.080"/>
+<use href="#mc" x="562.1" y="-56.0" opacity="0.187"/>
+<use href="#mc" x="631.0" y="83.0" opacity="0.090"/>
+<use href="#mc" x="700.0" y="222.0" opacity="0.087"/>
+<use href="#mc" x="769.0" y="361.0" opacity="0.053"/>
+<use href="#mw" x="837.9" y="500.0" opacity="0.047"/>
+<use href="#mc" x="906.9" y="639.0" opacity="0.096"/>
+<use href="#mc" x="1044.8" y="917.0" opacity="0.071"/>
+<use href="#mw" x="1113.8" y="1056.0" opacity="0.055"/>
+<use href="#mc" x="700.0" y="-56.0" opacity="0.049"/>
+<use href="#mc" x="769.0" y="83.0" opacity="0.047"/>
+<use href="#mc" x="837.9" y="222.0" opacity="0.065"/>
+<use href="#mc" x="906.9" y="361.0" opacity="0.091"/>
+<use href="#mc" x="1044.8" y="639.0" opacity="0.037"/>
+<use href="#mw" x="1113.8" y="778.0" opacity="0.063"/>
+<use href="#mc" x="1182.7" y="917.0" opacity="0.060"/>
+<use href="#mw" x="1251.7" y="1056.0" opacity="0.114"/>
+<use href="#mc" x="837.9" y="-56.0" opacity="0.187"/>
+<use href="#mw" x="906.9" y="83.0" opacity="0.087"/>
+<use href="#mc" x="975.8" y="222.0" opacity="0.062"/>
+<use href="#mc" x="1044.8" y="361.0" opacity="0.099"/>
+<use href="#mc" x="1113.8" y="500.0" opacity="0.055"/>
+<use href="#mc" x="1182.7" y="639.0" opacity="0.068"/>
+<use href="#mw" x="1251.7" y="778.0" opacity="0.057"/>
+<use href="#mc" x="1320.7" y="917.0" opacity="0.110"/>
+<use href="#mc" x="975.8" y="-56.0" opacity="0.079"/>
+<use href="#mw" x="1044.8" y="83.0" opacity="0.034"/>
+<use href="#mc" x="1113.8" y="222.0" opacity="0.056"/>
+<use href="#mc" x="1251.7" y="500.0" opacity="0.049"/>
+<use href="#mc" x="1320.7" y="639.0" opacity="0.103"/>
+<use href="#mc" x="1389.6" y="778.0" opacity="0.187"/>
+<use href="#mw" x="1458.6" y="917.0" opacity="0.034"/>
+<use href="#mc" x="1113.8" y="-56.0" opacity="0.066"/>
+<use href="#mc" x="1182.7" y="83.0" opacity="0.056"/>
+<use href="#mc" x="1320.7" y="361.0" opacity="0.041"/>
+<use href="#mc" x="1389.6" y="500.0" opacity="0.036"/>
+<use href="#mc" x="1458.6" y="639.0" opacity="0.045"/>
+<use href="#mw" x="1527.5" y="778.0" opacity="0.041"/>
+<use href="#mc" x="1251.7" y="-56.0" opacity="0.098"/>
+<use href="#mw" x="1320.7" y="83.0" opacity="0.089"/>
+<use href="#mc" x="1389.6" y="222.0" opacity="0.187"/>
+<use href="#mc" x="1527.5" y="500.0" opacity="0.117"/>
+<use href="#mc" x="1389.6" y="-56.0" opacity="0.062"/>
+<use href="#mc" x="1458.6" y="83.0" opacity="0.043"/>
+</svg>

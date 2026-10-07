@@ -21,6 +21,7 @@ const SHELL = [
   './app.js',
   './pwa.js',
   './brand-pattern.svg',
+  './brand-pattern-light.svg',
   './taranis-logo.svg',
   './icon-192.png',
   './icon-512.png',

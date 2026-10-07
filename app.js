@@ -57,7 +57,7 @@ function ensureCardStyle() {
   const s = document.createElement('style');
   s.id = 'taranis-cards';
   s.textContent =
-    "#pg-body{background:#F3F7FA}"
+    "#pg-body{background:#F3F7FA url('./brand-pattern-light.svg') center top / 1400px auto repeat}"
   + ".entry{display:flex;gap:0;align-items:stretch;background:#fff;border:1px solid var(--rule,#E9EFF3);border-radius:12px;padding:18px 20px;margin:0 0 14px;box-shadow:0 1px 2px rgba(16,35,58,.04),0 6px 16px rgba(16,35,58,.05)}"
   + ".entry:hover{border-color:#CFE6EF;box-shadow:0 2px 4px rgba(16,35,58,.05),0 10px 24px rgba(0,120,160,.08)}"
   + ".entry.good{box-shadow:inset 3px 0 0 #1E9E63,0 1px 2px rgba(16,35,58,.03)}"
@@ -289,8 +289,9 @@ function scoreChip(v, m) {
 
     if (m) {
       box.appendChild(el('p', { style: 'margin:0 0 18px;font-size:12.5px;color:var(--ink-3);line-height:1.55' },
-        'Scored on the four signals below. Only the first is a hard requirement: an investor that does '
-        + 'not buy hedge funds is rejected. Strategy decides the band; technology and domicile only nudge it.'));
+        'Scored on the three signals below. Only the first is a hard requirement: an investor that does '
+        + 'not buy hedge funds is rejected. Strategy decides the band; technology keeps it in review. '
+        + 'Geography and openness to emerging managers are shown for context and never count against anyone.'));
     }
 
     if (m) {
@@ -316,6 +317,14 @@ function scoreChip(v, m) {
         if (row.note) {
           box.appendChild(el('p', { style: 'margin:-4px 0 0 40px;font-size:12.5px;color:' + colour }, row.note));
         }
+      }
+      for (const [k, v] of contextLines(m)) {
+        box.appendChild(el('div', { title: 'Context only, not scored',
+          style: 'display:grid;grid-template-columns:26px 1fr 1fr;gap:14px;'
+               + 'padding:11px 0;border-bottom:1px solid var(--rule-2);align-items:start;color:var(--ink-3)' },
+          el('span', { style: 'font-weight:700;font-size:15px;line-height:1.3' }, '\u00B7'),
+          el('span', { style: 'font-size:13.5px;line-height:1.45' }, k + ' (context, not scored)'),
+          el('span', { style: 'font-size:13.5px;line-height:1.45' }, v)));
       }
 
       box.appendChild(el('p', { style: 'margin:18px 0 0;font-size:12.5px;color:var(--ink-3);line-height:1.55' },
@@ -505,11 +514,16 @@ async function callGateway(action, payload) {
       signOut();
       throw new Error('Your session expired. Sign in again.');
     }
-    if (!res.ok) throw new Error('Gateway returned ' + res.status);
     const raw = (await res.text()).trim();
-    if (!raw) return { rows: [], items: [] };
-    try { return JSON.parse(raw); }
-    catch (_) { return { rows: [], items: [] }; }
+    let data = null;
+    try { data = raw ? JSON.parse(raw) : null; } catch (_) { data = null; }
+    // The gateway answers a refusal or an unwired action with { error }, and a
+    // send that could not go out comes back as { error } with status 200. Say
+    // so, rather than reporting success.
+    const said = data && !Array.isArray(data) && typeof data.error === 'string' ? data.error.trim() : '';
+    if (!res.ok) throw new Error(said || ('Gateway returned ' + res.status));
+    if (said) throw new Error(said);
+    return data || { rows: [], items: [] };
   } catch (e) {
     if (e.name === 'AbortError') throw new Error('That took too long. Try again.');
     throw e;
@@ -782,21 +796,19 @@ function signOut() {
   $('gate').style.display = 'grid';
 }
 
-/* The four signals the current mandate scores on (used by the score popup),
-   in MATCH_CRITERIA / critStatus order. */
+/* The three signals the current mandate scores on (used by the score popup),
+   in MATCH_CRITERIA / critStatus order. Geography and emerging managers follow
+   as context rows. */
 const TARANIS_CRITERIA = [
-  { wants: 'Buys hedge funds — the only hard requirement',
+  { wants: 'Buys hedge funds \u2014 the only hard requirement',
     no: 'Not a hedge-fund allocator, so it is rejected',
-    has: (m) => [jsonArr(m.asset_classes).join(', '), m.investor_type].filter(Boolean).join(' · ') },
-  { wants: 'Long/short equity or quant / systematic — the strongest fit',
+    has: (m) => [jsonArr(m.asset_classes).join(', '), m.investor_type].filter(Boolean).join(' \u00B7 ') },
+  { wants: 'Long/short equity or quant / systematic \u2014 the strongest fit',
     no: 'Another strategy is stated',
     has: (m) => jsonArr(m.strategies).join(', ').replace(/_/g, ' ') },
-  { wants: 'Technology focus — a weaker positive that keeps it in review',
+  { wants: 'Technology focus \u2014 a weaker positive that keeps it in review',
     no: null,
-    has: () => '' },
-  { wants: 'Based in the UK, Switzerland or the US — a small plus, never a reason to reject',
-    no: 'Outside GB/CH/US',
-    has: (m) => [m.investor_city, m.investor_country].filter(Boolean).join(', ') }
+    has: () => '' }
 ];
 
 function taranisScorecard(m) {
@@ -943,8 +955,25 @@ async function doRefresh() {
 /* ---------- Match card (ported from the WI analysis page) ---------- */
 
 /* EDIT 3 — criteria constants redefined to the new mandate. */
-const ADDRESSABLE   = new Set(['GB', 'UK', 'CH', 'US']);
-const MATCH_CRITERIA = ['Buys hedge funds', 'Long/short or quant', 'Technology focus', 'In-market (GB/CH/US)'];
+// The three scored criteria. Geography and openness to emerging managers are
+// context (contextLines): shown on every card, never a fail, never counted.
+const MATCH_CRITERIA = ['Buys hedge funds', 'Long/short or quant', 'Technology focus'];
+
+const GEO_NAMES = { GB: 'United Kingdom', UK: 'United Kingdom', CH: 'Switzerland', US: 'United States' };
+function geoText(m) {
+  const city = String(m.investor_city || '').trim();
+  const c = String(m.investor_country || '').trim();
+  if (city && c) return city + ', ' + c;
+  if (c) return GEO_NAMES[c.toUpperCase()] || c;
+  return city || 'not stated';
+}
+function emergingText(m) {
+  return m.open_to_emerging_managers === true ? 'Yes'
+       : m.open_to_emerging_managers === false ? 'No' : 'not stated';
+}
+function contextLines(m) {
+  return [['Geography', geoText(m)], ['Emerging managers', emergingText(m)]];
+}
 
 // The text a mandate's fit is actually described in (same fields the SQL/WI 01 read).
 function sigText(m) {
@@ -974,12 +1003,10 @@ function isStrong(m, t) {
 function critOf(m) {
   const t = sigText(m);
   const assets = jsonArr(m.asset_classes).map(s => String(s).toLowerCase());
-  const c = String(m.investor_country || '').toUpperCase().slice(0, 2);
   return [
     assets.some(a => RE_HEDGE.test(a)) || RE_HEDGE.test(t),  // buys hedge funds
     isStrong(m, t),                                          // long/short or quant
-    RE_TECH.test(t),                                         // technology
-    ADDRESSABLE.has(c)                                       // in-market
+    RE_TECH.test(t)                                          // technology
   ];
 }
 
@@ -993,21 +1020,38 @@ function critStatus(m) {
     assets.length ? (assets.some(a => RE_HEDGE.test(String(a).toLowerCase())) ? 'yes' : 'no')
                   : (RE_HEDGE.test(t) ? 'yes' : 'unknown'),
     isStrong(m, t) ? 'yes' : (strats.length ? 'no' : 'unknown'),
-    RE_TECH.test(t)   ? 'yes' : 'unknown',
-    !cc ? 'unknown' : (ADDRESSABLE.has(cc) ? 'yes' : 'no')
+    RE_TECH.test(t)   ? 'yes' : 'unknown'
   ];
 }
 
+// What each reason is about, so the console's own verdict and the reason WI 01
+// stored for the same criterion list once. Hedge funds collapses to one line;
+// for the others the first wording wins. Geography and emerging managers are
+// context now, so an older stored reason about either is not shown as a fail.
+const FAIL_GROUPS = [
+  { key: 'hedge',    re: /does not buy hedge funds|excludes hedge funds/i, label: 'Does not buy hedge funds' },
+  { key: 'strategy', re: /no long\/short or quant|no eligible strategy/i },
+  { key: 'tech',     re: /no technology focus/i },
+  { key: 'ticket',   re: /ticket below|maximum ticket below/i },
+  { key: 'geo',      re: /outside gb\/ch\/us|investor outside/i, drop: true },
+  { key: 'emerging', re: /emerging managers/i, drop: true }
+];
 function rejectFails(m) {
-  const out = [], seen = {};
+  const out = [], seen = {}, groups = {};
   const add = (s) => {
     s = String(s == null ? '' : s).trim();
     if (!s) return;
+    const g = FAIL_GROUPS.find(x => x.re.test(s));
+    if (g) {
+      if (g.drop || groups[g.key]) return;
+      groups[g.key] = true;
+      if (g.label) s = g.label;
+    }
     const k = s.toLowerCase().replace(/\s+/g, ' ');
     if (!seen[k]) { seen[k] = true; out.push(s); }
   };
   const st = critStatus(m);
-  const noLabel = ['Does not buy hedge funds', 'No long/short or quant', 'No technology focus', 'Outside GB/CH/US'];
+  const noLabel = ['Does not buy hedge funds', 'No long/short or quant', 'No technology focus'];
   for (let i = 0; i < st.length; i++) if (st[i] === 'no' && noLabel[i]) add(noLabel[i]);
   const tmax = Number(m.ticket_max_usd || m.ticket_min_usd || 0);
   if (tmax > 0 && tmax < 500000) add('Ticket below USD 500k floor');
@@ -1166,6 +1210,15 @@ function ensureMatchCss() {
   document.head.appendChild(s);
 }
 
+// Plain context lines under the scored criteria: no mark, never red.
+function contextRows(host, m) {
+  for (const [k, v] of contextLines(m)) {
+    host.appendChild(el('div', { class: 'mcard-c', style: 'color:var(--ink-3)' },
+      el('span', { style: 'width:16px;flex:none;text-align:center' }, '\u00B7'),
+      el('span', null, k + ' \u2014 ' + v)));
+  }
+}
+
 function matchCard(m, opts) {
   opts = opts || {};
   ensureMatchCss();
@@ -1196,6 +1249,7 @@ function matchCard(m, opts) {
     const cr = el('div', { class: 'mcard-crit' });
     fails.forEach((name) => cr.appendChild(el('div', { class: 'mcard-c' },
       el('span', { class: 'mk no' }, '\u2717'), el('span', null, name))));
+    contextRows(cr, m);
     card.appendChild(cr);
   } else {
     const qLabel = (q === 'rejected') ? 'RECLAIMED' : (BAND_LABEL[q] || q.replace(/_/g, ' ')).toUpperCase();
@@ -1217,6 +1271,7 @@ function matchCard(m, opts) {
       if (st === 'unknown') row.appendChild(el('span', { class: 'mcard-unk' }, 'unknown'));
       cr.appendChild(row);
     });
+    contextRows(cr, m);
     card.appendChild(cr);
   }
 
@@ -1888,7 +1943,7 @@ RENDER.approvals = function (body) {
     const rows = await readRows('wi_mandates',
       'select=id,investor_name,organization_name,investor_country,investor_type,'
       + 'ticket_min_usd,fit_score,fit_reason,approved_at,approved_by,seen_at,qualification,new_qualification,new_fit_score,'
-      + 'intention_summary,requirements_raw,appetite_raw,evidence,strategies,asset_classes'
+      + 'intention_summary,requirements_raw,appetite_raw,evidence,strategies,asset_classes,investor_city,open_to_emerging_managers'
       + '&approved_at=not.is.null'
       + '&qualification=neq.rejected'
       + '&order=approved_at.desc.nullslast&limit=200',
@@ -4906,7 +4961,7 @@ function renderOpenOpps(host) {
     grid.appendChild(empty('Nothing open', 'Every screened opportunity has been read or actioned.')); };
 
   fill(grid, () => supaSelect('wi_mandates',
-    'select=id,investor_name,organization_name,investor_country,investor_type,strategies,asset_classes,aum_usd,aum_band,'
+    'select=id,investor_name,organization_name,investor_country,investor_city,investor_type,open_to_emerging_managers,strategies,asset_classes,aum_usd,aum_band,'
     + 'qualification,fit_score,new_qualification,new_fit_score,intention_summary,requirements_raw,appetite_raw,'
     + 'view_investor_url,linkedin_url,contact_name,evidence,seen_at,approved_at,alert_date'
     + '&qualification=in.(matched,uncertain)&approved_at=is.null&seen_at=is.null'
@@ -4942,6 +4997,10 @@ function renderOpenOpps(host) {
           style: 'margin-left:auto;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)' }, 'unknown'));
         cr.appendChild(row);
       });
+      for (const [k, v] of contextLines(m)) {
+        cr.appendChild(el('div', { class: 'c', style: 'color:var(--ink-3)' },
+          el('span', { style: 'width:16px;text-align:center' }, '\u00B7'), el('span', null, k + ' \u2014 ' + v)));
+      }
       card.appendChild(cr);
       const btns = el('div', { class: 'btns' });
       const readBtn = el('button', { class: 'rpt-ob' }, 'Mark as read');
@@ -5549,13 +5608,16 @@ RENDER.ask = function (body) {
       : 'runs the workflow and the model — needs n8n executions';
   }
 
+  // Sourcing prompts. Each chip carries the mode it needs: the strategy, tech
+  // and emerging-manager questions go to the model (Ask agent), which can read
+  // the mandates; the decision queue is answered locally from the database.
   const chips = el('div', { class: 'chips' });
-  for (const s of [
-    'Who in Geneva knows us?',
-    'Who is overdue a follow-up?',
-    'What did we last send Pictet, and when?',
-    'Which opportunities are still waiting on me?'
-  ]) chips.appendChild(el('button', { class: 'chip', onclick: () => { input.value = s; send(); } }, s));
+  for (const [s, m] of [
+    ['Which investors want long/short equity or quant?', 'agent'],
+    ['Show me technology-focused investors',             'agent'],
+    ["Who's open to emerging managers?",                 'agent'],
+    ["What's waiting on me to decide?",                  'local']
+  ]) chips.appendChild(el('button', { class: 'chip', onclick: () => { setMode(m); input.value = s; send(); } }, s));
 
   const input = el('textarea', { id: 'ask-in', rows: '1', placeholder: 'Ask anything you used to type into the bot…' });
   const btn = el('button', { class: 'btn' }, 'Ask');
