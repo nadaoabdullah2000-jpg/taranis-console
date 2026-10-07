@@ -984,6 +984,12 @@ function sigText(m) {
 }
 const RE_HEDGE = /hedge|alternative|absolute return|liquid alt/;
 const RE_STRONG = /long short|long\/short|long-short|l\/s|equity hedge|equity long|quant|systematic/;
+// "systematic" alone is not long/short or quant: "systematic trend following"
+// is a CTA. It only counts when the text has no CTA, macro or market-neutral
+// wording. A strong word inside a refusal ("avoiding any systematic or quant
+// strategies") is dropped before matching. Same rule as WI 01.
+const RE_STRONG_CORE = /long short|long\/short|long-short|l\/s|equity hedge|equity long|quant/;
+const RE_NEGATED = /(avoid[a-z]*|exclud[a-z]*|without|\bnot\b|\bno\b)\s[^.;,]{0,40}(systematic|quant[a-z]*|long.?short|l\/s)/g;
 const RE_TECH = /tech|software|semiconductor|tmt|internet|saas|fintech/;
 
 // Strategy tags as words: "equity_long_short" -> "equity long short", so
@@ -994,9 +1000,24 @@ function stratWords(m) {
   return jsonArr(m.strategies).map(s => String(s).toLowerCase().replace(/_/g, ' '));
 }
 function isStrong(m, t) {
-  if (RE_STRONG.test(t)) return true;
+  const u = t.replace(RE_NEGATED, ' ');
+  const sysOk = !RE_EXCL.test(t);
+  if (RE_STRONG_CORE.test(u) || (sysOk && /systematic/.test(u))) return true;
   const w = stratWords(m);
-  return w.length > 0 && w.length <= 3 && w.some(s => RE_STRONG.test(s));
+  return w.length > 0 && w.length <= 3
+    && w.some(s => RE_STRONG_CORE.test(s) || (sysOk && /systematic/.test(s)));
+}
+
+// A manager's own news is not an allocator's mandate: anything typed as a hedge
+// fund, anything WI files under Shutter or Manager information, and People items
+// with no investor type unless they speak of placing money. People items about
+// an allocator stay (a pension hiring a hedge-fund head is a lead). Same as WI 01.
+function isManagerNews(m, t) {
+  const tag = String(m.investor_tag || '').trim().toLowerCase();
+  const typ = String(m.investor_type || '').trim().toLowerCase();
+  if (typ === 'hedge fund' || tag === 'shutter' || tag === 'manager information') return true;
+  return tag === 'people' && !typ
+    && !/third.party|allocat|commit|search|seed/.test(t.replace(RE_NEGATED, ' '));
 }
 
 /* EDIT 4 — critOf computes the four new signals. */
@@ -1119,8 +1140,8 @@ function scoreBand(m) {
 const RE_EXCL = /\bcta\b|managed future|trend follow|global macro|macro strategy|macro fund|macro manager|discretionary macro|systematic macro|market neutral|market-neutral/;
 const RE_NOT_ALLOCATOR = /private equity|venture capital|service provider|placement agent|law firm|real estate|infrastructure|data provider/;
 const IN_MARKET = new Set(['GB', 'UK', 'GBR', 'CH', 'CHE', 'US', 'USA', 'UNITEDSTATES', 'UNITEDKINGDOM', 'ENGLAND', 'SCOTLAND', 'SWITZERLAND']);
-const BAND_SCORE = { strong_tech: 1, strong: 0.90, tech: 0.60, low: 0.20 };
-const BAND_QUAL  = { strong_tech: 'matched', strong: 'matched', tech: 'uncertain', low: 'low', needs_data: 'needs_data' };
+const BAND_SCORE = { strong_tech: 1, strong: 0.90, tech: 0.60, hire: 0.60, low: 0.20 };
+const BAND_QUAL  = { strong_tech: 'matched', strong: 'matched', tech: 'uncertain', hire: 'uncertain', low: 'low', needs_data: 'needs_data' };
 
 function rescore(m) {
   const t = sigText(m);
@@ -1129,11 +1150,14 @@ function rescore(m) {
   // older rule's wording, so they are not evidence here.
   if (NOT_MANDATE_RE.test(String(m.investor_tag || '')) || KNOWN_MANAGERS.test(String(m.investor_name || ''))
       || RE_NOT_ALLOCATOR.test(String(m.investor_type || '').toLowerCase())
+      || isManagerNews(m, t)
       || (assets.length && !RE_HEDGE.test(assets.join(' ')) && !RE_HEDGE.test(t))) {
     return { band: 'rejected', q: 'rejected', s: 0 };
   }
   const strong = isStrong(m, t), tech = RE_TECH.test(t);
-  const band = strong ? (tech ? 'strong_tech' : 'strong') : tech ? 'tech' : RE_EXCL.test(t) ? 'low' : 'needs_data';
+  let band = strong ? (tech ? 'strong_tech' : 'strong') : tech ? 'tech' : RE_EXCL.test(t) ? 'low' : 'needs_data';
+  // An allocator's hire is worth a look, never an automatic match.
+  if (band.indexOf('strong') === 0 && /^people$/i.test(String(m.investor_tag || '').trim())) band = 'hire';
   let s = band in BAND_SCORE ? BAND_SCORE[band] : null;
   const cc = String(m.investor_country || '').toUpperCase().replace(/[^A-Z]/g, '');
   if (s !== null && s < 1 && IN_MARKET.has(cc) && m.open_to_emerging_managers !== false) s += 0.05;
