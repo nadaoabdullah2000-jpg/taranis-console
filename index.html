@@ -187,7 +187,8 @@ nav{
   background:#0E1113 url('./brand-pattern.svg') center center / cover no-repeat;
   color:#DCE9EC;
   display:flex;flex-direction:column;overflow-y:auto}
-.brand{padding:20px 18px;border-bottom:1px solid rgba(87,192,214,.18);text-align:left}
+/* Solid behind the logo so the nav's cube pattern never sits under the mark. */
+.brand{padding:20px 18px;border-bottom:1px solid rgba(87,192,214,.18);text-align:left;background:#0E1113}
 .brand .wm{width:100%;max-width:none;margin:0}
 @media (display-mode:standalone){
   nav{padding-top:env(safe-area-inset-top)}
