@@ -957,6 +957,19 @@ const RE_HEDGE = /hedge|alternative|absolute return|liquid alt/;
 const RE_STRONG = /long short|long\/short|long-short|l\/s|equity hedge|equity long|quant|systematic/;
 const RE_TECH = /tech|software|semiconductor|tmt|internet|saas|fintech/;
 
+// Strategy tags as words: "equity_long_short" -> "equity long short", so
+// RE_STRONG can read them. A long/short or quant tag only counts when the
+// mandate lists 3 strategies or fewer; on a long menu (a pension's whole
+// hedge-fund book) one tag among many says little. Same rule as WI 01.
+function stratWords(m) {
+  return jsonArr(m.strategies).map(s => String(s).toLowerCase().replace(/_/g, ' '));
+}
+function isStrong(m, t) {
+  if (RE_STRONG.test(t)) return true;
+  const w = stratWords(m);
+  return w.length > 0 && w.length <= 3 && w.some(s => RE_STRONG.test(s));
+}
+
 /* EDIT 4 — critOf computes the four new signals. */
 function critOf(m) {
   const t = sigText(m);
@@ -964,7 +977,7 @@ function critOf(m) {
   const c = String(m.investor_country || '').toUpperCase().slice(0, 2);
   return [
     assets.some(a => RE_HEDGE.test(a)) || RE_HEDGE.test(t),  // buys hedge funds
-    RE_STRONG.test(t),                                       // long/short or quant
+    isStrong(m, t),                                          // long/short or quant
     RE_TECH.test(t),                                         // technology
     ADDRESSABLE.has(c)                                       // in-market
   ];
@@ -979,7 +992,7 @@ function critStatus(m) {
   return [
     assets.length ? (assets.some(a => RE_HEDGE.test(String(a).toLowerCase())) ? 'yes' : 'no')
                   : (RE_HEDGE.test(t) ? 'yes' : 'unknown'),
-    RE_STRONG.test(t) ? 'yes' : (strats.length ? 'no' : 'unknown'),
+    isStrong(m, t) ? 'yes' : (strats.length ? 'no' : 'unknown'),
     RE_TECH.test(t)   ? 'yes' : 'unknown',
     !cc ? 'unknown' : (ADDRESSABLE.has(cc) ? 'yes' : 'no')
   ];
@@ -1075,7 +1088,7 @@ function rescore(m) {
       || (assets.length && !RE_HEDGE.test(assets.join(' ')) && !RE_HEDGE.test(t))) {
     return { band: 'rejected', q: 'rejected', s: 0 };
   }
-  const strong = RE_STRONG.test(t), tech = RE_TECH.test(t);
+  const strong = isStrong(m, t), tech = RE_TECH.test(t);
   const band = strong ? (tech ? 'strong_tech' : 'strong') : tech ? 'tech' : RE_EXCL.test(t) ? 'low' : 'needs_data';
   let s = band in BAND_SCORE ? BAND_SCORE[band] : null;
   const cc = String(m.investor_country || '').toUpperCase().replace(/[^A-Z]/g, '');

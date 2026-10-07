@@ -13,7 +13,7 @@
    (the HTML, the script, the icons).
    ========================================================================= */
 
-const VERSION = 'taranis-v17';
+const VERSION = 'taranis-v18';
 const SHELL = [
   './',
   './index.html',
@@ -21,8 +21,7 @@ const SHELL = [
   './app.js',
   './pwa.js',
   './brand-pattern.svg',
-  './brand-pattern-light.svg',
-  './taranis-logo.png',
+  './taranis-logo.svg',
   './icon-192.png',
   './icon-512.png',
   './manifest.webmanifest'
