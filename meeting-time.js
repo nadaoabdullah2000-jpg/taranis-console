@@ -290,7 +290,39 @@ function fmtInZone(iso, tz) {
   } catch (_) { return d.toISOString(); }
 }
 
+/* The three places Taranis books across. Europe/Zurich is Geneva's clock. */
+const TEAM_ZONES = [['Europe/Zurich', 'Geneva'], ['Africa/Cairo', 'Cairo'], ['Europe/London', 'London']];
+
+function zoneShortName(tz) {
+  const team = TEAM_ZONES.find((z) => z[0] === tz);
+  if (team) return team[1];
+  const hit = ZOOM_TIMEZONES.find((z) => z[0] === tz);
+  return hit ? hit[1] : (tz || 'UTC');
+}
+
+/* The booking form's note: which zone the picker's time is in, and the same
+   moment in Geneva, Cairo and London.
+   { label: "Entered as Geneva time", line: "14:00 Geneva = 15:00 Cairo · 13:00 London" }
+   A zone outside the three gets all three after the '='. A different
+   calendar day is marked (+1 day / -1 day). */
+function teamZonesNote(local, tz) {
+  const zone = tz || 'UTC';
+  const name = zoneShortName(zone);
+  const label = 'Entered as ' + name + (/\btime\b/i.test(name) ? '' : ' time');
+  const m = String(local || '').match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+  if (!m) return { label: label, line: '' };
+  const iso = zonedTimeToUtc(local, zone);
+  const parts = TEAM_ZONES.filter((z) => z[0] !== zone).map((z) => {
+    const w = utcToZonedLocal(iso, z[0]);
+    const day = w.slice(0, 10);
+    const shift = day > m[1] ? ' (+1 day)' : day < m[1] ? ' (-1 day)' : '';
+    return w.slice(11, 16) + ' ' + z[1] + shift;
+  });
+  return { label: label, line: m[2] + ' ' + name + ' = ' + parts.join(' \u00B7 ') };
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { ZOOM_TIMEZONES, TZ_COMPUTE_ALIAS, isZoomTimezone, zonedTimeToUtc,
-    utcToZonedLocal, zoomStartFields, utcOffsetLabel, timezoneLabel, defaultTimezone, fmtInZone };
+    utcToZonedLocal, zoomStartFields, utcOffsetLabel, timezoneLabel, defaultTimezone, fmtInZone,
+    TEAM_ZONES, teamZonesNote };
 }

@@ -93,3 +93,20 @@ test('a Zoom booking at a different instant is reported', () => {
   assert.equal(edge.zoomBookedSameInstant('2026-09-23T09:00:00.000Z', '2026-09-23T06:00:00Z'), false);
   assert.equal(edge.zoomBookedSameInstant('2026-09-23T09:00:00.000Z', undefined), true);
 });
+
+test('teamZonesNote: Geneva input shows Cairo and London', () => {
+  const n = app.teamZonesNote('2026-10-08T14:00', 'Europe/Zurich');
+  assert.equal(n.label, 'Entered as Geneva time');
+  assert.equal(n.line, '14:00 Geneva = 15:00 Cairo · 13:00 London');
+});
+
+test('teamZonesNote: winter offsets and a zone outside the three', () => {
+  assert.equal(app.teamZonesNote('2026-12-01T09:30', 'Europe/Zurich').line, '09:30 Geneva = 10:30 Cairo · 08:30 London');
+  const ny = app.teamZonesNote('2026-10-08T20:00', 'America/New_York');
+  assert.equal(ny.label, 'Entered as Eastern Time (US and Canada)');
+  assert.equal(ny.line, '20:00 Eastern Time (US and Canada) = 02:00 Geneva (+1 day) · 03:00 Cairo (+1 day) · 01:00 London (+1 day)');
+});
+
+test('teamZonesNote: no time yet gives only the label', () => {
+  assert.deepEqual(app.teamZonesNote('', 'Africa/Cairo'), { label: 'Entered as Cairo time', line: '' });
+});

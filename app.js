@@ -3848,14 +3848,17 @@ RENDER.meetings = function (body) {
   const mTz = el('select', { class: 'search' });
   for (const [v] of ZOOM_TIMEZONES) mTz.appendChild(el('option', { value: v }, timezoneLabel(v)));
   mTz.value = defaultTimezone();
-  const mTzNote = el('div', { style: 'font-size:12px;color:var(--ink-3);margin:-4px 0 10px' });
+  const mTzNote = el('div', { style: 'font-size:12px;color:var(--ink-3);margin:-4px 0 10px;line-height:1.5' });
+  // Says which zone the picker's time is in, then the same moment in Geneva,
+  // Cairo and London, so nobody books an hour out. Display only: the booking
+  // still uses the Timezone chosen above.
   function drawTzNote() {
     const tz = mTz.value || 'UTC';
-    if (!mWhen.value) { mTzNote.textContent = 'Times are in ' + timezoneLabel(tz) + '.'; return; }
-    const utc = zonedTimeToUtc(mWhen.value, tz);
-    const mine = defaultTimezone();
-    mTzNote.textContent = 'Starts ' + fmtInZone(utc, tz)
-      + (mine !== tz ? '  \u00B7  ' + fmtInZone(utc, mine) + ' for you' : '');
+    const n = teamZonesNote(mWhen.value, tz);
+    clear(mTzNote);
+    mTzNote.appendChild(el('b', { style: 'font-weight:600;color:var(--ink-2)' }, n.label));
+    mTzNote.appendChild(document.createTextNode(n.line ? '  \u00B7  ' + n.line
+      : '  \u00B7  pick a date and time to see it in Geneva, Cairo and London.'));
   }
   mTz.addEventListener('change', drawTzNote);
   mWhen.addEventListener('input', drawTzNote);
