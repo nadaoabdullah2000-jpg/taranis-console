@@ -976,11 +976,28 @@ function contextLines(m) {
 }
 
 // The text a mandate's fit is actually described in (same fields the SQL/WI 01 read).
+// The rule scores the investor's own fields only. A report row's evidence also
+// keeps the PDF passage it was read from and the report's title; both stay
+// stored for people to read, but the passage runs on into other firms' stories
+// and a title such as "Hedge Funds in Hot Water" is about nobody, so neither is
+// scored. Same rule as WI 01 and HFN 02.
+const EVIDENCE_NOT_SCORED = ['passage', 'from_report', 'page'];
+// "does not state hedge fund appetite" is silence, not a hedge-fund signal.
+const RE_NO_APPETITE = /(does not state|doesn't state|no) hedge.fund appetite( stated)?|hedge.fund appetite (is )?not stated/g;
+function evidenceText(ev) {
+  let x = ev;
+  for (let i = 0; i < 2 && typeof x === 'string'; i++) {
+    try { x = JSON.parse(x); } catch (_) { return String(ev); }
+  }
+  if (!x || typeof x !== 'object' || Array.isArray(x)) return JSON.stringify(x || {});
+  const own = {};
+  for (const k of Object.keys(x)) if (EVIDENCE_NOT_SCORED.indexOf(k) < 0) own[k] = x[k];
+  return JSON.stringify(own);
+}
 function sigText(m) {
-  return [m.intention_summary, m.requirements_raw, m.appetite_raw,
-    (typeof m.evidence === 'string' ? m.evidence : JSON.stringify(m.evidence || {})),
+  return [m.intention_summary, m.requirements_raw, m.appetite_raw, evidenceText(m.evidence),
     JSON.stringify(jsonArr(m.strategies)), JSON.stringify(jsonArr(m.asset_classes)),
-    m.investor_type].join(' ').toLowerCase();
+    m.investor_type].join(' ').toLowerCase().replace(RE_NO_APPETITE, ' ');
 }
 const RE_HEDGE = /hedge|alternative|absolute return|liquid alt/;
 const RE_STRONG = /long short|long\/short|long-short|l\/s|equity hedge|equity long|quant|systematic/;
