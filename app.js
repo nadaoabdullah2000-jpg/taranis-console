@@ -1444,6 +1444,62 @@ function dedupeInvestors(rows) {
   return res;
 }
 
+// One sort for every mandate list (Opportunities, Rejected, Approved, Find),
+// applied to the rows already filtered for display. Each tab remembers its own
+// choice in this browser; nothing is written to the database.
+const LIST_SORTS = [
+  ['best',   'Best match first'],
+  ['latest', 'Latest first'],
+  ['ticket', 'Biggest ticket first'],
+  ['unread', 'Unread first']
+];
+const SORT_KEY = 'taranis.listSort';
+let listSort = {};
+try { listSort = JSON.parse(localStorage.getItem(SORT_KEY) || '{}') || {}; } catch (_) { listSort = {}; }
+const sortModeOf = (tab) => LIST_SORTS.some(([k]) => k === listSort[tab]) ? listSort[tab] : 'best';
+function setSortMode(tab, mode) {
+  listSort[tab] = mode;
+  try { localStorage.setItem(SORT_KEY, JSON.stringify(listSort)); } catch (_) {}
+}
+
+const numOrNull = (v) => {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return isFinite(n) ? n : null;
+};
+const sortFit = (m) => { const a = numOrNull(m && m.new_fit_score); return a !== null ? a : numOrNull(m && m.fit_score); };
+const sortTicket = (m) => {
+  const hi = numOrNull(m && m.ticket_max_usd);
+  if (hi !== null && hi > 0) return hi;
+  const lo = numOrNull(m && m.ticket_min_usd);
+  return lo !== null && lo > 0 ? lo : null;
+};
+const sortDate = (m) => (m && m.alert_date) ? String(m.alert_date) : null;
+const descNullsLast = (a, b) => a === b ? 0 : a === null ? 1 : b === null ? -1 : (a > b ? -1 : 1);
+
+function sortMandates(rows, mode) {
+  const byId = (x, y) => (Number(y && y.id) || 0) - (Number(x && x.id) || 0);
+  const best = (x, y) => descNullsLast(sortFit(x), sortFit(y)) || byId(x, y);
+  const cmp = mode === 'latest' ? (x, y) => descNullsLast(sortDate(x), sortDate(y)) || byId(x, y)
+            : mode === 'ticket' ? (x, y) => descNullsLast(sortTicket(x), sortTicket(y)) || best(x, y)
+            : mode === 'unread' ? (x, y) => ((x && x.seen_at) ? 1 : 0) - ((y && y.seen_at) ? 1 : 0) || best(x, y)
+            : best;
+  return (rows || []).slice().sort(cmp);
+}
+
+// The Sort dropdown, styled like the other toolbar selects. scope says what the
+// sort covers, so a capped list is not read as "across everything".
+function sortControl(tab, onChange, scope) {
+  const s = el('select', { class: 'search', style: 'flex:0 1 220px;min-width:180px', 'aria-label': 'Sort' });
+  for (const [k, l] of LIST_SORTS) s.appendChild(el('option', { value: k }, l));
+  s.value = sortModeOf(tab);
+  s.addEventListener('change', () => { setSortMode(tab, s.value); onChange(s.value); });
+  return el('div', { class: 'toolbar', style: 'margin-bottom:12px' },
+    el('span', { class: 'mono', style: 'font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)' }, 'Sort'),
+    s,
+    scope ? el('span', { class: 'mono', style: 'font-size:11.5px;color:var(--ink-3)' }, scope) : null);
+}
+
 function entry(o) {
   const rail = el('div', { class: 'entry-rail' },
     o.tone ? el('span', { class: 'dot ' + o.tone }) : null,
@@ -1942,7 +1998,7 @@ RENDER.approvals = function (body) {
   fill(body, async () => {
     const rows = await readRows('wi_mandates',
       'select=id,investor_name,organization_name,investor_country,investor_type,'
-      + 'ticket_min_usd,fit_score,fit_reason,approved_at,approved_by,seen_at,qualification,new_qualification,new_fit_score,'
+      + 'ticket_min_usd,ticket_max_usd,alert_date,fit_score,fit_reason,approved_at,approved_by,seen_at,qualification,new_qualification,new_fit_score,'
       + 'intention_summary,requirements_raw,appetite_raw,evidence,strategies,asset_classes,investor_city,open_to_emerging_managers'
       + '&approved_at=not.is.null'
       + '&qualification=neq.rejected'
@@ -1962,33 +2018,38 @@ RENDER.approvals = function (body) {
         'Approve an opportunity and it appears here. This is a view of Opportunities, not a queue of its own.'));
     }
     const grid = el('div', { class: 'matchgrid' });
-    body.appendChild(grid);
-    for (const r of rows) {
-      grid.appendChild(matchCard(r, {
-        tone: 'good',
-        rail: r.review_id,
-        action: investorLabel(r),
-        who: orgLabel(r) || '',
-        record: r,
-        evidence: [
-          ['country  ', asText(r.investor_country)],
-          ['type     ', asText(r.investor_type)],
-          ['ticket   ', money(r.ticket_min_usd)],
-          ['score    ', r.fit_score],
-          ['approved ', r.approved_at ? fmtDate(r.approved_at) : null],
-          ['by       ', r.approved_by],
-          ['reason   ', asText(r.fit_reason)]
-        ],
-        tags: [['approved', 'good']],
-        actions: [
-          { label: 'View the mandate', primary: true, run: () => openMandate(r) },
-          { label: 'Fill the gaps', run: () => fillSheet(r) },
-          { label: 'Withdraw approval',
-            run: () => setApproved(r, false, () => go('approvals')) },
-          { label: 'Reject',
-            run: () => setQualification(r, 'rejected', 'Moved to Rejected.', () => go('rejected')) }
-        ]
-      }));
+    body.append(sortControl('approvals', () => paintApproved(),
+      'Sorts the ' + rows.length + ' loaded \u2014 the 200 most recently approved, not the whole table'), grid);
+    paintApproved();
+    function paintApproved() {
+      clear(grid);
+      for (const r of sortMandates(rows, sortModeOf('approvals'))) {
+        grid.appendChild(matchCard(r, {
+          tone: 'good',
+          rail: r.review_id,
+          action: investorLabel(r),
+          who: orgLabel(r) || '',
+          record: r,
+          evidence: [
+            ['country  ', asText(r.investor_country)],
+            ['type     ', asText(r.investor_type)],
+            ['ticket   ', money(r.ticket_min_usd)],
+            ['score    ', r.fit_score],
+            ['approved ', r.approved_at ? fmtDate(r.approved_at) : null],
+            ['by       ', r.approved_by],
+            ['reason   ', asText(r.fit_reason)]
+          ],
+          tags: [['approved', 'good']],
+          actions: [
+            { label: 'View the mandate', primary: true, run: () => openMandate(r) },
+            { label: 'Fill the gaps', run: () => fillSheet(r) },
+            { label: 'Withdraw approval',
+              run: () => setApproved(r, false, () => go('approvals')) },
+            { label: 'Reject',
+              run: () => setQualification(r, 'rejected', 'Moved to Rejected.', () => go('rejected')) }
+          ]
+        }));
+      }
     }
   });
 };
@@ -3118,12 +3179,13 @@ RENDER.opps = function (body) {
   const modeRow = el('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px' });
   const filterBar = el('div', { style: 'margin-bottom:14px' });
   const chips = el('div', { class: 'chips', style: 'margin-bottom:14px' });
+  const sortBar = el('div');
   const list  = el('div');
 
   body.appendChild(el('div', { class: 'toolbar', style: 'margin-bottom:12px' },
     el('button', { class: 'btn btn-sm btn-quiet', onclick: () => importSheet() },
       'Import an investor list')));
-  body.append(modeRow, filterBar, chips, list);
+  body.append(modeRow, filterBar, chips, sortBar, list);
 
   const VIEWS = [
     ['all',      'Everything',    'accent'],
@@ -3283,7 +3345,9 @@ RENDER.opps = function (body) {
       chips.appendChild(c);
     }
 
-    const rows = scoped.filter(m => inView(m, oppsView));
+    sortBar.appendChild(sortControl('opps', () => go('opps'),
+      'Sorts the ' + all.length + ' loaded \u2014 the newest 1,000 live mandates, not the whole table'));
+    const rows = sortMandates(scoped.filter(m => inView(m, oppsView)), sortModeOf('opps'));
     if (!rows.length) {
       return list.appendChild(all.length
         ? empty('Nothing under these filters',
@@ -3664,7 +3728,9 @@ RENDER.rejected = function (body) {
     }
   }
 
-  body.append(el('div', { class: 'toolbar' }, find), chips, out);
+  const sortBar = sortControl('rejected', () => paint(),
+    'Sorts within the newest 500 rejected loaded, not the whole table');
+  body.append(el('div', { class: 'toolbar' }, find), chips, sortBar, out);
   paintChips();
 
   const reasons = (m) => {
@@ -3755,14 +3821,7 @@ RENDER.rejected = function (body) {
         .filter(Boolean).join(' ').toLowerCase().indexOf(q) > -1);
     }
 
-    rows = rows.slice().sort((x, y) => {
-      const dx = reasons(x).length, dy = reasons(y).length;
-      if (dx !== dy) return dx - dy;
-      const tx = Number(x.ticket_max_usd || x.ticket_min_usd || 0);
-      const ty = Number(y.ticket_max_usd || y.ticket_min_usd || 0);
-      if (tx !== ty) return ty - tx;
-      return Number(y.id || 0) - Number(x.id || 0);
-    });
+    rows = sortMandates(rows, sortModeOf('rejected'));
 
     if (DATA_ONLY[tone]) {
       out.appendChild(el('div', { class: 'banner' },
@@ -5417,8 +5476,10 @@ RENDER.find = function (body) {
   };
 
   const panel = el('div', { class: 'card', style: 'padding:16px;margin-bottom:16px' });
+  const findScope = el('span');
+  const sortBar = sortControl('find', () => run(), findScope);
   const out   = el('div');
-  body.append(panel, out);
+  body.append(panel, sortBar, out);
 
   const fFrom = el('input', { class: 'search', type: 'date' });
   const fTo   = el('input', { class: 'search', type: 'date' });
@@ -5524,7 +5585,8 @@ RENDER.find = function (body) {
   function run() {
     if (!all) return;
     clear(out);
-    const rows = all.filter(matches);
+    const rows = sortMandates(all.filter(matches), sortModeOf('find'));
+    findScope.textContent = 'Sorts all ' + all.length + ' mandates';
     const anyFilter = Object.values(findState).some(v => v);
 
     out.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px;margin:0 0 12px' },
