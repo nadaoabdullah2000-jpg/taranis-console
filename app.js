@@ -6084,9 +6084,13 @@ function investorView(full, m) {
     full.aum_band ? 'AUM ' + asText(full.aum_band) : ''].filter(Boolean).join('  \u00B7  ');
   const summary = asText(full.intention_summary);
   const signals = jsonArr(full.positive_signals).map(String).filter(Boolean);
+  let ev = full.evidence;
+  for (let i = 0; i < 2 && typeof ev === 'string'; i++) { try { ev = JSON.parse(ev); } catch (_) { ev = {}; } }
+  const profile = ev && typeof ev === 'object' ? String(ev.wi_summary || '').trim() : '';
   box.appendChild(section('Summary',
     who ? para(who, true) : null,
     summary ? para(summary) : para('The alert gave no summary.', true),
+    profile && profile !== summary ? para('WI profile: ' + profile, true) : null,
     signals.length ? list(signals) : null));
 
   // Intentions: every distinct intention when the investor has several,
