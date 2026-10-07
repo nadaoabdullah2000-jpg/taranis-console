@@ -3847,7 +3847,7 @@ RENDER.meetings = function (body) {
   const mMins  = el('input', { class: 'search', type: 'number', value: '30', min: '15', step: '15' });
   const mTz = el('select', { class: 'search' });
   for (const [v] of ZOOM_TIMEZONES) mTz.appendChild(el('option', { value: v }, timezoneLabel(v)));
-  mTz.value = defaultTimezone();
+  mTz.value = isZoomTimezone('Europe/Zurich') ? 'Europe/Zurich' : defaultTimezone();   // Geneva time by default
   const mTzNote = el('div', { style: 'font-size:12px;color:var(--ink-3);margin:-4px 0 10px;line-height:1.5' });
   // Says which zone the picker's time is in, then the same moment in Geneva,
   // Cairo and London, so nobody books an hour out. Display only: the booking
@@ -5550,9 +5550,7 @@ RENDER.find = function (body) {
           ['type    ', asText(m.investor_type)],
           ['strategy', asText(m.strategies)],
           ['asset   ', asText(m.asset_classes)],
-          ['ticket  ', money(m.ticket_max_usd || m.ticket_min_usd)],
-          ['dated   ', m.alert_date ? fmtDate(m.alert_date) : null],
-          ['score   ', m.new_qualification ? m.new_fit_score : m.fit_score]
+          ['ticket  ', money(m.ticket_max_usd || m.ticket_min_usd)]
         ],
         tags: [[BAND_LABEL[q] || q.replace(/_/g, ' '), tone]]
                 .concat(m.seen_at ? [] : [['unread', 'signal']])
@@ -5971,6 +5969,66 @@ async function localDossier(host, person) {
 
 /* --------------------------------------------------------- one person */
 
+/* Internal plumbing on a mandate: audit stamps, pipeline state, the re-score
+   snapshot and verdict columns. They stay in the database and the logic keeps
+   reading them (new_qualification / new_fit_score are what the app runs on,
+   qualification_old / fit_score_old are the rollback snapshot) -- they are only
+   left off anything a person reads. */
+const HIDDEN_FIELDS = ['alert_date', 'commercial_status', 'compliance_status', 'intake_stage',
+  'intake_missing', 'source_kind', 'seen_at', 'seen_by', 'wi_enriched_at', 'name_reparsed_at',
+  'qualification_old', 'fit_score_old', 'new_qualification', 'new_fit_score', 'rescored_at',
+  'hard_status', 'matched', 'published_via', 'alert_type'];
+
+/* The investor in plain language, at the top of the mandate page: who they
+   are, what they intend, and who to speak to. */
+function investorView(full, m) {
+  const box = el('div', { style: 'max-width:820px;margin:0 0 22px' });
+  const section = (title, ...kids) => el('section', { style: 'margin:0 0 16px' },
+    el('h3', { style: 'font-family:var(--font-display);font-weight:500;font-size:17px;margin:0 0 6px;color:var(--ink-2)' }, title),
+    ...kids.filter(Boolean));
+  const para = (t, muted) => el('p', { style: 'margin:0 0 6px;font-size:14.5px;line-height:1.55'
+    + (muted ? ';color:var(--ink-3)' : '') }, t);
+  const list = (items) => el('ul', { style: 'margin:4px 0 0;padding-left:18px;font-size:14px;line-height:1.55' },
+    ...items.map(t => el('li', null, t)));
+  const line = (label, text) => text ? el('div', { style: 'font-size:14px;line-height:1.55;margin:0 0 4px' },
+    el('span', { style: 'color:var(--ink-3)' }, label + ' \u2014 '), text) : null;
+
+  // Who they are: the summary the alert gives, then what stands out.
+  const who = [asText(full.investor_type), geoText(full) !== 'not stated' ? geoText(full) : '',
+    full.aum_band ? 'AUM ' + asText(full.aum_band) : ''].filter(Boolean).join('  \u00B7  ');
+  const summary = asText(full.intention_summary);
+  const signals = jsonArr(full.positive_signals).map(String).filter(Boolean);
+  box.appendChild(section('Summary',
+    who ? para(who, true) : null,
+    summary ? para(summary) : para('The alert gave no summary.', true),
+    signals.length ? list(signals) : null));
+
+  // Intentions: every distinct intention when the investor has several,
+  // otherwise what this one asks for.
+  const seen = {}, ints = [];
+  for (const it of ((m && m._intentions) || full._intentions || [])) {
+    const t = String(it.intention_summary || it.fit_reason || '').replace(/\s+/g, ' ').trim();
+    if (!t || seen[t.toLowerCase()]) continue;
+    seen[t.toLowerCase()] = 1;
+    ints.push([it.alert_date ? fmtDate(it.alert_date) : '', t, money(it.ticket_min_usd)]);
+  }
+  const detail = [line('Looking for', asText(full.requirements_raw)), line('Appetite', asText(full.appetite_raw)),
+    line('Timing', asText(full.allocation_timing))].filter(Boolean);
+  box.appendChild(section('Intentions',
+    ints.length > 1
+      ? list(ints.map(([d, t, tk]) => [d, t, tk ? 'ticket ' + tk : ''].filter(Boolean).join('  \u00B7  ')))
+      : (detail.length ? el('div', null, ...detail) : para('Only the summary above was stated.', true))));
+
+  // Contact person.
+  const emails = jsonArr(full.emails).map(String).filter(Boolean);
+  const links = jsonArr(full.linkedin_urls).map(String).filter(Boolean);
+  box.appendChild(section('Contact person',
+    para(asText(full.contact_name) || 'not stated', !asText(full.contact_name)),
+    emails.length ? line('Email', emails.join(', ')) : null,
+    links.length ? line('LinkedIn', links.join(', ')) : null));
+  return box;
+}
+
 async function openMandate(m) {
   closeSheet();
   if (current !== 'mandate') PROFILE_BACK = current;
@@ -6085,6 +6143,8 @@ async function openMandate(m) {
         + ';font-weight:' + (big ? '600' : '500') + ';line-height:1.5' }, t));
   };
 
+  host.appendChild(investorView(full, m));
+
   const grid = el('div', { class: 'grid2', style: 'max-width:820px' });
   const c1 = el('div'), c2 = el('div');
   grid.append(c1, c2);
@@ -6121,11 +6181,14 @@ async function openMandate(m) {
     'investor_type','strategies','ticket_min_usd','fit_score','fit_reason','qualification',
     'missing_hard_fields','hard_fail_reasons','published_at','linkedin_url',
     'approved_at','approved_by','source_page',
-    'view_article_url','view_intention_url','view_investor_url'];
+    'view_article_url','view_intention_url','view_investor_url',
+    // shown in the readable investor view above
+    'intention_summary','positive_signals','requirements_raw','appetite_raw','allocation_timing',
+    'contact_name','emails','linkedin_urls','aum_band'];
 
   const HIDE = ['record_key','raw_email_id','source_message_id','block_index',
     'source_email_date','created_at','updated_at','field_sources','soft_flags',
-    'hard_notes','content_hash','embedding'];
+    'hard_notes','content_hash','embedding'].concat(HIDDEN_FIELDS);
   const prov = fillProvenance(full);
   if (prov.length) {
     host.appendChild(el('p', { class: 'mono',
