@@ -96,7 +96,7 @@ function ensureEntrySkin() {
   s.textContent =
     "#pg-body .entry{position:relative;border:1px solid var(--rule,#E9EFF3);border-radius:14px;overflow:hidden;"
       + "background:var(--card,#fff);box-shadow:0 1px 2px rgba(16,35,58,.03),0 12px 28px rgba(16,35,58,.05);"
-      + "margin:0 0 14px;transition:box-shadow .16s ease}"
+      + "margin:0 0 14px}"
   + "#pg-body .entry::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:#C6D2DC;z-index:1}"
   + "#pg-body .entry.good::before{background:#1E9E8A}#pg-body .entry.signal::before{background:#00A8D0}"
   + "#pg-body .entry.quiet::before{background:#C6D2DC}#pg-body .entry.bad::before{background:#C87A5A}"
@@ -1322,7 +1322,7 @@ function ensureTodayCss() {
   s.id = 'taranis-droplist-css';
   s.textContent =
     ".droplist{display:flex;flex-direction:column;gap:8px}"
-  + ".drop{border:1px solid var(--rule);border-radius:11px;background:var(--card);overflow:hidden;box-shadow:0 1px 2px rgba(16,35,58,.04);transition:box-shadow .16s,border-color .16s}"
+  + ".drop{border:1px solid var(--rule);border-radius:11px;background:var(--card);overflow:hidden;box-shadow:0 1px 2px rgba(16,35,58,.04)}"
   + ".drop:hover{border-color:#CFE6EF;box-shadow:0 2px 4px rgba(16,35,58,.05),0 10px 22px -12px rgba(0,120,160,.5)}"
   + ".drop.open{border-color:#CFE6EF;box-shadow:0 2px 4px rgba(16,35,58,.05),0 12px 26px -14px rgba(0,120,160,.55)}"
   + ".drop.read{opacity:.6}"
@@ -1333,9 +1333,9 @@ function ensureTodayCss() {
   + ".drop-name{font-family:var(--font-display);font-size:15px;font-weight:400;color:var(--ink);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}"
   + ".drop-co{font-size:12px;color:var(--ink-3);margin-top:2px;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}"
   + ".drop-when{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3);flex:none}"
-  + ".drop-chev{flex:none;color:var(--ink-3);font-size:19px;line-height:1;transition:transform .2s ease;transform:rotate(90deg)}"
+  + ".drop-chev{flex:none;color:var(--ink-3);font-size:19px;line-height:1;transform:rotate(90deg)}"
   + ".drop.open .drop-chev{transform:rotate(270deg);color:var(--sky,#00A8D0)}"
-  + ".drop-p{max-height:0;overflow:hidden;transition:max-height .24s ease,padding .24s ease;padding:0 18px 0 36px}"
+  + ".drop-p{max-height:0;overflow:hidden;padding:0 18px 0 36px}"
   + ".drop.open .drop-p{max-height:640px;padding:2px 18px 16px 36px}"
   + ".drop-p .ev{font-size:13px}.drop-p .ev>div{margin:5px 0}.drop-p .ev .k{color:var(--ink-3);margin-right:8px}";
   document.head.appendChild(s);
@@ -4842,13 +4842,13 @@ const RPT_CSS = `
 .rpt-h::after{content:"";flex:1;height:1px;background:var(--rule)}
 .rpt-funnel{display:flex;flex-direction:column;gap:9px}
 .rpt-stage{display:flex;align-items:center;gap:13px}
-.rpt-stage .bar{height:34px;border-radius:6px;display:flex;align-items:center;padding:0 13px;color:#fff;font-weight:600;min-width:52px;transition:width .6s cubic-bezier(.22,1,.36,1)}
+.rpt-stage .bar{height:34px;border-radius:6px;display:flex;align-items:center;padding:0 13px;color:#fff;font-weight:600;min-width:52px}
 .rpt-stage .meta{font-size:12.5px;color:var(--ink-2)}
 .rpt-cols{display:grid;grid-template-columns:1fr 1fr;gap:30px}
 .rpt-bar{display:grid;grid-template-columns:154px 1fr 44px;align-items:center;gap:11px;margin:0 0 10px}
 .rpt-bar .k{font-size:12.5px;color:var(--ink-2);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rpt-bar .t{background:rgba(0,168,208,.10);border-radius:5px;height:18px;overflow:hidden}
-.rpt-bar .f{height:100%;border-radius:5px;transition:width .6s cubic-bezier(.22,1,.36,1)}
+.rpt-bar .f{height:100%;border-radius:5px}
 .rpt-bar .n{font-size:12.5px;color:var(--ink);text-align:right;font-weight:600}
 .rpt-tag{font-size:9px;letter-spacing:.07em;text-transform:uppercase;padding:2px 6px;border-radius:4px;background:rgba(0,168,208,.14);color:#0a6f8a;margin-left:6px}
 .rpt-rows{border-top:1px solid var(--rule)}
@@ -5901,7 +5901,6 @@ async function openMandate(m) {
 
   const body = $('pg-body');
   clear(body);
-  body.style.animation = 'none'; void body.offsetWidth; body.style.animation = '';
   $('pg-title').textContent = investorLabel(m);
   $('pg-sub').textContent = 'With Intelligence mandate';
   const host = el('div');
@@ -6261,7 +6260,6 @@ async function openProfile(c) {
 
   const body = $('pg-body');
   clear(body);
-  body.style.animation = 'none'; void body.offsetWidth; body.style.animation = '';
   $('pg-title').textContent = (c && c.name) || 'Contact';
   $('pg-sub').textContent = 'Reading the record\u2026';
   const host = el('div');
