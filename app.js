@@ -6134,7 +6134,8 @@ function investorView(full, m) {
   const signals = jsonArr(full.positive_signals).map(String).filter(Boolean);
   let ev = full.evidence;
   for (let i = 0; i < 2 && typeof ev === 'string'; i++) { try { ev = JSON.parse(ev); } catch (_) { ev = {}; } }
-  const profile = ev && typeof ev === 'object' ? String(ev.wi_summary || '').trim() : '';
+  // WI sends the profile as HTML (<p>, <em>); show its words, not its tags.
+  const profile = ev && typeof ev === 'object' ? htmlToText(ev.wi_summary) : '';
   box.appendChild(section('Summary',
     who ? para(who, true) : null,
     summary ? para(summary) : para('The alert gave no summary.', true),
@@ -6773,6 +6774,127 @@ function foldPeople(rows) {
   return out;
 }
 
+/* ------------------------------------------------ local mandate filters */
+
+// WI sends some text as HTML (<p>, <em>). This keeps the words, one paragraph
+// per line. DOMParser builds an inert document, so nothing in it runs.
+function htmlToText(s) {
+  const src = String(s == null ? '' : s);
+  if (!/<[a-z!\/]/i.test(src)) return src.trim();
+  const marked = src.replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li|h\d)>/gi, '\n');
+  const doc = new DOMParser().parseFromString('<div>' + marked + '</div>', 'text/html');
+  return String(doc.body.textContent || '').replace(/[ \t]+/g, ' ').replace(/\s*\n\s*/g, '\n').trim();
+}
+
+// A mandate's signals read the way the re-score reads them (sigText, so WI's
+// profile summary never counts).
+function mandateSignals(m) {
+  const t = sigText(m);
+  return {
+    tech: RE_TECH.test(t),
+    strong: isStrong(m, t),
+    emerging: m.open_to_emerging_managers === true,
+    country: String(m.investor_country || '').trim().toUpperCase().slice(0, 2)
+  };
+}
+
+// Mandates for the Ask page's local sourcing answers, one per investor, best
+// score first. Every key is optional:
+//   verdicts  ['uncertain', ...] on new_qualification, falling back to qualification
+//   waiting   true: not approved yet
+//   tech, strong  true or false: technology signal / stated long/short or quant
+//   countries ['GB', 'CH', 'US']
+//   emerging  true: open to emerging managers
+async function localMandates(f) {
+  const q = ['select=*', 'order=id.desc', 'limit=1000'];
+  if (f.verdicts && f.verdicts.length) {
+    const list = f.verdicts.join(',');
+    q.push('or=(new_qualification.in.(' + list + '),'
+      + 'and(new_qualification.is.null,qualification.in.(' + list + ')))');
+  } else {
+    q.push(VERDICT_OPEN);
+  }
+  if (f.waiting) q.push('approved_at=is.null');
+  if (f.emerging) q.push('open_to_emerging_managers=is.true');
+  const rows = await readRows('wi_mandates', q.join('&'), 'wi.mandates.list', { limit: 40 });
+  const keep = (rows || []).filter(m => {
+    const s = mandateSignals(m);
+    if (f.tech !== undefined && s.tech !== f.tech) return false;
+    if (f.strong !== undefined && s.strong !== f.strong) return false;
+    if (f.countries && f.countries.length && f.countries.indexOf(s.country) < 0) return false;
+    return true;
+  });
+  return sortMandates(dedupeInvestors(keep), 'best');
+}
+
+// The best With Intelligence page for an investor: its profile, else the
+// intention, else the article.
+function wiPageUrl(m) {
+  for (const k of ['view_investor_url', 'view_intention_url', 'view_article_url']) {
+    const u = String((m && m[k]) || '').trim();
+    if (/^https?:\/\//i.test(u)) return u;
+  }
+  return '';
+}
+
+// The card shows one row per investor; when that row has no WI link, one of the
+// investor's other alerts (_intentions, from dedupeInvestors) may.
+function investorLink(m) {
+  let url = wiPageUrl(m);
+  for (const x of (m && m._intentions) || []) { if (url) break; url = wiPageUrl(x); }
+  const name = investorLabel(m);
+  return url ? el('a', { href: url, target: '_blank', rel: 'noopener noreferrer' }, name) : name;
+}
+
+// One readable line on why a mandate is interesting: the sentence of what they
+// want that carries the signal asked for (re), else the first one, from the
+// intention summary or WI's positive signals. Never a raw field dump. When no
+// such sentence carries the signal, the word that raised it is named (label)
+// so the line still says why the row is here.
+function interestLine(m, re, label) {
+  const own = legalName(m.investor_name).toLowerCase();
+  const sentences = htmlToText(m.intention_summary).split(/(?<=[.!?])\s+|\n/)
+    .map(s => s.trim())
+    .filter(s => s && !/profile alert$/i.test(s) && s.toLowerCase() !== own);
+  const signals = jsonArr(m.positive_signals).map(s => htmlToText(s)).filter(Boolean);
+  const pick = (re && (sentences.find(s => re.test(s.toLowerCase()))
+                     || signals.find(s => re.test(s.toLowerCase()))))
+            || sentences[0] || signals[0] || '';
+  let line = pick
+    .replace(/^(the investor'?s |its )?primary investment themes( over the next 12-18 months)?( include| focus on)?:?\s*/i,
+             'Themes for the next 12\u201318 months: ')
+    .replace(/^themes over the next 12-18 months (include|focus on)\s*/i, 'Themes for the next 12\u201318 months: ');
+  if (line.length > 180) line = line.slice(0, 180).replace(/\s+\S*$/, '') + '\u2026';
+  if (re && label && !re.test(pick.toLowerCase())) {
+    const hit = sigText(m).match(new RegExp('[a-z-]*(?:' + re.source + ')[a-z-]*'));
+    if (hit) line = (line ? line + ' \u2014 ' : '') + label + ' signal: \u201C' + hit[0] + '\u201D';
+  }
+  return line;
+}
+
+// "What's waiting on me to decide?": the tech-rescue band. Waiting rows (in
+// review, not approved) with a technology signal and no stated long/short or
+// quant strategy.
+async function answerTechWaiting(host) {
+  const rows = await localMandates({ verdicts: ['uncertain'], waiting: true, tech: true, strong: false });
+  if (!rows.length) {
+    host.appendChild(el('p', null, 'Nothing is waiting on a decision with a technology angle.'));
+    return;
+  }
+  host.appendChild(el('p', { class: 'mono',
+    style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:0 0 6px' },
+    rows.length + ' waiting on a decision \u00B7 technology angle, no long/short stated'));
+  for (const x of rows) {
+    host.appendChild(entry({
+      tone: 'signal', record: x,
+      action: investorLink(x),
+      who: [asText(x.investor_type), geoText(x)].filter(Boolean).join('  \u00B7  '),
+      evidence: [['why  ', interestLine(x, RE_TECH, 'technology') || 'WI gives no summary of what they want.']],
+      actions: [{ label: 'View the mandate', primary: true, run: () => openMandate(x) }]
+    }));
+  }
+}
+
 async function answerLocally(host, question) {
   const words = searchTerms(question);
   const tries = [];
@@ -6786,7 +6908,10 @@ async function answerLocally(host, question) {
     groupSel = 'select=*&or=(has_open_next_step.is.true,days_quiet.gt.60)'
              + '&order=days_quiet.desc.nullslast&limit=40';
     groupLabel = 'Overdue a follow-up, longest wait first';
-  } else if (/opportunit|mandate|waiting on me|approve/.test(low)) {
+  } else if (/waiting on me|to decide/.test(low)) {
+    await answerTechWaiting(host);
+    return;
+  } else if (/opportunit|mandate|approve/.test(low)) {
     const m = await readRows('wi_mandates',
       'select=id,investor_name,organization_name,investor_country,investor_type,fit_score,fit_reason'
       + '&qualification=eq.uncertain&published_at=is.null&order=new_fit_score.desc.nullslast,fit_score.desc.nullslast&limit=40',
