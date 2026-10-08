@@ -5032,6 +5032,9 @@ RENDER.hfn = function (body) {
 };
 
 const RPT_CSS = `
+.rpt-c1{--c:#00A1C4} .rpt-c2{--c:#C48500} .rpt-c3{--c:#9FDCE9} .rpt-c4{--c:#00657B} .rpt-cbad{--c:var(--bad)}
+.rpt-kpi .v.rpt-c1,.rpt-kpi .v.rpt-c2,.rpt-kpi .v.rpt-c4,.rpt-kpi .v.rpt-cbad{color:var(--c)}
+@media (prefers-color-scheme: dark){ .rpt-kpi .v.rpt-c4{color:#9FDCE9} }
 .rpt-cap{font-size:12.5px;color:var(--ink-3);margin:2px 0 16px}
 .rpt-kpis{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin:2px 0 6px}
 .rpt-kpi{padding:15px 15px 13px;border-left:1px solid var(--rule)}
@@ -5049,10 +5052,10 @@ const RPT_CSS = `
 .rpt-cols{display:grid;grid-template-columns:1fr 1fr;gap:30px}
 .rpt-bar{display:grid;grid-template-columns:154px 1fr 44px;align-items:center;gap:11px;margin:0 0 10px}
 .rpt-bar .k{font-size:12.5px;color:var(--ink-2);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.rpt-bar .t{background:rgba(0,168,208,.10);border-radius:5px;height:18px;overflow:hidden}
+.rpt-bar .t{background:rgba(0,161,196,.10);border-radius:5px;height:18px;overflow:hidden}
 .rpt-bar .f{height:100%;border-radius:5px}
 .rpt-bar .n{font-size:12.5px;color:var(--ink);text-align:right;font-weight:600}
-.rpt-tag{font-size:9px;letter-spacing:.07em;text-transform:uppercase;padding:2px 6px;border-radius:4px;background:rgba(0,168,208,.14);color:#0a6f8a;margin-left:6px}
+.rpt-tag{font-size:9px;letter-spacing:.07em;text-transform:uppercase;padding:2px 6px;border-radius:4px;background:rgba(0,161,196,.14);color:var(--accent);margin-left:6px}
 .rpt-rows{border-top:1px solid var(--rule)}
 .rpt-row{display:flex;justify-content:space-between;gap:16px;padding:10px 2px;border-bottom:1px solid var(--rule);font-size:13px}
 .rpt-row .k{color:var(--ink-3)} .rpt-row .v{color:var(--ink);font-weight:500}
@@ -5066,10 +5069,10 @@ const RPT_CSS = `
 .rpt-oc .seg{display:flex;gap:4px;margin-bottom:14px}
 .rpt-oc .seg i{height:8px;flex:1;border-radius:3px;background:rgba(0,168,208,.14)}
 .rpt-oc .seg i.on{background:var(--accent)}
-.rpt-oc.q-matched .seg i.on{background:#1E9E63}
-.rpt-oc.q-matched .sc b,.rpt-oc.q-matched .sc span{color:#1E9E63}
-.rpt-oc.q-rejected .seg i.on{background:#C6402B}
-.rpt-oc.q-rejected .sc b,.rpt-oc.q-rejected .sc span{color:#C6402B}
+.rpt-oc.q-matched .seg i.on{background:#00A1C4}
+.rpt-oc.q-matched .sc b,.rpt-oc.q-matched .sc span{color:#00A1C4}
+.rpt-oc.q-rejected .seg i.on{background:var(--bad)}
+.rpt-oc.q-rejected .sc b,.rpt-oc.q-rejected .sc span{color:var(--bad)}
 .rpt-oc .cr{display:grid;grid-template-columns:1fr 1fr;gap:9px 14px;font-size:12.5px;margin-bottom:15px}
 .rpt-oc .cr .c{display:flex;align-items:center;gap:8px;color:var(--ink-2)}
 .rpt-oc .cr .mk{width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex:none}
@@ -5158,15 +5161,21 @@ function renderOpenOpps(host) {
   });
 }
 
+const REPORT_FIRST_WEEK = '2026-08-26';
+
 RENDER.reports = function (body) {
   clear(body);
 
   if (!$('rpt-css')) document.head.appendChild(el('style', { id: 'rpt-css' }, RPT_CSS));
 
   fill(body, () => supaSelect('weekly_snapshots',
-    'select=taken_at,metrics&order=taken_at.desc&limit=12'), (rows) => {
+    'select=taken_at,metrics&order=taken_at.desc&limit=60'), (rows) => {
 
-    if (!rows.length) {
+    // Snapshots before 26 Aug 2026 are hidden from the week picker only; the rows
+    // stay in the database and in `rows`, so the first shown week still compares
+    // against the week before it.
+    const shown = rows.map((r, i) => i).filter((i) => String(rows[i].taken_at || '').slice(0, 10) >= REPORT_FIRST_WEEK);
+    if (!shown.length) {
       return body.appendChild(empty('No report stored yet',
         'OPS 02 runs Friday at 19:00 Cairo and saves a snapshot. Nothing has been saved so far.'));
     }
@@ -5177,13 +5186,13 @@ RENDER.reports = function (body) {
     const shortMoney = (v) => { const x = n(v); return x >= 1e6 ? '$' + (x / 1e6).toFixed(1) + 'm'
                                     : x >= 1e3 ? '$' + Math.round(x / 1e3) + 'k' : '$' + x; };
 
-    let at = 0;
+    let at = shown[0];
     let liCount = null;
     const host = el('div');
 
     const pick = el('select', { class: 'search', style: 'max-width:280px' });
-    rows.forEach((r, i) => pick.appendChild(el('option', { value: String(i) },
-      'Week to ' + fmtDate(r.taken_at))));
+    for (const i of shown) pick.appendChild(el('option', { value: String(i) },
+      'Week to ' + fmtDate(rows[i].taken_at)));
     pick.addEventListener('change', () => { at = Number(pick.value) || 0; draw(); });
     body.append(el('div', { class: 'toolbar' }, pick), host);
 
@@ -5205,18 +5214,21 @@ RENDER.reports = function (body) {
       const H = (t) => el('p', { class: 'rpt-h' }, t);
 
       const kpis = el('div', { class: 'rpt-kpis' });
-      for (const [lbl, val, key] of [
-        ['Screened', n(m.wi_new), 'wi_new'],
-        ['Matched', n(m.wi_matched), 'wi_matched'],
-        ['Rejected', n(m.wi_rejected), 'wi_rejected'],
-        ['Awaiting you', n(m.wi_awaiting), null],
-        ['Matched value', shortMoney(m.wi_ticket_value), null],
-        ['Emails', n(m.crm_week), 'crm_week'],
-        ['LinkedIn', liCount == null ? '\u2014' : String(liCount), null]
+      // Brand palette: Primary #00A1C4 (rpt-c1), Secondary #C48500 (rpt-c2),
+      // Accent #9FDCE9 (rpt-c3), Accent-dark #00657B (rpt-c4); Rejected keeps
+      // the app's brick (--bad) so it still reads as a stop.
+      for (const [lbl, val, key, tone] of [
+        ['Screened', n(m.wi_new), 'wi_new', 'rpt-c4'],
+        ['Matched', n(m.wi_matched), 'wi_matched', 'rpt-c1'],
+        ['Rejected', n(m.wi_rejected), 'wi_rejected', 'rpt-cbad'],
+        ['Awaiting you', n(m.wi_awaiting), null, 'rpt-c2'],
+        ['Matched value', shortMoney(m.wi_ticket_value), null, 'rpt-c1'],
+        ['Emails', n(m.crm_week), 'crm_week', 'rpt-c4'],
+        ['LinkedIn', liCount == null ? '\u2014' : String(liCount), null, 'rpt-c4']
       ]) {
         kpis.appendChild(el('div', { class: 'rpt-kpi' },
           el('div', { class: 'l' }, lbl),
-          el('div', { class: 'v' }, String(val)),
+          el('div', { class: 'v ' + tone }, String(val)),
           key ? delta(key) : null));
       }
       host.append(kpis);
@@ -5230,10 +5242,10 @@ RENDER.reports = function (body) {
       };
       host.appendChild(H('Screening outcome'));
       host.appendChild(el('div', { class: 'rpt-funnel' },
-        stage('Screened', n(m.wi_new), '#285096'),
-        stage('Matched', n(m.wi_matched), 'linear-gradient(90deg,#1E9E63,#2CB477)'),
-        stage('Awaiting you', n(m.wi_awaiting), 'linear-gradient(90deg,#D9A227,#C89000)'),
-        stage('Rejected', n(m.wi_rejected), 'linear-gradient(90deg,#C6402B,#D2624C)')));
+        stage('Screened', n(m.wi_new), '#00657B'),
+        stage('Matched', n(m.wi_matched), '#00A1C4'),
+        stage('Awaiting you', n(m.wi_awaiting), '#C48500'),
+        stage('Rejected', n(m.wi_rejected), '#A6402E')));   // the light theme's --bad: white text stays readable in dark mode too
 
       const bar = (label, value, max, grad, tagAddr) => {
         const k = el('div', { class: 'k' }, label);
@@ -5251,7 +5263,7 @@ RENDER.reports = function (body) {
       if (rej.length) {
         cA.appendChild(H('Why opportunities were rejected'));
         const max = Math.max.apply(null, rej.map((r) => n(r.n)).concat([1]));
-        for (const r of rej) cA.appendChild(bar(String(r.k), n(r.n), max, 'linear-gradient(90deg,#41586C,#7A8EA0)'));
+        for (const r of rej) cA.appendChild(bar(String(r.k), n(r.n), max, '#00657B'));
       }
       const cB = el('div');
       if (cty.length) {
@@ -5261,7 +5273,7 @@ RENDER.reports = function (body) {
         for (const c of cty.slice(0, 8)) {
           const addr = ADDR.indexOf(String(c.k)) > -1;
           cB.appendChild(bar(String(c.k), n(c.n), max,
-            addr ? 'linear-gradient(90deg,#00A8D0,#00A8C8)' : '#9AA7B5', addr));
+            addr ? '#00A1C4' : '#9FDCE9', addr));
         }
       }
       cols.append(cA, cB);
@@ -5563,23 +5575,41 @@ RENDER.find = function (body) {
     SE: 'Sweden', NO: 'Norway', DK: 'Denmark', IT: 'Italy', ES: 'Spain', LU: 'Luxembourg',
     IL: 'Israel', JP: 'Japan', CN: 'China', IN: 'India' };
 
-  function fillFacets(rows) {
-    const types = new Map(), geos = new Map();
-    for (const r of rows) {
-      const t = String(r.investor_type || '').trim().toLowerCase();
-      if (t) types.set(t, (types.get(t) || 0) + 1);
-      const c = String(r.investor_country || '').trim().toUpperCase();
-      if (c) geos.set(c, (geos.get(c) || 0) + 1);
-    }
-    const add = (node, entries, name) => {
-      const keep = node.value;
-      for (const [v, n] of [...entries].sort((a, b) => b[1] - a[1])) {
-        node.appendChild(el('option', { value: v }, name(v) + '  (' + n + ')'));
+  // Type and country are read in one normal form by both the facet counts and
+  // the filter, so a count can never promise rows the filter will not return.
+  // "Multi-Family Office", "multi-family office" and "multi_family_office" are
+  // one type; "family office" is its own type, not a prefix of the others.
+  const typeKey = (m) => String(m.investor_type || '').trim().toLowerCase().replace(/[\s_-]+/g, ' ');
+  const geoKey  = (m) => String(m.investor_country || '').trim().toUpperCase();
+
+  // Each facet counts investors (one per investor, as the list shows them)
+  // among the rows that pass every OTHER filter, so "(113)" is exactly what
+  // selecting it returns.
+  function fillFacets() {
+    const facet = (node, key, getKey, label) => {
+      const keep = findState[key] || '';
+      const groups = new Map(), spell = new Map();
+      for (const m of all) {
+        if (!matches(m, key)) continue;
+        const k = getKey(m);
+        if (!k) continue;
+        if (!groups.has(k)) { groups.set(k, []); spell.set(k, new Map()); }
+        groups.get(k).push(m);
+        const sp = spell.get(k), raw = String(key === 'type' ? m.investor_type : m.investor_country).trim();
+        sp.set(raw, (sp.get(raw) || 0) + 1);
+      }
+      while (node.options.length > 1) node.remove(1);
+      const counts = [...groups].map(([k, rows]) => [k, dedupeInvestors(rows).length]);
+      if (keep && !groups.has(keep)) counts.push([keep, 0]);
+      for (const [k, n] of counts.sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))) {
+        const sp = spell.get(k);
+        const raw = sp ? [...sp].sort((a, b) => b[1] - a[1])[0][0] : k;
+        node.appendChild(el('option', { value: k }, label(k, raw) + '  (' + n + ')'));
       }
       node.value = keep;
     };
-    add(fType, types, (v) => v.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()));
-    add(fGeo,  geos,  (v) => COUNTRY_NAMES[v] || v);
+    facet(fType, 'type', typeKey, (k, raw) => raw.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()));
+    facet(fGeo, 'country', geoKey, (k) => COUNTRY_NAMES[k] || k);
   }
   const fAsset = sel([['', 'Any asset class'], ['hedge', 'Hedge funds'], ['equit', 'Equities'],
     ['credit', 'Credit'], ['private', 'Private markets'], ['real', 'Real assets'],
@@ -5613,23 +5643,21 @@ RENDER.find = function (body) {
   });
   panel.appendChild(clearBtn);
 
-  let all = null;
+  let all = null, allInvestors = 0;
   const jarr = (v) => {
     let x = v;
     for (let i = 0; i < 2 && typeof x === 'string'; i++) { try { x = JSON.parse(x); } catch (_) { x = []; } }
     return Array.isArray(x) ? x.map(s => String(s).toLowerCase()) : [];
   };
 
-  function matches(m) {
+  // skip names one filter to leave out, for that facet's own counts.
+  function matches(m, skip) {
     const F = findState;
     const d = m.alert_date || (m.source_email_date || '').slice(0, 10) || (m.created_at || '').slice(0, 10);
     if (F.from && (!d || d < F.from)) return false;
     if (F.to   && (!d || d > F.to))   return false;
-    if (F.type && !String(m.investor_type || '').toLowerCase().includes(F.type)) return false;
-    if (F.country) {
-      const c = String(m.investor_country || '').toUpperCase();
-      if (c !== F.country) return false;
-    }
+    if (F.type && skip !== 'type' && typeKey(m) !== F.type) return false;
+    if (F.country && skip !== 'country' && geoKey(m) !== F.country) return false;
     if (F.asset    && !jarr(m.asset_classes).some(a => a.includes(F.asset)))   return false;
     if (F.strategy && !jarr(m.strategies).some(s => s.includes(F.strategy)))   return false;
     if (F.tmin) {
@@ -5654,16 +5682,35 @@ RENDER.find = function (body) {
     return true;
   }
 
+  // One card per investor, as on every other mandate tab. The card is the
+  // investor's best verdict among the rows that matched; all of those rows are
+  // folded into its intentions list (_intentions).
+  const VERDICT_RANK = { matched: 0, uncertain: 1, low: 2, needs_data: 3, rejected: 4 };
+  function bestOf(rows) {
+    const rank = (m) => { const q = bandOf(m); return q in VERDICT_RANK ? VERDICT_RANK[q] : 5; };
+    const fit = (m) => { const n = Number(m.new_fit_score); return isFinite(n) && m.new_fit_score !== null ? n : -1; };
+    return rows.slice().sort((a, b) => rank(a) - rank(b)
+      || (isApproved(b) ? 1 : 0) - (isApproved(a) ? 1 : 0)
+      || fit(b) - fit(a) || (Number(b.id) || 0) - (Number(a.id) || 0))[0];
+  }
+  function investorCards(rows) {
+    return dedupeInvestors(rows).map(c => c._intentions
+      ? Object.assign({}, bestOf(c._intentions), { _intentions: c._intentions }) : c);
+  }
+
   function run() {
     if (!all) return;
     clear(out);
-    const rows = sortMandates(all.filter(matches), sortModeOf('find'));
-    findScope.textContent = 'Sorts all ' + all.length + ' mandates';
+    fillFacets();
+    const matched = all.filter(m => matches(m));
+    const rows = sortMandates(investorCards(matched), sortModeOf('find'));
+    findScope.textContent = 'Sorts all ' + allInvestors + ' investors';
     const anyFilter = Object.values(findState).some(v => v);
 
     out.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px;margin:0 0 12px' },
-      anyFilter ? rows.length + ' of ' + all.length + ' match'
-                : all.length + ' mandates \u2014 narrow them above'));
+      anyFilter ? rows.length + ' of ' + allInvestors + ' investors match  \u00B7  '
+                  + matched.length + ' mandate' + (matched.length === 1 ? '' : 's')
+                : allInvestors + ' investors, ' + all.length + ' mandates \u2014 narrow them above'));
 
     if (!rows.length) {
       return out.appendChild(empty('Nothing matches',
@@ -5688,7 +5735,8 @@ RENDER.find = function (body) {
         ],
         tags: [[BAND_LABEL[q] || q.replace(/_/g, ' '), tone]]
                 .concat(m.seen_at ? [] : [['unread', 'signal']])
-                .concat(isApproved(m) ? [['approved', 'good']] : []),
+                .concat(isApproved(m) ? [['approved', 'good']] : [])
+                .concat(m._intentions ? [[m._intentions.length + ' mandates', 'quiet']] : []),
         actions: [{ label: 'View the mandate', primary: true,
                     run: () => { markSeen(m); openMandate(m); } }]
                  .concat(verdictActions(m, () => go('find')))
@@ -5705,7 +5753,7 @@ RENDER.find = function (body) {
     if (DEMO) return [];
     /* EDIT 8 — raise the row cap from 1000 so all ~1,286 mandates load. */
     return await supaSelect('wi_mandates', 'select=*&order=id.desc&limit=5000');
-  }, (rows) => { all = rows; fillFacets(rows); run(); });
+  }, (rows) => { all = rows; allInvestors = dedupeInvestors(rows).length; run(); });
 };
 
 RENDER.search = function (body) { return RENDER.find(body); };
