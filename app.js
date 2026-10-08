@@ -3215,6 +3215,62 @@ function oppsPasses(m, skip) {
   return true;
 }
 
+// A row's verdict is new_qualification where the DB re-score set one, the old
+// qualification column otherwise. PostgREST filters for each side of it.
+const VERDICT_OPEN = 'or=(new_qualification.neq.rejected,'
+  + 'and(new_qualification.is.null,or(qualification.is.null,qualification.neq.rejected)))';
+const VERDICT_REJECTED = 'or=(new_qualification.eq.rejected,'
+  + 'and(new_qualification.is.null,qualification.eq.rejected))';
+
+// Everything the Opportunities tab lists, one row per investor: every row not
+// rejected, plus the rejected rows the browser reclaims, minus investors with an
+// effectively rejected row. read(verdictFilter, limit) fetches the rows. The tab
+// and the nav badge both count this list, so the badge always equals Matched +
+// Waiting.
+async function openOpportunities(read) {
+  const main = await read(VERDICT_OPEN, 1000);
+  let reclaimed = [];
+  const rejectedKeys = new Set();
+  try {
+    const rejList = (await read(VERDICT_REJECTED, 500)) || [];
+    reclaimed = rejList.filter(reclaimedOpportunity);
+    for (const m of rejList) {
+      if (!isNotMandate(m) && effectivelyRejected(m)) {
+        const k = investorKey(m); if (k) rejectedKeys.add(k);
+      }
+    }
+  } catch (_) { /* leave the pipeline as it is */ }
+  const merged = (main || []).concat(reclaimed), byId = {}, uniq = [];
+  for (const m of merged) {
+    const k = investorKey(m);
+    if (k && rejectedKeys.has(k)) continue;
+    const id = m && m.id;
+    if (id == null) { uniq.push(m); continue; }
+    if (!byId[id]) { byId[id] = 1; uniq.push(m); }
+  }
+  return dedupeInvestors(uniq);
+}
+
+// What the badge needs from a row that has a DB verdict: the verdict, the names
+// the investor key is built from and the fields dedupe ranks by. A row without a
+// DB verdict falls back to the browser rule, which reads the whole row.
+const OPPS_COUNT_COLS = 'id,qualification,new_qualification,new_fit_score,investor_name,'
+  + 'organization_name,investor_tag,hard_fail_reasons,fit_reason,wi_enriched_at,fit_score,'
+  + 'alert_date,created_at';
+
+async function openOpportunityCount() {
+  const rows = await openOpportunities(async (verdict, limit) => {
+    const q = (sel, extra) => supaSelect('wi_mandates',
+      'select=' + sel + '&' + verdict + extra + '&order=id.desc&limit=' + limit);
+    const [scored, unscored] = await Promise.all([
+      q(OPPS_COUNT_COLS, '&new_qualification=not.is.null'),
+      q('*', '&new_qualification=is.null')
+    ]);
+    return scored.concat(unscored).sort((a, b) => Number(b.id) - Number(a.id)).slice(0, limit);
+  });
+  return rows.length;
+}
+
 RENDER.opps = function (body) {
   clear(body);
 
@@ -3244,36 +3300,10 @@ RENDER.opps = function (body) {
 
   const inMode = (m) => (scoreBand(m) === 'matched') === (oppsMode === 'matched');
 
-  fill(list, async () => {
-    const main = await readRows('wi_mandates',
-      'select=*&qualification=neq.rejected&order=id.desc&limit=1000',
-      'wi.mandates.list', { limit: 40 });
-    let reclaimed = [];
-    const rejectedKeys = new Set();
-    try {
-      const rej = await readRows('wi_mandates',
-        'select=*&qualification=eq.rejected&order=id.desc&limit=500',
-        'wi.mandates.list', { limit: 500 });
-      const rejList = rej || [];
-      reclaimed = rejList.filter(reclaimedOpportunity);
-      for (const m of rejList) {
-        if (!isNotMandate(m) && effectivelyRejected(m)) {
-          const k = investorKey(m); if (k) rejectedKeys.add(k);
-        }
-      }
-    } catch (_) { /* leave the pipeline as it is */ }
-    const merged = (main || []).concat(reclaimed), byId = {}, uniq = [];
-    for (const m of merged) {
-      const k = investorKey(m);
-      if (k && rejectedKeys.has(k)) continue;
-      const id = m && m.id;
-      if (id == null) { uniq.push(m); continue; }
-      if (!byId[id]) { byId[id] = 1; uniq.push(m); }
-    }
-    return uniq;
-  }, (all) => {
-    all = dedupeInvestors(all);
-
+  fill(list, () => openOpportunities(
+    (verdict, limit) => readRows('wi_mandates',
+      'select=*&' + verdict + '&order=id.desc&limit=' + limit, 'wi.mandates.list', { limit: limit })
+  ), (all) => {
     const nMatched = all.filter(m => scoreBand(m) === 'matched').length;
     const nReview  = all.length - nMatched;
     const bigBtn = (mode, label, count, tone) => {
@@ -7227,13 +7257,12 @@ async function poll() {
     const dayStart = new Date();
     dayStart.setHours(0, 0, 0, 0);
 
-    const [n, m] = await Promise.all([
+    const [n, opps] = await Promise.all([
       supaSelect('app_notifications', 'select=id&read_at=is.null&limit=200'),
-      supaSelect('wi_mandates',
-        'select=id&qualification=neq.rejected&approved_at=is.null&limit=200')
+      openOpportunityCount()
     ]);
     counts.today = n.length;
-    counts.opps = m.length;
+    counts.opps = opps;
     counts.approvals = 0;
     counts.network = await newConnectionCount();
 
