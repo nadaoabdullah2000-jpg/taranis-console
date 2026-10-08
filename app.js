@@ -3859,7 +3859,7 @@ RENDER.rejected = function (body) {
   }
 
   const sortBar = sortControl('rejected', () => paint(),
-    'Sorts within the newest 500 rejected loaded, not the whole table');
+    'Sorts every rejected mandate (up to 5,000)');
   body.append(el('div', { class: 'toolbar' }, find), chips, sortBar, out);
   paintChips();
 
@@ -3998,7 +3998,7 @@ RENDER.rejected = function (body) {
   function load() {
     clear(out);
     fill(out, () => readRows('wi_mandates',
-      'select=*&qualification=eq.rejected&order=id.desc&limit=500',
+      'select=*&' + VERDICT_REJECTED + '&order=id.desc&limit=5000',
       'wi.mandates.list', {}), (rows) => {
       all = dedupeInvestors(rows);
       paintChips();
