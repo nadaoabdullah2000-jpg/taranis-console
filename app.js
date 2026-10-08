@@ -980,8 +980,9 @@ function contextLines(m) {
 // keeps the PDF passage it was read from and the report's title; both stay
 // stored for people to read, but the passage runs on into other firms' stories
 // and a title such as "Hedge Funds in Hot Water" is about nobody, so neither is
-// scored. Same rule as WI 01 and HFN 02.
-const EVIDENCE_NOT_SCORED = ['passage', 'from_report', 'page'];
+// scored. Same rule as WI 01 and HFN 02. WI's profile summary (wi_summary) is
+// background on the firm, not this mandate, so it is shown but never scored.
+const EVIDENCE_NOT_SCORED = ['passage', 'from_report', 'page', 'wi_summary'];
 // "does not state hedge fund appetite" is silence, not a hedge-fund signal.
 const RE_NO_APPETITE = /(does not state|doesn't state|no) hedge.fund appetite( stated)?|hedge.fund appetite (is )?not stated/g;
 function evidenceText(ev) {
