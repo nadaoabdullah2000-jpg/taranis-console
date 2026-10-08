@@ -1060,7 +1060,22 @@ const RE_STRONG = /long short|long\/short|long-short|l\/s|equity hedge|equity lo
 // strategies") is dropped before matching. Same rule as WI 01.
 const RE_STRONG_CORE = /long short|long\/short|long-short|l\/s|equity hedge|equity long|quant/;
 const RE_NEGATED = /(avoid[a-z]*|exclud[a-z]*|without|\bnot\b|\bno\b)\s[^.;,]{0,40}(systematic|quant[a-z]*|long.?short|l\/s)/g;
-const RE_TECH = /tech|software|semiconductor|tmt|internet|saas|fintech/;
+// Technology as whole words, so biotech, techniques and technician do not
+// count. Before matching, the text loses any clause that turns tech away
+// ("avoid funds overly exposed to software and technology", "low on
+// software/tech", "excluding ... fintech") and plan or company names
+// ("Information Technology Industry", "Virginia Tech Foundation"). Plain
+// "technologies" is nearly always a firm's name (Raytheon Technologies,
+// Mcube Investment Technologies), so it only counts as "emerging/innovative/...
+// technologies". Same rule as WI 01 and the gateway's technology topic.
+const RE_TECH = /\b(?:tech|technology|software|semiconductors?|tmt|internet|saas|fintech)\b/;
+const RE_TECH_OFF = /\b(?:avoid[a-z]*|exclud[a-z]*|low on|away from|otherwise be)\b[^.;]*/g;
+const RE_TECH_NAME = /\b(?:information )?technology industry\b|\b[a-z]+ tech (?:foundation|university)\b/g;
+const RE_TECH_PLURAL = /\b(?:emerging|innovative|new|disruptive|digital|climate|clean|financial|advanced) technologies\b/g;
+function isTech(t) {
+  return RE_TECH.test(String(t).replace(/_/g, ' ').replace(RE_TECH_OFF, ' ')
+    .replace(RE_TECH_NAME, ' ').replace(RE_TECH_PLURAL, ' technology '));
+}
 
 // Strategy tags as words: "equity_long_short" -> "equity long short", so
 // RE_STRONG can read them. A long/short or quant tag only counts when the
@@ -1097,7 +1112,7 @@ function critOf(m) {
   return [
     assets.some(a => RE_HEDGE.test(a)) || RE_HEDGE.test(t),  // buys hedge funds
     isStrong(m, t),                                          // long/short or quant
-    RE_TECH.test(t)                                          // technology
+    isTech(t)                                                // technology
   ];
 }
 
@@ -1111,7 +1126,7 @@ function critStatus(m) {
     assets.length ? (assets.some(a => RE_HEDGE.test(String(a).toLowerCase())) ? 'yes' : 'no')
                   : (RE_HEDGE.test(t) ? 'yes' : 'unknown'),
     isStrong(m, t) ? 'yes' : (strats.length ? 'no' : 'unknown'),
-    RE_TECH.test(t)   ? 'yes' : 'unknown'
+    isTech(t)         ? 'yes' : 'unknown'
   ];
 }
 
@@ -1224,7 +1239,7 @@ function rescore(m) {
       || (assets.length && !RE_HEDGE.test(assets.join(' ')) && !RE_HEDGE.test(t))) {
     return { band: 'rejected', q: 'rejected', s: 0 };
   }
-  const strong = isStrong(m, t), tech = RE_TECH.test(t);
+  const strong = isStrong(m, t), tech = isTech(t);
   let band = strong ? (tech ? 'strong_tech' : 'strong') : tech ? 'tech' : RE_EXCL.test(t) ? 'low' : 'needs_data';
   // An allocator's hire is worth a look, never an automatic match.
   if (band.indexOf('strong') === 0 && /^people$/i.test(String(m.investor_tag || '').trim())) band = 'hire';
@@ -6898,7 +6913,7 @@ function htmlToText(s) {
 function mandateSignals(m) {
   const t = sigText(m);
   return {
-    tech: RE_TECH.test(t),
+    tech: isTech(t),
     strong: isStrong(m, t),
     emerging: m.open_to_emerging_managers === true,
     country: String(m.investor_country || '').trim().toUpperCase().slice(0, 2)
