@@ -912,10 +912,62 @@ function go(id) {
     b.setAttribute('aria-current', b.getAttribute('data-tab') === id ? 'page' : 'false'));
   $('pg-title').textContent = t.title;
   $('pg-sub').textContent = t.sub;
-  const body = $('pg-body');
-  clear(body);
-  body.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading…'));
-  RENDER[id](body);
+  stagePane((body) => RENDER[id](body));
+}
+
+/* Views never pass through an empty pane. A view renders into a hidden pane
+   beside the visible one; every fill()/load() started inside it counts as
+   pending, and when the last one has drawn, the new pane replaces the old in a
+   single step. Until then the old content stays on screen, dimmed under a thin
+   progress bar once the wait is noticeable (STAGE_SLOW_MS). A view that never
+   settles is shown anyway after STAGE_MAX_MS, with whatever it has drawn. */
+let STAGE = null;
+const STAGE_SLOW_MS = 150, STAGE_MAX_MS = 10000;
+
+function stagePane(build) {
+  const old = $('pg-body');
+  if (STAGE && !STAGE.done) STAGE.abandon();    // a newer view replaces one still loading
+  if (!old.childNodes.length) busy(old);           // first view after sign-in: say so, never blank
+  const next = el('div', { class: old.className, style: 'display:none' });
+  old.parentNode.insertBefore(next, old.nextSibling);
+  const st = { root: next, pending: 0, done: false };
+  const slow = setTimeout(() => { if (!st.done) old.classList.add('is-busy'); }, STAGE_SLOW_MS);
+  const cap = setTimeout(() => st.swap(), STAGE_MAX_MS);
+  const stop = () => { st.done = true; clearTimeout(slow); clearTimeout(cap); if (STAGE === st) STAGE = null; };
+  st.swap = () => {
+    if (st.done) return;
+    stop();
+    old.removeAttribute('id');
+    next.id = 'pg-body';
+    next.style.display = '';
+    old.remove();
+  };
+  st.abandon = () => { stop(); next.remove(); };
+  STAGE = st;
+  st.pending++;
+  let ret;
+  try { ret = build(next); }
+  catch (e) { settleStage(st); throw e; }
+  if (ret && typeof ret.then === 'function') ret.then(() => settleStage(st), () => settleStage(st));
+  else settleStage(st);
+  return ret;
+}
+
+// The stage a node is being built in, if it is still waiting to be shown.
+function stageOf(node) {
+  return STAGE && !STAGE.done && STAGE.root.contains(node) ? STAGE : null;
+}
+function settleStage(st) {
+  if (--st.pending > 0) return;
+  // A draw can start another fetch; give it a tick to register before showing.
+  Promise.resolve().then(() => { if (st.pending === 0) st.swap(); });
+}
+
+// Reloading a list in place: keep what is on screen, dimmed, until fill()
+// replaces it. An empty container says Loading instead.
+function busy(node) {
+  if (node.childNodes.length) { node.classList.add('is-busy'); return; }
+  node.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading\u2026'));
 }
 
 const RFSH_CSS = `
@@ -1606,26 +1658,36 @@ function empty(headline, note) {
     el('p', null, note || ''));
 }
 
+// Both loaders leave whatever is on screen until the data is in, then clear
+// and draw in one go; inside a staged view they hold the swap until drawn.
 async function fill(body, get, draw) {
+  const st = stageOf(body);
+  if (st) st.pending++;
   try {
     const rows = await get();
-    clear(body);
+    clear(body); body.classList.remove('is-busy');
     draw(rows);
   } catch (e) {
-    clear(body);
+    clear(body); body.classList.remove('is-busy');
     body.appendChild(el('div', { class: 'banner' }, el('b', null, 'Could not load. '), e.message));
+  } finally {
+    if (st) settleStage(st);
   }
 }
 
 async function load(body, action, payload, draw) {
+  const st = stageOf(body);
+  if (st) st.pending++;
   try {
     const data = await callGateway(action, payload);
-    clear(body);
+    clear(body); body.classList.remove('is-busy');
     draw(data);
   } catch (e) {
-    clear(body);
+    clear(body); body.classList.remove('is-busy');
     body.appendChild(el('div', { class: 'banner' },
       el('b', null, 'Could not load. '), e.message));
+  } finally {
+    if (st) settleStage(st);
   }
 }
 
@@ -2655,8 +2717,7 @@ RENDER.contacts = function (body) {
 
   function run(keepCount) {
     if (!keepCount) shown = 120;
-    clear(out);
-    out.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading…'));
+    busy(out);
     fill(out, () => {
       const q = input.value.trim();
       let sel = 'select=*&limit=' + shown + '&order=last_contact_at.desc.nullslast';
@@ -2936,8 +2997,7 @@ RENDER.email = function (body) {
   paintSide();
 
   function runList() {
-    clear(list);
-    list.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading\u2026'));
+    busy(list);
     fill(list, () => {
       const q = find.value.trim();
       let sel = 'select=*&limit=120&order=last_contact_at.desc.nullslast';
@@ -3081,8 +3141,7 @@ RENDER.inbox = function (body) {
   }
 
   function run() {
-    clear(out);
-    out.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading\u2026'));
+    busy(out);
     const q = input.value.trim();
     const people = (view === 'client' || view === 'internal');
 
@@ -3599,8 +3658,7 @@ RENDER.notes = function (body) {
   find.addEventListener('input', () => { clearTimeout(findTimer); findTimer = setTimeout(run, 300); });
 
   function run() {
-    clear(out);
-    out.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading\u2026'));
+    busy(out);
     fill(out, async () => {
       const q = find.value.trim();
       let sel = 'select=*&order=note_date.desc,created_at.desc&limit=200';
@@ -4461,8 +4519,7 @@ RENDER.meetings = function (body) {
     out.style.display  = filter === 'new' ? 'none' : '';
     if (filter === 'new') { clear(out); return; }
 
-    clear(out);
-    out.appendChild(el('p', { style: 'color:var(--ink-3);font-size:12px' }, 'Loading\u2026'));
+    busy(out);
 
     let sel = 'select=*&order=start_utc.desc&limit=200';
     if (filter === 'live')          sel += '&status=eq.scheduled&start_utc=gte.' + new Date(Date.now() - 36e5).toISOString();
@@ -6222,183 +6279,184 @@ async function openMandate(m) {
   current = 'mandate';
   document.querySelectorAll('.navbtn').forEach(b => b.setAttribute('aria-current', 'false'));
 
-  const body = $('pg-body');
-  clear(body);
-  $('pg-title').textContent = investorLabel(m);
-  $('pg-sub').textContent = 'With Intelligence mandate';
-  const host = el('div');
-  body.appendChild(host);
+  // Built in a staged pane: the page swaps in when its record is drawn.
+  return stagePane(async (body) => {
+    $('pg-title').textContent = investorLabel(m);
+    $('pg-sub').textContent = 'With Intelligence mandate';
+    const host = el('div');
+    body.appendChild(host);
 
-  let full = m;
-  try {
-    const rows = await supaSelect('wi_mandates', 'select=*&limit=1&id=eq.' + encodeURIComponent(m.id));
-    if (rows && rows[0]) full = rows[0];
-  } catch (_) { /* show what we were given */ }
+    let full = m;
+    try {
+      const rows = await supaSelect('wi_mandates', 'select=*&limit=1&id=eq.' + encodeURIComponent(m.id));
+      if (rows && rows[0]) full = rows[0];
+    } catch (_) { /* show what we were given */ }
 
-  const q = String(full.qualification || '').toLowerCase();
-  host.appendChild(el('div', { class: 'acts', style: 'margin-bottom:20px' },
-    el('button', { class: 'btn btn-sm btn-quiet', onclick: () => go(PROFILE_BACK || 'opps') }, '\u2190 Back'),
-    full.view_article_url
-      ? el('button', { class: 'btn btn-sm',
-          onclick: () => window.open(full.view_article_url, '_blank', 'noopener,noreferrer') },
-          full.source_page ? 'View article  \u00B7  p.' + full.source_page : 'View article')
-      : null,
-    full.view_intention_url
-      ? el('button', { class: 'btn btn-sm btn-quiet',
-          onclick: () => window.open(full.view_intention_url, '_blank', 'noopener,noreferrer') }, 'View intention')
-      : null,
-    full.view_investor_url
-      ? el('button', { class: 'btn btn-sm btn-quiet',
-          onclick: () => window.open(full.view_investor_url, '_blank', 'noopener,noreferrer') }, 'Investor page')
-      : null,
-    full.linkedin_url
-      ? el('button', { class: 'btn btn-sm btn-quiet',
-          onclick: () => window.open(full.linkedin_url, '_blank', 'noopener,noreferrer') }, 'LinkedIn')
-      : null,
-    el('button', { class: 'btn btn-sm btn-quiet', onclick: () => fillSheet(full) }, 'Fill a gap'),
-    ...verdictActions(full, () => openMandate(full)).map(v =>
-      el('button', { class: 'btn btn-sm btn-quiet', onclick: v.run }, v.label))));
+    const q = String(full.qualification || '').toLowerCase();
+    host.appendChild(el('div', { class: 'acts', style: 'margin-bottom:20px' },
+      el('button', { class: 'btn btn-sm btn-quiet', onclick: () => go(PROFILE_BACK || 'opps') }, '\u2190 Back'),
+      full.view_article_url
+        ? el('button', { class: 'btn btn-sm',
+            onclick: () => window.open(full.view_article_url, '_blank', 'noopener,noreferrer') },
+            full.source_page ? 'View article  \u00B7  p.' + full.source_page : 'View article')
+        : null,
+      full.view_intention_url
+        ? el('button', { class: 'btn btn-sm btn-quiet',
+            onclick: () => window.open(full.view_intention_url, '_blank', 'noopener,noreferrer') }, 'View intention')
+        : null,
+      full.view_investor_url
+        ? el('button', { class: 'btn btn-sm btn-quiet',
+            onclick: () => window.open(full.view_investor_url, '_blank', 'noopener,noreferrer') }, 'Investor page')
+        : null,
+      full.linkedin_url
+        ? el('button', { class: 'btn btn-sm btn-quiet',
+            onclick: () => window.open(full.linkedin_url, '_blank', 'noopener,noreferrer') }, 'LinkedIn')
+        : null,
+      el('button', { class: 'btn btn-sm btn-quiet', onclick: () => fillSheet(full) }, 'Fill a gap'),
+      ...verdictActions(full, () => openMandate(full)).map(v =>
+        el('button', { class: 'btn btn-sm btn-quiet', onclick: v.run }, v.label))));
 
-  host.appendChild(el('div', { class: 'banner',
-    style: q === 'rejected' ? 'border-color:var(--bad);background:transparent;color:var(--bad)' : '' },
-    el('b', null, q === 'rejected' ? 'Rejected. ' : q === 'matched' ? 'Matched. ' : 'Awaiting a decision. '),
-    asText(full.fit_reason) || 'No reason recorded.'));
+    host.appendChild(el('div', { class: 'banner',
+      style: q === 'rejected' ? 'border-color:var(--bad);background:transparent;color:var(--bad)' : '' },
+      el('b', null, q === 'rejected' ? 'Rejected. ' : q === 'matched' ? 'Matched. ' : 'Awaiting a decision. '),
+      asText(full.fit_reason) || 'No reason recorded.'));
 
-  if (full.linkedin_url) {
-    const handle = String(full.linkedin_url)
-      .match(/linkedin\.com\/in\/([^/?#\s]+)/i);
-    const who = el('div', { class: 'banner', style: 'margin-top:-8px' },
-      el('span', { style: 'color:var(--ink-3)' }, 'Checking who knows them\u2026'));
-    host.appendChild(who);
+    if (full.linkedin_url) {
+      const handle = String(full.linkedin_url)
+        .match(/linkedin\.com\/in\/([^/?#\s]+)/i);
+      const who = el('div', { class: 'banner', style: 'margin-top:-8px' },
+        el('span', { style: 'color:var(--ink-3)' }, 'Checking who knows them\u2026'));
+      host.appendChild(who);
 
-    (async () => {
-      try {
-        if (!handle) {
+      (async () => {
+        try {
+          if (!handle) {
+            clear(who);
+            who.appendChild(el('span', { style: 'color:var(--ink-3)' },
+              'That LinkedIn address is not a personal profile, so it cannot be matched '
+              + 'against the connection list.'));
+            return;
+          }
+          const slug = decodeURIComponent(handle[1]).toLowerCase();
+          const hits = await readRows('linkedin_mutual',
+            'select=full_name,profile_url,mutual_to,mutual_count'
+            + '&profile_url=ilike.*' + encodeURIComponent(slug) + '*&limit=5',
+            'li.mutual', { q: slug });
+
+          clear(who);
+          const hit = (hits || [])[0];
+          const names = hit && Array.isArray(hit.mutual_to) ? hit.mutual_to
+                      : (hit && hit.mutual_to ? [hit.mutual_to] : []);
+
+          if (hit && names.length) {
+            who.style.borderColor = 'var(--good)';
+            who.appendChild(el('b', null, 'Connected. '));
+            who.appendChild(el('span', null,
+              names.join(', ') + (names.length === 1 ? ' is' : ' are')
+              + ' a first-degree connection of ' + (hit.full_name || 'them') + '.'));
+          } else if (hit) {
+            who.appendChild(el('b', null, 'On the list, but not connected. '));
+            who.appendChild(el('span', null,
+              (hit.full_name || 'They') + ' appears in the synced list, but nobody at '
+              + 'Taranis is a first-degree connection.'));
+          } else {
+            who.appendChild(el('b', null, 'Nobody here knows them. '));
+            who.appendChild(el('span', null,
+              'That profile is not in the synced connection list \u2014 which means '
+              + 'no warm introduction, not that the profile is wrong.'));
+          }
+          who.appendChild(el('div', { class: 'acts' },
+            el('button', { class: 'btn btn-sm btn-quiet',
+              onclick: () => { networkPrefill = slug; go('network'); } }, 'Open in Network')));
+        } catch (e) {
           clear(who);
           who.appendChild(el('span', { style: 'color:var(--ink-3)' },
-            'That LinkedIn address is not a personal profile, so it cannot be matched '
-            + 'against the connection list.'));
-          return;
+            'The connection list could not be read: ' + e.message));
         }
-        const slug = decodeURIComponent(handle[1]).toLowerCase();
-        const hits = await readRows('linkedin_mutual',
-          'select=full_name,profile_url,mutual_to,mutual_count'
-          + '&profile_url=ilike.*' + encodeURIComponent(slug) + '*&limit=5',
-          'li.mutual', { q: slug });
-
-        clear(who);
-        const hit = (hits || [])[0];
-        const names = hit && Array.isArray(hit.mutual_to) ? hit.mutual_to
-                    : (hit && hit.mutual_to ? [hit.mutual_to] : []);
-
-        if (hit && names.length) {
-          who.style.borderColor = 'var(--good)';
-          who.appendChild(el('b', null, 'Connected. '));
-          who.appendChild(el('span', null,
-            names.join(', ') + (names.length === 1 ? ' is' : ' are')
-            + ' a first-degree connection of ' + (hit.full_name || 'them') + '.'));
-        } else if (hit) {
-          who.appendChild(el('b', null, 'On the list, but not connected. '));
-          who.appendChild(el('span', null,
-            (hit.full_name || 'They') + ' appears in the synced list, but nobody at '
-            + 'Taranis is a first-degree connection.'));
-        } else {
-          who.appendChild(el('b', null, 'Nobody here knows them. '));
-          who.appendChild(el('span', null,
-            'That profile is not in the synced connection list \u2014 which means '
-            + 'no warm introduction, not that the profile is wrong.'));
-        }
-        who.appendChild(el('div', { class: 'acts' },
-          el('button', { class: 'btn btn-sm btn-quiet',
-            onclick: () => { networkPrefill = slug; go('network'); } }, 'Open in Network')));
-      } catch (e) {
-        clear(who);
-        who.appendChild(el('span', { style: 'color:var(--ink-3)' },
-          'The connection list could not be read: ' + e.message));
-      }
-    })();
-  }
-
-  const field = (label, value, big) => {
-    const t = asText(value);
-    if (!t) return null;
-    return el('div', { style: 'margin-bottom:' + (big ? '14px' : '11px') },
-      el('div', { class: 'mono',
-        style: 'font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px' },
-        label),
-      el('div', { style: 'font-size:' + (big ? '16px' : '14.5px')
-        + ';font-weight:' + (big ? '600' : '500') + ';line-height:1.5' }, t));
-  };
-
-  host.appendChild(investorView(full, m));
-
-  const grid = el('div', { class: 'grid2', style: 'max-width:820px' });
-  const c1 = el('div'), c2 = el('div');
-  grid.append(c1, c2);
-  c1.append(...[
-    field('Investor', investorLabel(full), true),
-    field('Organisation', orgLabel(full), true),
-    resolvedInvestor(full).corrected
-      ? field('Corrected', 'The alert stored ' + resolvedInvestor(full).otherFirm
-          + ' as the investor. That firm receives allocations rather than making them, '
-          + 'so the organisation is shown as the investor instead.')
-      : null,
-    field('Where', [full.investor_city, full.investor_country].filter(Boolean).join(', '), true),
-    field('Type', full.investor_type),
-    field('Strategies', full.strategies)
-  ].filter(Boolean));
-  c2.append(...[
-    field('Minimum ticket', money(full.ticket_min_usd), true),
-    el('div', { style: 'margin-bottom:14px' },
-      el('div', { style: 'font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;'
-        + 'color:var(--ink-3);margin-bottom:3px' }, 'Fit score'),
-      el('div', { style: 'font-size:16px;font-weight:600;line-height:1.5' },
-        scoreChip(matchScore(full), full))),
-    el('div', { style: 'margin-bottom:14px' }, qualificationControl(full, (to) => routeAfterQualification(full, to))),
-    field('Approved', full.approved_at
-      ? (fmtDate(full.approved_at) + (full.approved_by ? '  by ' + full.approved_by : ''))
-      : 'not approved yet'),
-    field('Not stated', full.missing_hard_fields),
-    field('Hard failures', full.hard_fail_reasons),
-    field('Published', full.published_at ? fmtDate(full.published_at) : 'not published')
-  ].filter(Boolean));
-  host.appendChild(grid);
-
-  const shown = ['id','investor_name','organization_name','investor_city','investor_country',
-    'investor_type','strategies','ticket_min_usd','fit_score','fit_reason','qualification',
-    'missing_hard_fields','hard_fail_reasons','published_at','linkedin_url',
-    'approved_at','approved_by','source_page',
-    'view_article_url','view_intention_url','view_investor_url',
-    // shown in the readable investor view above
-    'intention_summary','positive_signals','requirements_raw','appetite_raw','allocation_timing',
-    'contact_name','emails','linkedin_urls','aum_band'];
-
-  const HIDE = ['record_key','raw_email_id','source_message_id','block_index',
-    'source_email_date','created_at','updated_at','field_sources','soft_flags',
-    'hard_notes','content_hash','embedding'].concat(HIDDEN_FIELDS);
-  const prov = fillProvenance(full);
-  if (prov.length) {
-    host.appendChild(el('p', { class: 'mono',
-      style: 'font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);'
-           + 'margin:28px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--rule)' },
-      'Filled in by hand'));
-    const ev = el('div', { class: 'ev' });
-    for (const line of prov) ev.appendChild(el('div', null, line));
-    host.appendChild(ev);
-  }
-
-  const rest = Object.keys(full).filter(k =>
-    shown.indexOf(k) < 0 && HIDE.indexOf(k) < 0 && asText(full[k]));
-  if (rest.length) {
-    host.appendChild(el('p', { class: 'mono rec-head' }, 'Everything else on the record'));
-    const ev = el('div', { class: 'ev rec' });
-    for (const k of rest) {
-      ev.appendChild(el('div', null,
-        el('span', { class: 'k' }, k.replace(/_/g, ' ').padEnd(20, ' ') + '  '),
-        asText(full[k]).slice(0, 400)));
+      })();
     }
-    host.appendChild(ev);
-  }
+
+    const field = (label, value, big) => {
+      const t = asText(value);
+      if (!t) return null;
+      return el('div', { style: 'margin-bottom:' + (big ? '14px' : '11px') },
+        el('div', { class: 'mono',
+          style: 'font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px' },
+          label),
+        el('div', { style: 'font-size:' + (big ? '16px' : '14.5px')
+          + ';font-weight:' + (big ? '600' : '500') + ';line-height:1.5' }, t));
+    };
+
+    host.appendChild(investorView(full, m));
+
+    const grid = el('div', { class: 'grid2', style: 'max-width:820px' });
+    const c1 = el('div'), c2 = el('div');
+    grid.append(c1, c2);
+    c1.append(...[
+      field('Investor', investorLabel(full), true),
+      field('Organisation', orgLabel(full), true),
+      resolvedInvestor(full).corrected
+        ? field('Corrected', 'The alert stored ' + resolvedInvestor(full).otherFirm
+            + ' as the investor. That firm receives allocations rather than making them, '
+            + 'so the organisation is shown as the investor instead.')
+        : null,
+      field('Where', [full.investor_city, full.investor_country].filter(Boolean).join(', '), true),
+      field('Type', full.investor_type),
+      field('Strategies', full.strategies)
+    ].filter(Boolean));
+    c2.append(...[
+      field('Minimum ticket', money(full.ticket_min_usd), true),
+      el('div', { style: 'margin-bottom:14px' },
+        el('div', { style: 'font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;'
+          + 'color:var(--ink-3);margin-bottom:3px' }, 'Fit score'),
+        el('div', { style: 'font-size:16px;font-weight:600;line-height:1.5' },
+          scoreChip(matchScore(full), full))),
+      el('div', { style: 'margin-bottom:14px' }, qualificationControl(full, (to) => routeAfterQualification(full, to))),
+      field('Approved', full.approved_at
+        ? (fmtDate(full.approved_at) + (full.approved_by ? '  by ' + full.approved_by : ''))
+        : 'not approved yet'),
+      field('Not stated', full.missing_hard_fields),
+      field('Hard failures', full.hard_fail_reasons),
+      field('Published', full.published_at ? fmtDate(full.published_at) : 'not published')
+    ].filter(Boolean));
+    host.appendChild(grid);
+
+    const shown = ['id','investor_name','organization_name','investor_city','investor_country',
+      'investor_type','strategies','ticket_min_usd','fit_score','fit_reason','qualification',
+      'missing_hard_fields','hard_fail_reasons','published_at','linkedin_url',
+      'approved_at','approved_by','source_page',
+      'view_article_url','view_intention_url','view_investor_url',
+      // shown in the readable investor view above
+      'intention_summary','positive_signals','requirements_raw','appetite_raw','allocation_timing',
+      'contact_name','emails','linkedin_urls','aum_band'];
+
+    const HIDE = ['record_key','raw_email_id','source_message_id','block_index',
+      'source_email_date','created_at','updated_at','field_sources','soft_flags',
+      'hard_notes','content_hash','embedding'].concat(HIDDEN_FIELDS);
+    const prov = fillProvenance(full);
+    if (prov.length) {
+      host.appendChild(el('p', { class: 'mono',
+        style: 'font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);'
+             + 'margin:28px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--rule)' },
+        'Filled in by hand'));
+      const ev = el('div', { class: 'ev' });
+      for (const line of prov) ev.appendChild(el('div', null, line));
+      host.appendChild(ev);
+    }
+
+    const rest = Object.keys(full).filter(k =>
+      shown.indexOf(k) < 0 && HIDE.indexOf(k) < 0 && asText(full[k]));
+    if (rest.length) {
+      host.appendChild(el('p', { class: 'mono rec-head' }, 'Everything else on the record'));
+      const ev = el('div', { class: 'ev rec' });
+      for (const k of rest) {
+        ev.appendChild(el('div', null,
+          el('span', { class: 'k' }, k.replace(/_/g, ' ').padEnd(20, ' ') + '  '),
+          asText(full[k]).slice(0, 400)));
+      }
+      host.appendChild(ev);
+    }
+  });
 }
 
 let PROFILE_BACK = null;
@@ -6586,200 +6644,201 @@ async function openProfile(c) {
   current = 'profile';
   document.querySelectorAll('.navbtn').forEach(b => b.setAttribute('aria-current', 'false'));
 
-  const body = $('pg-body');
-  clear(body);
-  $('pg-title').textContent = (c && c.name) || 'Contact';
-  $('pg-sub').textContent = 'Reading the record\u2026';
-  const host = el('div');
-  body.appendChild(host);
-  host.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading\u2026'));
+  // Built in a staged pane: the page swaps in when its record is drawn.
+  return stagePane(async (body) => {
+    $('pg-title').textContent = (c && c.name) || 'Contact';
+    $('pg-sub').textContent = 'Reading the record\u2026';
+    const host = el('div');
+    body.appendChild(host);
+    host.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading\u2026'));
 
-  if (c && c.knows_us === undefined) {
-    try {
-      const addr = String(c.email || c.addr || '').toLowerCase().trim();
-      let hit = [];
-      if (addr) {
-        hit = await readRows('contacts_app', 'select=*&limit=1&email=ilike.' + encodeURIComponent(addr),
-          'contacts.search', { q: c.name || '', filter: 'all' });
-      }
-      if (!hit.length && c.name) {
-        hit = await readRows('contacts_app', 'select=*&limit=1' + ilikeAny(['name'], String(c.name)),
-          'contacts.search', { q: c.name, filter: 'all' });
-      }
-      c = hit.length ? Object.assign({}, c, hit[0]) : Object.assign({}, c, { not_in_book: true });
-    } catch (_) { /* show what we were given */ }
-  }
-
-  clear(host);
-  $('pg-title').textContent = c.name || 'Contact';
-  $('pg-sub').textContent = [c.role || c.title, c.company].filter(Boolean).join('  \u00B7  ')
-    || 'Contact record';
-
-  const back = el('div', { class: 'acts', style: 'margin-bottom:20px' },
-    el('button', { class: 'btn btn-sm btn-quiet',
-      onclick: () => go(PROFILE_BACK || 'contacts') }, '\u2190 Back'),
-    c.not_in_book ? null : el('button', { class: 'btn btn-sm', onclick: () => editProfile(c) }, 'Edit'),
-    el('button', { class: 'btn btn-sm',
-      onclick: () => { PENDING.draft = c.name; go('email'); } }, 'Draft an email'),
-    el('button', { class: 'btn btn-sm btn-quiet',
-      onclick: () => { PENDING.meet = c.name; go('meetings'); } }, 'Book a Zoom'));
-  host.appendChild(back);
-
-  if (c.not_in_book) {
-    host.appendChild(el('div', { class: 'banner' },
-      el('b', null, 'Not in the contact book. '),
-      'Everything below comes from email and notes rather than a contact record.'));
-  }
-
-  const field = (label, value, big) => {
-    const t = asText(value);
-    if (!t) return null;
-    return el('div', { style: 'margin-bottom:' + (big ? '14px' : '11px') },
-      el('div', { class: 'mono',
-        style: 'font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px' },
-        label),
-      el('div', { style: 'font-size:' + (big ? '16px' : '14.5px')
-        + ';font-weight:' + (big ? '600' : '500') + ';line-height:1.5' }, t));
-  };
-  const head = (t) => el('p', { class: 'mono',
-    style: 'font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);'
-         + 'margin:28px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--rule)' }, t);
-
-  const dq = daysSince(c.last_contact_at || c.last_interaction);
-  const grid = el('div', { class: 'grid2', style: 'max-width:820px' });
-  const col1 = el('div'), col2 = el('div');
-  grid.append(col1, col2);
-
-  col1.append(...[
-    field('Company', c.company, true),
-    field('Email', c.email, true),
-    field('Phone', c.phone || c.contact_phone, true),
-    field('Role', c.role || c.title),
-    field('Where', [c.city, c.country].filter(Boolean).join(', ')),
-    field('Region', c.region)
-  ].filter(Boolean));
-
-  col2.append(...[
-    field('Last email', (c.last_contact_at || c.last_interaction)
-      ? fmtDate(c.last_contact_at || c.last_interaction) + (dq !== null ? '   (' + dq + ' days ago)' : '')
-      : (String(c.email || '').trim() ? 'No email on record' : 'No email address on file'), true),
-    field('Knows Taranis', c.knows_us),
-    field('Side', c.side === 'taranis' ? 'Taranis' : c.side === 'external' ? 'Client' : c.side),
-    field('Category', c.category),
-    field('Status', c.status),
-    field('Next step', c.next_step),
-    field('Ticket band', c.aum_band),
-    field('Introducer terms', c.introducer_terms),
-    field('Exchanges', c.contact_count)
-  ].filter(Boolean));
-
-  host.appendChild(grid);
-
-  const intel = asText(c.intelligence_text || c.raw_notes);
-  if (intel) {
-    host.append(head('What we know'), el('p', { style: 'max-width:820px;line-height:1.7' }, intel));
-  }
-
-  const loading = el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px;margin-top:22px' },
-    'Reading their email and notes\u2026');
-  host.appendChild(loading);
-
-  const addr = String(c.email || '').toLowerCase().trim();
-  const nameLike = lk(c.name);
-
-  const [mail, notes] = await Promise.all([
-    (async () => {
-      const out = new Map();
-      const hasId = c.id !== undefined && c.id !== null && /^\d+$/.test(String(c.id));
-
-      if (!hasId && !addr) return [];
-
+    if (c && c.knows_us === undefined) {
       try {
-        const ors = [];
-        if (addr) ors.push('counterparty_addr.eq.' + encodeURIComponent(addr));
-        if (hasId) ors.push('contact_id.eq.' + c.id);
-        if (ors.length) {
-          const rows = await supaSelect('crm_emails_app',
-            'select=*&order=received_at.desc&limit=25&or=(' + ors.join(',') + ')');
-          for (const m of rows) out.set(String(m.id), m);
-        }
-      } catch (_) { /* the raw table below still covers it */ }
-
-      try {
-        const ors = [];
-        if (hasId) ors.push('contact_id.eq.' + c.id);
+        const addr = String(c.email || c.addr || '').toLowerCase().trim();
+        let hit = [];
         if (addr) {
-          const t = lk(addr);
-          ors.push('from_addr.ilike.' + t, 'to_addr.ilike.' + t, 'cc_addr.ilike.' + t);
+          hit = await readRows('contacts_app', 'select=*&limit=1&email=ilike.' + encodeURIComponent(addr),
+            'contacts.search', { q: c.name || '', filter: 'all' });
         }
-        if (ors.length) {
-          const rows = await supaSelect('crm_emails',
-            'select=id,received_at,direction,from_addr,to_addr,cc_addr,subject,summary'
-            + '&or=(' + ors.join(',') + ')&order=received_at.desc&limit=40');
-          for (const m of rows) if (!out.has(String(m.id))) out.set(String(m.id), m);
+        if (!hit.length && c.name) {
+          hit = await readRows('contacts_app', 'select=*&limit=1' + ilikeAny(['name'], String(c.name)),
+            'contacts.search', { q: c.name, filter: 'all' });
         }
-      } catch (_) {}
+        c = hit.length ? Object.assign({}, c, hit[0]) : Object.assign({}, c, { not_in_book: true });
+      } catch (_) { /* show what we were given */ }
+    }
 
-      return Array.from(out.values())
-        .sort((x, y) => String(y.received_at || '').localeCompare(String(x.received_at || '')));
-    })(),
-    (async () => { try {
-      let sel = 'select=*&order=note_date.desc&limit=25&or=(contact_name.ilike.' + nameLike;
-      if (c.id) sel += ',contact_id.eq.' + encodeURIComponent(c.id);
-      sel += ')';
-      return await supaSelect('notes', sel);
-    } catch (_) { return []; } })()
-  ]);
-  loading.remove();
+    clear(host);
+    $('pg-title').textContent = c.name || 'Contact';
+    $('pg-sub').textContent = [c.role || c.title, c.company].filter(Boolean).join('  \u00B7  ')
+      || 'Contact record';
 
-  if (notes.length) {
-    host.appendChild(head(notes.length === 1 ? 'One note' : notes.length + ' notes'));
-    for (const n of notes) {
+    const back = el('div', { class: 'acts', style: 'margin-bottom:20px' },
+      el('button', { class: 'btn btn-sm btn-quiet',
+        onclick: () => go(PROFILE_BACK || 'contacts') }, '\u2190 Back'),
+      c.not_in_book ? null : el('button', { class: 'btn btn-sm', onclick: () => editProfile(c) }, 'Edit'),
+      el('button', { class: 'btn btn-sm',
+        onclick: () => { PENDING.draft = c.name; go('email'); } }, 'Draft an email'),
+      el('button', { class: 'btn btn-sm btn-quiet',
+        onclick: () => { PENDING.meet = c.name; go('meetings'); } }, 'Book a Zoom'));
+    host.appendChild(back);
+
+    if (c.not_in_book) {
+      host.appendChild(el('div', { class: 'banner' },
+        el('b', null, 'Not in the contact book. '),
+        'Everything below comes from email and notes rather than a contact record.'));
+    }
+
+    const field = (label, value, big) => {
+      const t = asText(value);
+      if (!t) return null;
+      return el('div', { style: 'margin-bottom:' + (big ? '14px' : '11px') },
+        el('div', { class: 'mono',
+          style: 'font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px' },
+          label),
+        el('div', { style: 'font-size:' + (big ? '16px' : '14.5px')
+          + ';font-weight:' + (big ? '600' : '500') + ';line-height:1.5' }, t));
+    };
+    const head = (t) => el('p', { class: 'mono',
+      style: 'font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);'
+           + 'margin:28px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--rule)' }, t);
+
+    const dq = daysSince(c.last_contact_at || c.last_interaction);
+    const grid = el('div', { class: 'grid2', style: 'max-width:820px' });
+    const col1 = el('div'), col2 = el('div');
+    grid.append(col1, col2);
+
+    col1.append(...[
+      field('Company', c.company, true),
+      field('Email', c.email, true),
+      field('Phone', c.phone || c.contact_phone, true),
+      field('Role', c.role || c.title),
+      field('Where', [c.city, c.country].filter(Boolean).join(', ')),
+      field('Region', c.region)
+    ].filter(Boolean));
+
+    col2.append(...[
+      field('Last email', (c.last_contact_at || c.last_interaction)
+        ? fmtDate(c.last_contact_at || c.last_interaction) + (dq !== null ? '   (' + dq + ' days ago)' : '')
+        : (String(c.email || '').trim() ? 'No email on record' : 'No email address on file'), true),
+      field('Knows Taranis', c.knows_us),
+      field('Side', c.side === 'taranis' ? 'Taranis' : c.side === 'external' ? 'Client' : c.side),
+      field('Category', c.category),
+      field('Status', c.status),
+      field('Next step', c.next_step),
+      field('Ticket band', c.aum_band),
+      field('Introducer terms', c.introducer_terms),
+      field('Exchanges', c.contact_count)
+    ].filter(Boolean));
+
+    host.appendChild(grid);
+
+    const intel = asText(c.intelligence_text || c.raw_notes);
+    if (intel) {
+      host.append(head('What we know'), el('p', { style: 'max-width:820px;line-height:1.7' }, intel));
+    }
+
+    const loading = el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px;margin-top:22px' },
+      'Reading their email and notes\u2026');
+    host.appendChild(loading);
+
+    const addr = String(c.email || '').toLowerCase().trim();
+    const nameLike = lk(c.name);
+
+    const [mail, notes] = await Promise.all([
+      (async () => {
+        const out = new Map();
+        const hasId = c.id !== undefined && c.id !== null && /^\d+$/.test(String(c.id));
+
+        if (!hasId && !addr) return [];
+
+        try {
+          const ors = [];
+          if (addr) ors.push('counterparty_addr.eq.' + encodeURIComponent(addr));
+          if (hasId) ors.push('contact_id.eq.' + c.id);
+          if (ors.length) {
+            const rows = await supaSelect('crm_emails_app',
+              'select=*&order=received_at.desc&limit=25&or=(' + ors.join(',') + ')');
+            for (const m of rows) out.set(String(m.id), m);
+          }
+        } catch (_) { /* the raw table below still covers it */ }
+
+        try {
+          const ors = [];
+          if (hasId) ors.push('contact_id.eq.' + c.id);
+          if (addr) {
+            const t = lk(addr);
+            ors.push('from_addr.ilike.' + t, 'to_addr.ilike.' + t, 'cc_addr.ilike.' + t);
+          }
+          if (ors.length) {
+            const rows = await supaSelect('crm_emails',
+              'select=id,received_at,direction,from_addr,to_addr,cc_addr,subject,summary'
+              + '&or=(' + ors.join(',') + ')&order=received_at.desc&limit=40');
+            for (const m of rows) if (!out.has(String(m.id))) out.set(String(m.id), m);
+          }
+        } catch (_) {}
+
+        return Array.from(out.values())
+          .sort((x, y) => String(y.received_at || '').localeCompare(String(x.received_at || '')));
+      })(),
+      (async () => { try {
+        let sel = 'select=*&order=note_date.desc&limit=25&or=(contact_name.ilike.' + nameLike;
+        if (c.id) sel += ',contact_id.eq.' + encodeURIComponent(c.id);
+        sel += ')';
+        return await supaSelect('notes', sel);
+      } catch (_) { return []; } })()
+    ]);
+    loading.remove();
+
+    if (notes.length) {
+      host.appendChild(head(notes.length === 1 ? 'One note' : notes.length + ' notes'));
+      for (const n of notes) {
+        host.appendChild(entry({
+          tone: '', rail: n.note_date ? String(n.note_date).slice(5).replace('-', '/') : '',
+          action: n.title || 'Untitled note',
+          who: [n.place, n.author].filter(Boolean).join('  \u00B7  '),
+          evidence: [['note ', n.body]]
+        }));
+      }
+    }
+
+    host.appendChild(head(mail.length
+      ? (mail.length >= 25 ? '25+ emails' : mail.length + (mail.length === 1 ? ' email' : ' emails'))
+      : 'No email on record'));
+    if (!mail.length && !String(c.email || '').trim()) {
+      host.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px;margin:0' },
+        'This record has no email address, so their correspondence cannot be matched to them. '
+        + 'Add one with Edit and any email either way will appear here.'));
+    }
+    const clean = (v) => String(v || '').replace(/["<>]/g, '').replace(/\s+/g, ' ').trim();
+    const onIt = (m) => {
+      if (!addr) return '';
+      const inF = String(m.from_addr || '').toLowerCase().indexOf(addr) > -1;
+      const inT = String(m.to_addr || '').toLowerCase().indexOf(addr) > -1;
+      const inC = String(m.cc_addr || '').toLowerCase().indexOf(addr) > -1;
+      return inF ? 'they sent it' : inT ? 'sent to them' : inC ? 'copied in' : '';
+    };
+
+    for (const m of mail) {
+      const out = String(m.direction || '').toLowerCase().indexOf('out') === 0
+        || String(m.direction || '').toLowerCase() === 'sent';
       host.appendChild(entry({
-        tone: '', rail: n.note_date ? String(n.note_date).slice(5).replace('-', '/') : '',
-        action: n.title || 'Untitled note',
-        who: [n.place, n.author].filter(Boolean).join('  \u00B7  '),
-        evidence: [['note ', n.body]]
+        tone: 'quiet', rail: out ? 'sent' : 'in',
+        action: m.subject || '(no subject)',
+        who: fmtDate(m.received_at) + (onIt(m) ? '  ·  ' + onIt(m) : ''),
+        evidence: [
+          ['about ', m.summary],
+          ['from  ', clean(m.from_addr)],
+          ['to    ', clean(m.to_addr)],
+          ['cc    ', clean(m.cc_addr)],
+          ['intent', m.intent]
+        ],
+        actions: [
+          { label: 'Read the email', primary: true, run: () => readEmail(m.id, m.subject) }
+        ]
       }));
     }
-  }
-
-  host.appendChild(head(mail.length
-    ? (mail.length >= 25 ? '25+ emails' : mail.length + (mail.length === 1 ? ' email' : ' emails'))
-    : 'No email on record'));
-  if (!mail.length && !String(c.email || '').trim()) {
-    host.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px;margin:0' },
-      'This record has no email address, so their correspondence cannot be matched to them. '
-      + 'Add one with Edit and any email either way will appear here.'));
-  }
-  const clean = (v) => String(v || '').replace(/["<>]/g, '').replace(/\s+/g, ' ').trim();
-  const onIt = (m) => {
-    if (!addr) return '';
-    const inF = String(m.from_addr || '').toLowerCase().indexOf(addr) > -1;
-    const inT = String(m.to_addr || '').toLowerCase().indexOf(addr) > -1;
-    const inC = String(m.cc_addr || '').toLowerCase().indexOf(addr) > -1;
-    return inF ? 'they sent it' : inT ? 'sent to them' : inC ? 'copied in' : '';
-  };
-
-  for (const m of mail) {
-    const out = String(m.direction || '').toLowerCase().indexOf('out') === 0
-      || String(m.direction || '').toLowerCase() === 'sent';
-    host.appendChild(entry({
-      tone: 'quiet', rail: out ? 'sent' : 'in',
-      action: m.subject || '(no subject)',
-      who: fmtDate(m.received_at) + (onIt(m) ? '  ·  ' + onIt(m) : ''),
-      evidence: [
-        ['about ', m.summary],
-        ['from  ', clean(m.from_addr)],
-        ['to    ', clean(m.to_addr)],
-        ['cc    ', clean(m.cc_addr)],
-        ['intent', m.intent]
-      ],
-      actions: [
-        { label: 'Read the email', primary: true, run: () => readEmail(m.id, m.subject) }
-      ]
-    }));
-  }
+  });
 }
 
 function foldPeople(rows) {

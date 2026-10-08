@@ -297,6 +297,14 @@ main{
 .bub{background:var(--card);border:1px solid var(--rule);border-radius:8px;padding:13px 15px;white-space:pre-wrap;word-wrap:break-word;font-size:14.5px;line-height:1.6}
 .bub b{font-weight:600}
 .bub a{color:var(--accent)}
+/* Content stays on screen while the next view or list loads: dimmed, with a
+   thin moving bar, never an empty pane. */
+.is-busy{position:relative;opacity:.55;pointer-events:none;transition:opacity .15s}
+.is-busy::before{content:"";position:absolute;left:0;right:0;top:0;height:2px;z-index:5;
+  background:linear-gradient(90deg,transparent,var(--accent),transparent) no-repeat;background-size:40% 100%;
+  animation:busybar 1s linear infinite}
+@keyframes busybar{from{background-position:-40% 0}to{background-position:140% 0}}
+@media (prefers-reduced-motion: reduce){.is-busy::before{animation:none;background-size:100% 100%}}
 .srcs{margin-top:9px;padding-top:8px;border-top:1px solid var(--rule-2);font-family:var(--font-body);font-size:11px;color:var(--ink-3)}
 #ask-bar{border-top:1px solid var(--rule);padding:12px 28px 18px;background:var(--paper);position:sticky;bottom:0;z-index:5;box-shadow:0 -10px 18px -12px rgba(0,0,0,.35)}
 #ask-row{display:flex;gap:8px;align-items:flex-end;max-width:900px}
