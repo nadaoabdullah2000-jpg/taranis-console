@@ -1437,6 +1437,8 @@ function matchCard(m, opts) {
     card.appendChild(rl);
   }
 
+  if (opts.extra) for (const n of [].concat(opts.extra)) if (n) card.appendChild(n);
+
   const acts = (opts.actions || []).filter(Boolean);
   const rawInts = (m && m._intentions) || [];
   if (Array.isArray(rawInts) && rawInts.length > 1) {
@@ -4896,13 +4898,16 @@ const SUGGEST_LABEL = { strong_tech: 'Matched', strong: 'Matched', tech: 'Review
 
 // The To validate sections, strongest first, keyed by rescore()'s verdict.
 const VALIDATE_GROUPS = [
-  { q: 'matched',    tone: 'good',   label: 'Strong fit',   note: 'Would be matched: a hedge-fund allocator with a long/short or quant signal.' },
-  { q: 'uncertain',  tone: 'signal', label: 'Worth a look', note: 'Would go to review: technology interest, or an allocator\u2019s hire.' },
+  { q: 'matched',    tone: 'good',   open: true, label: 'Strong fit',   note: 'Would be matched: a hedge-fund allocator with a long/short or quant signal.' },
+  { q: 'uncertain',  tone: 'signal', open: true, label: 'Worth a look', note: 'Would go to review: technology interest, or an allocator\u2019s hire.' },
   { q: 'low',        tone: 'muted',  label: 'Low fit',      note: 'CTA, macro or market-neutral only.' },
   { q: 'needs_data', tone: 'muted',  label: 'Needs data',   note: 'No clear strategy signal in what the report said.' },
   { q: 'rejected',   tone: 'bad',    label: 'Rule would reject', note: 'A manager, news, or not a hedge-fund allocator. Confirm still files it as rejected.' }
 ];
 
+const VALIDATE_PROSPECTS = { tone: 'muted', open: true, label: 'Prospects',
+  note: 'Named in a report with no mandate stated.' };
+const VALIDATE_OPEN = {};
 const VALIDATE_DECIDED = { q: null, tone: 'muted', label: 'Already decided',
   note: 'A person already set the verdict. Keep it to take the row off this list; the rule\u2019s suggestion is shown for reference only.' };
 
@@ -5035,23 +5040,52 @@ RENDER.validate = function (body) {
     if (pdf) actions.push({ label: 'Open the PDF' + (page ? '  \u00B7  p.' + page : ''),
       run: () => window.open(pdf, '_blank', 'noopener,noreferrer') });
 
-    return entry({
-      tone: isLead ? '' : decided ? bandTone(bandOf(row)) : (r.q === 'matched' ? 'good' : r.q === 'rejected' ? 'bad' : ''),
-      action: row.investor_name || 'Unnamed investor',
-      who: [row.investor_type || 'type not stated', where || 'geography not stated'].join('  \u00B7  '),
-      callout: passage ? '\u201C' + (passage.length > 480 ? passage.slice(0, 480) + '\u2026' : passage) + '\u201D' : null,
-      calloutLabel: 'In the report',
-      tags: [[isLead ? 'Prospect' : 'Mandate'], [from + (page ? ', p.' + page : '')]],
-      evidence: (decided ? [
-        ['decided by hand', handVerdict + (row.fit_reason ? ' \u2014 ' + row.fit_reason : '')],
-        ['by', [row.verdict_set_by, row.verdict_set_at ? fmtDate(row.verdict_set_at) : null].filter(Boolean).join(', ')],
-        ['rule alone would say', suggest]
-      ] : [['rule suggests', suggest]]).concat([
-        ['signal', isLead ? (row.signal || row.summary) : (ev.signal || row.intention_summary)],
-        ['contact', row.contact_name]
-      ]),
+    // The Opportunities card. A row still waiting is drawn with the verdict the
+    // rule suggests (a display copy; nothing is written); a row a person already
+    // ruled on is drawn with that verdict.
+    const shown = decided ? row
+      : Object.assign({}, m, { new_qualification: r.q, new_fit_score: r.s,
+          qualification: legacyQual(r.q), id: row.id });
+    const kv = (k, v) => v ? el('div', { class: 'vcard-kv' }, el('span', null, k), el('b', null, v)) : null;
+    const extra = el('div', { class: 'vcard-x' },
+      el('div', { class: 'vcard-tags' },
+        el('span', { class: 'vcard-tag' }, isLead ? 'Prospect' : 'Mandate'),
+        el('span', { class: 'vcard-tag' }, from + (page ? ', p.' + page : '')),
+        el('span', { class: 'vcard-who' }, [row.investor_type || 'type not stated', where || 'geography not stated'].join('  \u00B7  '))),
+      passage ? el('blockquote', { class: 'vcard-q' },
+        el('span', null, 'In the report'),
+        '\u201C' + (passage.length > 480 ? passage.slice(0, 480) + '\u2026' : passage) + '\u201D') : null,
+      el('div', { class: 'vcard-kvs' },
+        decided ? kv('decided by hand', handVerdict + (row.fit_reason ? ' \u2014 ' + row.fit_reason : '')) : null,
+        decided ? kv('by', [row.verdict_set_by, row.verdict_set_at ? fmtDate(row.verdict_set_at) : null].filter(Boolean).join(', ')) : null,
+        kv(decided ? 'rule alone would say' : 'rule suggests', suggest),
+        kv('signal', isLead ? (row.signal || row.summary) : (ev.signal || row.intention_summary)),
+        kv('contact', row.contact_name)));
+
+    return matchCard(shown, {
+      tone: isLead ? 'signal' : decided ? bandTone(bandOf(row)) : undefined,
+      extra: extra,
       actions: actions
     });
+  }
+
+  // A section: a header with its count that opens and closes. Whether it is
+  // open is remembered for the session, so a decision (which reloads the
+  // list) does not fold away the section being worked through.
+  function vgroup(g, cards) {
+    ensureMatchCss();
+    const d = el('details', { class: 'vgroup vgroup-' + g.tone });
+    const open = g.label in VALIDATE_OPEN ? VALIDATE_OPEN[g.label] : !!g.open;
+    if (open) d.setAttribute('open', '');
+    d.addEventListener('toggle', () => { VALIDATE_OPEN[g.label] = d.open; });
+    d.append(
+      el('summary', null,
+        el('span', { class: 'vgroup-chev', 'aria-hidden': 'true' }, '\u25B8'),
+        el('span', { class: 'vgroup-t' }, g.label),
+        el('span', { class: 'vgroup-n' }, String(cards.length)),
+        el('span', { class: 'vgroup-note' }, g.note)),
+      el('div', { class: 'matchgrid vgroup-body' }, cards));
+    return d;
   }
 
   function load() {
@@ -5067,9 +5101,6 @@ RENDER.validate = function (body) {
         el('b', null, counts.validate + ' waiting. '),
         'Each came out of a report, the least-trusted source. Check the name against the passage, '
         + 'then Confirm (the rule places it in the pipeline), mark it Not an allocator, or Fix the details first.'));
-      const section = (label, n) => el('p', { class: 'mono',
-        style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:22px 0 8px' },
-        label + '  \u00B7  ' + n);
       // Mandates grouped by what the rule suggests (the same rescore() the card
       // shows), strongest first. Display only: what is pending and what Confirm
       // writes are unchanged. An empty group is not shown.
@@ -5084,14 +5115,10 @@ RENDER.validate = function (body) {
       groups.splice(groups.length - 1, 0, { g: VALIDATE_DECIDED, rows: decidedRows });
       for (const { g, rows } of groups) {
         if (!rows.length) continue;
-        out.appendChild(el('div', { class: 'vgroup vgroup-' + g.tone },
-          el('h3', null, g.label, el('span', { class: 'vgroup-n' }, String(rows.length))),
-          el('p', null, g.note)));
-        for (const m of rows) out.appendChild(card('wi_mandates', m));
+        out.appendChild(vgroup(g, rows.map(m => card('wi_mandates', m))));
       }
       if (q.leads.length) {
-        out.appendChild(section('Prospects', q.leads.length));
-        for (const l of q.leads) out.appendChild(card('report_leads', l));
+        out.appendChild(vgroup(VALIDATE_PROSPECTS, q.leads.map(l => card('report_leads', l))));
       }
     });
   }
