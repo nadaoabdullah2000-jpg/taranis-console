@@ -1281,6 +1281,21 @@ function verdictPatch(m, to) {
   return { new_qualification: nq, new_fit_score: r.s === null ? null : Math.min(r.s, 0.74) };
 }
 
+// A verdict a person chose. The database keeps it from then on: a workflow
+// re-run or a re-score never changes a row whose verdict_source is manual
+// (trigger wi_keep_manual_verdict); only a new decision, which sets
+// verdict_set_at again, can.
+function manualVerdict() {
+  return { verdict_source: 'manual', verdict_set_by: (session && session.email) || null,
+           verdict_set_at: new Date().toISOString() };
+}
+
+// matched / uncertain / rejected from the console's verdict (new_qualification),
+// for the three-way controls. Low fit and needs data are waiting for a decision.
+function verdictGroup(m) {
+  return legacyQual(bandOf(m));
+}
+
 // Display label + tone for the fine-grained verdict.
 const BAND_LABEL = { matched: 'matched', uncertain: 'review', low: 'low fit', needs_data: 'needs data', rejected: 'rejected' };
 function bandOf(m) {
@@ -1458,7 +1473,7 @@ const QUALIFICATIONS = [
 ];
 
 function qualificationControl(m, after) {
-  const cur = String(m.qualification || 'uncertain').toLowerCase();
+  const cur = verdictGroup(m);
   const sel = el('select', { class: 'search', style: 'flex:none;min-width:150px' });
   let known = false;
   for (const [v, label] of QUALIFICATIONS) {
@@ -1482,7 +1497,7 @@ function qualificationControl(m, after) {
     if (to === cur) return;
     sel.disabled = true;
     try {
-      const patch = Object.assign({ qualification: to }, verdictPatch(m, to));
+      const patch = Object.assign({ qualification: to }, verdictPatch(m, to), manualVerdict());
       if (to === 'rejected') { patch.approved_at = null; patch.approved_by = null; }
       await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), patch);
       Object.assign(m, patch);
@@ -3779,7 +3794,7 @@ async function setApproved(m, on, after) {
   if (on && (String(m.qualification || '').trim().toLowerCase() === 'rejected'
              || String(m.new_qualification || '').trim().toLowerCase() === 'rejected')) {
     patch.qualification = 'uncertain';
-    Object.assign(patch, verdictPatch(m, 'uncertain'));
+    Object.assign(patch, verdictPatch(m, 'uncertain'), manualVerdict());
   }
   try {
     await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), patch);
@@ -3792,7 +3807,7 @@ async function setApproved(m, on, after) {
 }
 
 async function setQualification(m, to, said, after) {
-  const from = String(m.qualification || '').toLowerCase();
+  const from = verdictGroup(m);
   if (from === to) return toast('It is already there.');
   const ask = to === 'rejected'
     ? 'Reject this mandate? It moves to the Rejected list and you can still change your mind.'
@@ -3802,7 +3817,7 @@ async function setQualification(m, to, said, after) {
       : 'Move this back to Opportunities for a decision?';
   if (!confirm(ask)) return;
   try {
-    const patch = Object.assign({ qualification: to }, verdictPatch(m, to));
+    const patch = Object.assign({ qualification: to }, verdictPatch(m, to), manualVerdict());
     if (to === 'rejected') { patch.approved_at = null; patch.approved_by = null; }
     await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), patch);
     Object.assign(m, patch);
@@ -3814,7 +3829,7 @@ async function setQualification(m, to, said, after) {
 }
 
 function verdictActions(m, after) {
-  const q = String(m.qualification || '').toLowerCase();
+  const q = verdictGroup(m);
   const acts = [];
   acts.push(isApproved(m)
     ? { label: 'Withdraw approval', run: () => setApproved(m, false, after) }
@@ -4830,7 +4845,7 @@ function confirmPatch(m) {
 
 function notAllocatorPatch() {
   const why = 'Not an allocator - checked against the report by a person';
-  return Object.assign(validationStamp('not_an_allocator'),
+  return Object.assign(validationStamp('not_an_allocator'), manualVerdict(),
     { qualification: 'rejected', new_qualification: 'rejected', new_fit_score: 0,
       fit_reason: why, hard_fail_reasons: [why], approved_at: null, approved_by: null });
 }
@@ -6567,7 +6582,7 @@ async function openMandate(m) {
       if (rows && rows[0]) full = rows[0];
     } catch (_) { /* show what we were given */ }
 
-    const q = String(full.qualification || '').toLowerCase();
+    const q = verdictGroup(full);
     host.appendChild(el('div', { class: 'acts', style: 'margin-bottom:20px' },
       el('button', { class: 'btn btn-sm btn-quiet', onclick: () => go(PROFILE_BACK || 'opps') }, '\u2190 Back'),
       full.view_article_url
@@ -7685,7 +7700,10 @@ function fillSheet(m) {
         const isRej = String(m.qualification || '').toLowerCase() === 'rejected'
                    || String(m.new_qualification || '').toLowerCase() === 'rejected';
         let sp = null;
-        if (m.new_qualification) {
+        if (m.verdict_source === 'manual') {
+          // A person chose this verdict; corrected fields never change it.
+          scoreMsg = '  The verdict stays as it was set by hand.';
+        } else if (m.new_qualification) {
           // Re-run the mandate rule on the corrected fields. A rejected row stays
           // rejected, and a field edit never rejects on its own — Reject does that.
           const r = rescore(m);
