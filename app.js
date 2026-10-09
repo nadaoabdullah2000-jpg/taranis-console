@@ -584,6 +584,25 @@ async function supaSelect(table, query) {
   return await res.json();
 }
 
+// How many rows match, without downloading them: a HEAD request with
+// Prefer: count=exact, read from Content-Range ("*/41").
+async function supaCount(table, filter) {
+  if (!CFG.supabaseUrl || !session || !session.token) throw new Error('NO_SUPABASE');
+  await ensureToken();
+  const res = await fetch(CFG.supabaseUrl + '/rest/v1/' + table + '?select=id' + (filter ? '&' + filter : ''), {
+    method: 'HEAD',
+    headers: {
+      apikey: CFG.supabaseAnonKey,
+      Authorization: 'Bearer ' + session.token,
+      Prefer: 'count=exact'
+    }
+  });
+  if (!res.ok) throw new Error('Counting ' + table + ' failed (' + res.status + ').');
+  const m = /\/(\d+)\s*$/.exec(res.headers.get('content-range') || '');
+  if (!m) throw new Error('NO_COUNT');
+  return Number(m[1]);
+}
+
 async function supaDelete(table, filter) {
   if (!CFG.supabaseUrl || !session || !session.token) throw new Error('NO_SUPABASE');
   await ensureToken();
@@ -3364,6 +3383,9 @@ const OPPS_COUNT_COLS = 'id,qualification,new_qualification,new_fit_score,invest
   + 'alert_date,created_at';
 
 async function openOpportunityCount() {
+  // The tab's own load, in flight or under a minute old, is the same list.
+  if (OPPS_LOADING) return (await OPPS_LOADING).length;
+  if (OPPS_ROWS && Date.now() - OPPS_AT < 60000) return OPPS_ROWS.length;
   const rows = await openOpportunities(async (verdict, limit) => {
     const q = (sel, extra) => supaSelect('wi_mandates',
       'select=' + sel + '&' + verdict + extra + '&order=id.desc&limit=' + limit);
@@ -3375,6 +3397,24 @@ async function openOpportunityCount() {
   });
   return rows.length;
 }
+
+// The Opportunities list, loaded once and shared. The tab and the nav badge
+// read the same rows: a load already in flight is joined rather than repeated,
+// and changing a filter, the mode, a chip or the sort redraws from the rows
+// already loaded (redrawOpps) instead of fetching them again. Entering the tab,
+// Refresh, and any verdict change load afresh.
+let OPPS_ROWS = null, OPPS_AT = 0, OPPS_LOADING = null, oppsReuse = false;
+function loadOpportunities() {
+  if (OPPS_LOADING) return OPPS_LOADING;
+  OPPS_LOADING = openOpportunities(
+    (verdict, limit) => readRows('wi_mandates',
+      'select=*&' + verdict + '&order=id.desc&limit=' + limit, 'wi.mandates.list', { limit: limit })
+  ).then(rows => { OPPS_ROWS = rows; OPPS_AT = Date.now(); return rows; })
+   .finally(() => { OPPS_LOADING = null; });
+  return OPPS_LOADING;
+}
+function redrawOpps() { oppsReuse = true; go('opps'); }
+let oppsFocus = null;   // the filter field being typed in, kept focused across a redraw
 
 RENDER.opps = function (body) {
   clear(body);
@@ -3405,10 +3445,9 @@ RENDER.opps = function (body) {
 
   const inMode = (m) => (scoreBand(m) === 'matched') === (oppsMode === 'matched');
 
-  fill(list, () => openOpportunities(
-    (verdict, limit) => readRows('wi_mandates',
-      'select=*&' + verdict + '&order=id.desc&limit=' + limit, 'wi.mandates.list', { limit: limit })
-  ), (all) => {
+  const reuse = oppsReuse && OPPS_ROWS;
+  oppsReuse = false;
+  fill(list, () => reuse ? Promise.resolve(OPPS_ROWS) : loadOpportunities(), (all) => {
     const nMatched = all.filter(m => scoreBand(m) === 'matched').length;
     const nReview  = all.length - nMatched;
     const bigBtn = (mode, label, count, tone) => {
@@ -3418,7 +3457,7 @@ RENDER.opps = function (body) {
         style: 'flex:1;min-width:200px;padding:16px 20px;font-size:16px;border-radius:12px;'
              + 'display:flex;flex-direction:column;align-items:flex-start;gap:2px;'
              + (on ? 'background:var(--' + tone + ');border-color:var(--' + tone + ');color:#fff' : ''),
-        onclick: () => { oppsMode = mode; go('opps'); }
+        onclick: () => { oppsMode = mode; redrawOpps(); }
       },
         el('span', { style: 'font-family:var(--font-display);font-weight:600' }, label),
         el('span', { style: 'font-size:12px;opacity:.8;letter-spacing:.02em' },
@@ -3432,7 +3471,7 @@ RENDER.opps = function (body) {
     const F = oppsFilters;
     const anyFilter = !!(F.q || F.country || F.type || F.strategy || F.asset || F.tmin);
     const toggle = el('button', { class: 'btn btn-sm btn-quiet',
-      onclick: () => { oppsFilterOpen = !oppsFilterOpen; go('opps'); } },
+      onclick: () => { oppsFilterOpen = !oppsFilterOpen; redrawOpps(); } },
       (oppsFilterOpen ? '\u25BE ' : '\u25B8 ') + 'Filters' + (anyFilter ? '  \u00B7  on' : ''));
     filterBar.appendChild(toggle);
 
@@ -3440,8 +3479,18 @@ RENDER.opps = function (body) {
       const panel = el('div', { class: 'card', style: 'padding:16px;margin-top:10px' });
       const mk = (label, node, key) => {
         node.value = F[key] || '';
-        node.addEventListener(node.tagName === 'SELECT' ? 'change' : 'input',
-          () => { F[key] = node.value; go('opps'); });
+        if (node.tagName === 'SELECT') {
+          node.addEventListener('change', () => { F[key] = node.value; redrawOpps(); });
+        } else {
+          node.addEventListener('input', () => {
+            clearTimeout(mk._t);
+            mk._t = setTimeout(() => { F[key] = node.value; oppsFocus = key; redrawOpps(); }, 200);
+          });
+          if (oppsFocus === key) {
+            oppsFocus = null;
+            setTimeout(() => { node.focus(); const n = node.value.length; try { node.setSelectionRange(n, n); } catch (_) {} }, 0);
+          }
+        }
         return el('label', { class: 'field' }, el('span', null, label), node);
       };
       const sel = (opts) => {
@@ -3503,7 +3552,7 @@ RENDER.opps = function (body) {
       const clearBtn = el('button', { class: 'btn btn-sm btn-quiet', style: 'margin-top:10px' }, 'Clear filters');
       clearBtn.addEventListener('click', () => {
         oppsFilters = { q: '', country: '', type: '', strategy: '', asset: '', tmin: '' };
-        go('opps');
+        redrawOpps();
       });
       panel.appendChild(clearBtn);
       filterBar.appendChild(panel);
@@ -3514,7 +3563,7 @@ RENDER.opps = function (body) {
       const on = k === oppsView;
       const n  = scoped.filter(m => inView(m, k)).length;
       const c  = el('button', { class: 'chip',
-        onclick: () => { oppsView = k; go('opps'); } }, lbl + '  ' + n);
+        onclick: () => { oppsView = k; redrawOpps(); } }, lbl + '  ' + n);
       c.style.borderColor = on ? 'var(--' + tone + ')' : '';
       c.style.color       = on ? 'var(--' + tone + ')' : '';
       c.style.fontWeight  = on ? '600' : '';
@@ -3522,7 +3571,7 @@ RENDER.opps = function (body) {
       chips.appendChild(c);
     }
 
-    sortBar.appendChild(sortControl('opps', () => go('opps'),
+    sortBar.appendChild(sortControl('opps', () => redrawOpps(),
       'Sorts the ' + all.length + ' loaded \u2014 the newest 1,000 live mandates, not the whole table'));
     const rows = sortMandates(scoped.filter(m => inView(m, oppsView)), sortModeOf('opps'));
     if (!rows.length) {
@@ -3549,7 +3598,7 @@ RENDER.opps = function (body) {
           { label: 'View the mandate', primary: true, run: () => { markSeen(m); openMandate(m); } },
           { label: 'Fill a gap', run: () => fillSheet(m) },
           seen(m) ? null : { label: 'Mark as read', run: async () => {
-              try { await markSeen(m); go('opps'); } catch (e) { toast(e.message, true); } } },
+              try { await markSeen(m); redrawOpps(); } catch (e) { toast(e.message, true); } } },
           m.linkedin_url ? { label: 'Check the network', run: () => act('li.check', { url: m.linkedin_url }, 'Checking') } : null
         ].filter(Boolean).concat(verdictActions(m, (to) => {
           go(to === 'rejected' ? 'rejected' : 'opps');
@@ -4814,6 +4863,20 @@ async function validationQueue() {
   return { mandates: mandates || [], leads: leads || [] };
 }
 
+// The To validate badge: how many are pending, counted, not downloaded.
+async function validationCount() {
+  try {
+    const [a, b] = await Promise.all([
+      supaCount('wi_mandates', 'validation_status=eq.pending'),
+      supaCount('report_leads', 'validation_status=eq.pending')
+    ]);
+    return a + b;
+  } catch (_) {
+    const w = await validationQueue();
+    return w.mandates.length + w.leads.length;
+  }
+}
+
 // A prospect has no mandate row; read it the way rescore() reads one.
 function leadAsMandate(l) {
   return { investor_name: l.investor_name, investor_type: l.investor_type,
@@ -5844,10 +5907,18 @@ RENDER.find = function (body) {
   clear(body);
 
   const F = findState;
+  const fields = [];
   const mk = (label, node, key) => {
     node.value = F[key] || '';
-    node.addEventListener(node.tagName === 'SELECT' ? 'change' : 'input',
-      () => { F[key] = node.value; run(); });
+    fields.push([node, key]);
+    if (node.tagName === 'SELECT' || node.type === 'date') {
+      node.addEventListener('change', () => { F[key] = node.value; run(); });
+    } else {
+      node.addEventListener('input', () => {
+        clearTimeout(mk._t);
+        mk._t = setTimeout(() => { F[key] = node.value; run(); }, 150);
+      });
+    }
     return el('label', { class: 'field' }, el('span', null, label), node);
   };
   const sel = (opts) => {
@@ -5934,9 +6005,11 @@ RENDER.find = function (body) {
 
   const clearBtn = el('button', { class: 'btn btn-sm btn-quiet', style: 'margin-top:10px' }, 'Clear all');
   clearBtn.addEventListener('click', () => {
-    findState = { from: '', to: '', type: '', country: '', asset: '', strategy: '',
-                  tmin: '', status: '', q: '' };
-    go('find');
+    // Clear the fields in place (the inputs write into this same object) and
+    // redraw from the rows already loaded.
+    for (const k of ['from', 'to', 'type', 'country', 'asset', 'strategy', 'tmin', 'status', 'q']) F[k] = '';
+    for (const [node] of fields) node.value = '';
+    run();
   });
   panel.appendChild(clearBtn);
 
@@ -7784,13 +7857,14 @@ async function poll() {
     dayStart.setHours(0, 0, 0, 0);
 
     const [n, opps, waiting] = await Promise.all([
-      supaSelect('app_notifications', 'select=id&read_at=is.null&limit=200'),
+      supaCount('app_notifications', 'read_at=is.null')
+        .catch(() => supaSelect('app_notifications', 'select=id&read_at=is.null&limit=200').then(r => r.length)),
       openOpportunityCount(),
-      validationQueue().catch(() => null)
+      validationCount().catch(() => null)
     ]);
-    counts.today = n.length;
+    counts.today = Math.min(n, 200);
     counts.opps = opps;
-    if (waiting) counts.validate = waiting.mandates.length + waiting.leads.length;
+    if (waiting !== null) counts.validate = waiting;
     counts.approvals = 0;
     counts.network = await newConnectionCount();
 
