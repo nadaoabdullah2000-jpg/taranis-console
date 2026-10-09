@@ -4894,6 +4894,15 @@ function reportPageUrl(url, page) {
 const SUGGEST_LABEL = { strong_tech: 'Matched', strong: 'Matched', tech: 'Review (technology)',
   hire: 'Review (an allocator\u2019s hire)', low: 'Low fit', needs_data: 'Needs data', rejected: 'Rejected' };
 
+// The To validate sections, strongest first, keyed by rescore()'s verdict.
+const VALIDATE_GROUPS = [
+  { q: 'matched',    tone: 'good',   label: 'Strong fit',   note: 'Would be matched: a hedge-fund allocator with a long/short or quant signal.' },
+  { q: 'uncertain',  tone: 'signal', label: 'Worth a look', note: 'Would go to review: technology interest, or an allocator\u2019s hire.' },
+  { q: 'low',        tone: 'muted',  label: 'Low fit',      note: 'CTA, macro or market-neutral only.' },
+  { q: 'needs_data', tone: 'muted',  label: 'Needs data',   note: 'No clear strategy signal in what the report said.' },
+  { q: 'rejected',   tone: 'bad',    label: 'Rule would reject', note: 'A manager, news, or not a hedge-fund allocator. Confirm still files it as rejected.' }
+];
+
 function validationStamp(to) {
   return { validation_status: to, validated_by: (session && session.email) || 'console',
     validated_at: new Date().toISOString() };
@@ -5047,9 +5056,20 @@ RENDER.validate = function (body) {
       const section = (label, n) => el('p', { class: 'mono',
         style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:22px 0 8px' },
         label + '  \u00B7  ' + n);
-      if (q.mandates.length) {
-        out.appendChild(section('Mandates', q.mandates.length));
-        for (const m of q.mandates) out.appendChild(card('wi_mandates', m));
+      // Mandates grouped by what the rule suggests (the same rescore() the card
+      // shows), strongest first. Display only: what is pending and what Confirm
+      // writes are unchanged. An empty group is not shown.
+      const groups = VALIDATE_GROUPS.map(g => ({ g: g, rows: [] }));
+      for (const m of q.mandates) {
+        const v = rescore(m).q;
+        (groups.find(x => x.g.q === v) || groups[groups.length - 1]).rows.push(m);
+      }
+      for (const { g, rows } of groups) {
+        if (!rows.length) continue;
+        out.appendChild(el('div', { class: 'vgroup vgroup-' + g.tone },
+          el('h3', null, g.label, el('span', { class: 'vgroup-n' }, String(rows.length))),
+          el('p', null, g.note)));
+        for (const m of rows) out.appendChild(card('wi_mandates', m));
       }
       if (q.leads.length) {
         out.appendChild(section('Prospects', q.leads.length));
