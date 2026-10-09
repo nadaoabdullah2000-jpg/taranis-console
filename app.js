@@ -1518,7 +1518,8 @@ function qualificationControl(m, after) {
     if (to === cur) return;
     sel.disabled = true;
     try {
-      const patch = Object.assign({ qualification: to }, verdictPatch(m, to), manualVerdict());
+      const full = await fullMandate(m);
+      const patch = Object.assign({ qualification: to }, verdictPatch(full, to), manualVerdict());
       if (to === 'rejected') { patch.approved_at = null; patch.approved_by = null; }
       await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), patch);
       Object.assign(m, patch);
@@ -3348,6 +3349,34 @@ const VERDICT_OPEN = NOT_PENDING + '&or=(new_qualification.neq.rejected,'
 const VERDICT_REJECTED = NOT_PENDING + '&or=(new_qualification.eq.rejected,'
   + 'and(new_qualification.is.null,qualification.eq.rejected))';
 
+// What the mandate lists (Opportunities, Rejected, Find, Ask) read from a row:
+// every field their cards, filters, sorts, dedupe and the rule use, found by
+// recording each field read in each tab. Left out: source_links, intake_missing,
+// field_sources, the raw block, keys and bookkeeping. evidence comes as
+// evidence_scored (schema 12): the same object without the PDF passage, report
+// title, page and WI summary, which the rule never scores. A list row is for
+// showing; anything that writes re-reads the whole row first (fullMandate).
+const MANDATE_LIST_COLS = [
+  'id', 'investor_name', 'organization_name', 'contact_name', 'investor_country', 'investor_city',
+  'investor_type', 'investor_tag', 'asset_classes', 'strategies', 'ticket_min_usd', 'ticket_max_usd',
+  'aum_usd', 'aum_band', 'open_to_emerging_managers', 'allocation_timing', 'intention_summary',
+  'requirements_raw', 'appetite_raw', 'evidence:evidence_scored', 'hard_fail_reasons',
+  'missing_hard_fields', 'qualification', 'new_qualification', 'fit_score', 'new_fit_score',
+  'fit_reason', 'positive_signals', 'view_intention_url', 'view_investor_url', 'view_article_url',
+  'linkedin_url', 'linkedin_urls', 'emails', 'contact_id', 'created_at', 'source_email_date',
+  'alert_date', 'published_at', 'approved_at', 'approved_by', 'seen_at', 'wi_enriched_at',
+  'source_page', 'source_kind', 'validation_status', 'verdict_source'
+].join(',');
+
+// The whole row as the database holds it now. Every verdict or field write
+// computes its patch from this, never from a list row, so nothing a list left
+// out (field_sources above all) is lost, and the rule scores the real fields.
+async function fullMandate(m) {
+  const rows = await supaSelect('wi_mandates', 'select=*&limit=1&id=eq.' + encodeURIComponent(m.id));
+  if (!rows || !rows[0]) throw new Error('That mandate could not be read back. Refresh and try again.');
+  return rows[0];
+}
+
 // Everything the Opportunities tab lists, one row per investor: every row not
 // rejected, plus the rejected rows the browser reclaims, minus investors with an
 // effectively rejected row. read(verdictFilter, limit) fetches the rows. The tab
@@ -3393,7 +3422,7 @@ async function openOpportunityCount() {
       'select=' + sel + '&' + verdict + extra + '&order=id.desc&limit=' + limit);
     const [scored, unscored] = await Promise.all([
       q(OPPS_COUNT_COLS, '&new_qualification=not.is.null'),
-      q('*', '&new_qualification=is.null')
+      q(MANDATE_LIST_COLS, '&new_qualification=is.null')
     ]);
     return scored.concat(unscored).sort((a, b) => Number(b.id) - Number(a.id)).slice(0, limit);
   });
@@ -3410,7 +3439,7 @@ function loadOpportunities() {
   if (OPPS_LOADING) return OPPS_LOADING;
   OPPS_LOADING = openOpportunities(
     (verdict, limit) => readRows('wi_mandates',
-      'select=*&' + verdict + '&order=id.desc&limit=' + limit, 'wi.mandates.list', { limit: limit })
+      'select=' + MANDATE_LIST_COLS + '&' + verdict + '&order=id.desc&limit=' + limit, 'wi.mandates.list', { limit: limit })
   ).then(rows => { OPPS_ROWS = rows; OPPS_AT = Date.now(); return rows; })
    .finally(() => { OPPS_LOADING = null; });
   return OPPS_LOADING;
@@ -3842,12 +3871,12 @@ async function setApproved(m, on, after) {
   const patch = on
     ? { approved_at: new Date().toISOString(), approved_by: (session && session.email) || null }
     : { approved_at: null, approved_by: null };
-  if (on && (String(m.qualification || '').trim().toLowerCase() === 'rejected'
-             || String(m.new_qualification || '').trim().toLowerCase() === 'rejected')) {
-    patch.qualification = 'uncertain';
-    Object.assign(patch, verdictPatch(m, 'uncertain'), manualVerdict());
-  }
   try {
+    if (on && (String(m.qualification || '').trim().toLowerCase() === 'rejected'
+               || String(m.new_qualification || '').trim().toLowerCase() === 'rejected')) {
+      patch.qualification = 'uncertain';
+      Object.assign(patch, verdictPatch(await fullMandate(m), 'uncertain'), manualVerdict());
+    }
     await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), patch);
     Object.assign(m, patch);
     toast(on ? 'Approved.' : 'Approval withdrawn.');
@@ -3868,7 +3897,8 @@ async function setQualification(m, to, said, after) {
       : 'Move this back to Opportunities for a decision?';
   if (!confirm(ask)) return;
   try {
-    const patch = Object.assign({ qualification: to }, verdictPatch(m, to), manualVerdict());
+    const full = await fullMandate(m);
+    const patch = Object.assign({ qualification: to }, verdictPatch(full, to), manualVerdict());
     if (to === 'rejected') { patch.approved_at = null; patch.approved_by = null; }
     await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), patch);
     Object.assign(m, patch);
@@ -4095,7 +4125,7 @@ RENDER.rejected = function (body) {
   function load() {
     clear(out);
     fill(out, () => readRows('wi_mandates',
-      'select=*&' + VERDICT_REJECTED + '&order=id.desc&limit=5000',
+      'select=' + MANDATE_LIST_COLS + '&' + VERDICT_REJECTED + '&order=id.desc&limit=5000',
       'wi.mandates.list', {}), (rows) => {
       all = dedupeInvestors(rows);
       paintChips();
@@ -6187,7 +6217,7 @@ RENDER.find = function (body) {
   fill(out, async () => {
     if (DEMO) return [];
     /* EDIT 8 — raise the row cap from 1000 so all ~1,286 mandates load. */
-    return await supaSelect('wi_mandates', 'select=*&' + NOT_PENDING + '&order=id.desc&limit=5000');
+    return await supaSelect('wi_mandates', 'select=' + MANDATE_LIST_COLS + '&' + NOT_PENDING + '&order=id.desc&limit=5000');
   }, (rows) => { all = rows; allInvestors = dedupeInvestors(rows).length; run(); });
 };
 
@@ -7341,7 +7371,7 @@ function mandateSignals(m) {
 //   countries ['GB', 'CH', 'US']
 //   emerging  true: open to emerging managers
 async function localMandates(f) {
-  const q = ['select=*', 'order=id.desc', 'limit=1000'];
+  const q = ['select=' + MANDATE_LIST_COLS, 'order=id.desc', 'limit=1000'];
   if (f.verdicts && f.verdicts.length) {
     const list = f.verdicts.join(',');
     q.push(NOT_PENDING, 'or=(new_qualification.in.(' + list + '),'
@@ -7712,7 +7742,16 @@ const FILLABLE = [
   ['notes',             'Notes',                'text']
 ];
 
-function fillSheet(m) {
+// Fill a gap always works on the whole row read back from the database, never
+// on the row a list handed over: every fillable field is offered, field_sources
+// is merged into what is stored, and the re-score reads the real fields.
+async function fillSheet(listRow) {
+  let full;
+  try { full = await fullMandate(listRow); } catch (e) { return toast(e.message, true); }
+  fillSheetOn(full, listRow);
+}
+
+function fillSheetOn(m, listRow) {
   const who = (session && session.email) || 'console';
   const F = {}, was = {};
   const gapRows = [], filledRows = [];
@@ -7832,6 +7871,7 @@ function fillSheet(m) {
     try {
       await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), patch);
       Object.assign(m, patch);
+      if (listRow && listRow !== m) Object.assign(listRow, patch);
 
       let scoreMsg = '';
       try {
@@ -7864,6 +7904,7 @@ function fillSheet(m) {
         if (sp) {
           await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), sp);
           Object.assign(m, sp);
+          if (listRow && listRow !== m) Object.assign(listRow, sp);
         }
       } catch (_) { scoreMsg = ''; /* keep the field save even if the re-score write fails */ }
 
