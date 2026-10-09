@@ -1210,6 +1210,21 @@ function isNotMandate(m) {
     || NOT_MANDATE_RE.test(String(m.investor_tag || ''));
 }
 
+// A reject that disqualifies the whole investor, not one of its mandates: the
+// reason says it is not an allocator / not an investor / raises capital rather
+// than placing it, it is a known manager, or its type is a VC, PE or other
+// non-allocator firm (or a hedge fund itself). Only such a reject hides the
+// investor's other open rows in Opportunities. A mandate rejected on asset
+// class, strategy or as an item that is not a mandate (news, a performance
+// report, a people move) says nothing about the investor's other mandates.
+const RE_ENTITY_REJECT = /not an allocator|not a direct allocator|is not an investor\b|not an investor\b(?! mandate)|raises capital rather than placing|asset manager|known manager/i;
+function entityRejected(m) {
+  if (RE_ENTITY_REJECT.test(wiReasonsOf(m).join(' '))) return true;
+  if (KNOWN_MANAGERS.test(String(m.investor_name || ''))) return true;
+  const typ = String(m.investor_type || '').trim().toLowerCase();
+  return typ === 'hedge fund' || RE_NOT_ALLOCATOR.test(typ);
+}
+
 function isSwiss(m) {
   return String(m.investor_country || '').trim().toUpperCase().slice(0, 2) === 'CH';
 }
@@ -3378,8 +3393,8 @@ async function fullMandate(m) {
 }
 
 // Everything the Opportunities tab lists, one row per investor: every row not
-// rejected, plus the rejected rows the browser reclaims, minus investors with an
-// effectively rejected row. read(verdictFilter, limit) fetches the rows. The tab
+// rejected, plus the rejected rows the browser reclaims, minus investors that a
+// reject disqualifies as a whole (entityRejected). read(verdictFilter, limit) fetches the rows. The tab
 // and the nav badge both count this list, so the badge always equals Matched +
 // Waiting.
 async function openOpportunities(read) {
@@ -3390,7 +3405,7 @@ async function openOpportunities(read) {
     const rejList = (await read(VERDICT_REJECTED, 500)) || [];
     reclaimed = rejList.filter(reclaimedOpportunity);
     for (const m of rejList) {
-      if (!isNotMandate(m) && effectivelyRejected(m)) {
+      if (effectivelyRejected(m) && entityRejected(m)) {
         const k = investorKey(m); if (k) rejectedKeys.add(k);
       }
     }
