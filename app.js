@@ -6034,6 +6034,17 @@ RENDER.find = function (body) {
 
 RENDER.search = function (body) { return RENDER.find(body); };
 
+// The Ask conversation, kept while the console is open so the thread survives
+// a trip to another tab, and so the agent sees what was said before: each
+// agent question carries the last ASK_TURNS turns, which is what lets "yes",
+// "show more" or "only the UK ones" follow on from the previous answer.
+const ASK_THREAD = [];
+const ASK_TURNS = 10;
+
+function askHistory() {
+  return ASK_THREAD.slice(-ASK_TURNS).map(t => ({ role: t.role, text: String(t.text || '').slice(0, 1500) }));
+}
+
 RENDER.ask = function (body) {
   const host = body.parentElement;
   host.style.padding = '0';
@@ -6100,7 +6111,32 @@ RENDER.ask = function (body) {
         'Ask about anyone in the book, what was sent and when, opportunities, or the network. ' +
         'Ask only reads the database and shows you the records themselves. ' +
         'Ask agent sends the question to the model, which can weigh things up and answer in your language — ' +
-        'that one needs n8n executions available.')));
+        'that one needs n8n executions available. It remembers the conversation, so you can follow up ' +
+        'with \u201Cshow more\u201D or \u201Conly the UK ones\u201D.')));
+  }
+  // Coming back to Ask: the conversation so far is still there.
+  for (const t of ASK_THREAD) {
+    if (t.role === 'user') {
+      log.appendChild(el('div', { class: 'msg me' }, el('div', { class: 'from' }, 'You'), el('div', { class: 'bub' }, t.text)));
+    } else {
+      const bub = el('div', { class: 'bub' });
+      if (t.html) renderAnswer(bub, t.html); else bub.textContent = t.text;
+      log.appendChild(el('div', { class: 'msg' }, el('div', { class: 'from' }, 'Taranis'), bub));
+    }
+  }
+  if (ASK_THREAD.length) {
+    bar.insertBefore(el('div', { class: 'chips', style: 'margin-bottom:4px' },
+      el('button', { class: 'chip', onclick: () => { ASK_THREAD.length = 0; go('ask'); } }, 'Start a new conversation')), bar.firstChild);
+    setTimeout(() => { log.scrollTop = log.scrollHeight; }, 0);
+  }
+
+  // The agent's suggested next questions, one tap each.
+  function nextChips(list) {
+    const row = el('div', { class: 'chips', style: 'margin-top:10px' });
+    for (const s of list) {
+      row.appendChild(el('button', { class: 'chip', onclick: () => { setMode('agent'); input.value = s; send(); } }, s));
+    }
+    return row;
   }
 
   if (PENDING.q) {
@@ -6116,6 +6152,8 @@ RENDER.ask = function (body) {
     input.value = ''; input.style.height = 'auto';
     log.appendChild(el('div', { class: 'msg me' },
       el('div', { class: 'from' }, 'You'), el('div', { class: 'bub' }, q)));
+    const history = askHistory();
+    ASK_THREAD.push({ role: 'user', text: q });
     const wait = el('div', { class: 'msg' },
       el('div', { class: 'from' }, 'Taranis'),
       el('div', { class: 'bub' }, el('span', { class: 'typing' }, el('i'), el('i'), el('i'))));
@@ -6128,6 +6166,7 @@ RENDER.ask = function (body) {
       const m = el('div', { class: 'msg' }, el('div', { class: 'from' }, 'Taranis'), bub);
       log.appendChild(m);
       await answerLocally(bub, q);
+      ASK_THREAD.push({ role: 'assistant', text: bub.innerText });
       bub.appendChild(el('div', { class: 'srcs' },
         'read directly from the database — no model, nothing invented'));
       log.scrollTop = log.scrollHeight;
@@ -6135,11 +6174,22 @@ RENDER.ask = function (body) {
     }
 
     try {
-      const d = await callGateway('assistant.ask', { question: q });
+      const d = await callGateway('assistant.ask', { question: q, history: history });
       wait.remove();
       const bub = el('div', { class: 'bub' });
-      renderAnswer(bub, d.answer || 'No answer came back.');
+      // An older gateway returns the follow-ups inside the answer after [[next]].
+      const parts = String(d.answer || 'No answer came back.').split('[[next]]');
+      const html = parts[0].trim();
+      const next = (Array.isArray(d.next) && d.next.length ? d.next : String(parts[1] || '').split('\n'))
+        .map(x => String(x).replace(/<[^>]+>/g, '').trim()).filter(Boolean).slice(0, 3);
+      renderAnswer(bub, html);
+      // d.context records the search behind the answer (filters, where the next
+      // page starts). It is never shown; it rides in the history so "show more"
+      // continues from the right row.
+      ASK_THREAD.push({ role: 'assistant', html: html,
+        text: bub.innerText + (d.context ? '\n' + d.context : '') });
       const m = el('div', { class: 'msg' }, el('div', { class: 'from' }, 'Taranis'), bub);
+      if (next.length) bub.appendChild(nextChips(next));
       if (d.sources && d.sources.length) {
         bub.appendChild(el('div', { class: 'srcs' }, 'queried: ' + d.sources.join(', ')));
       }
