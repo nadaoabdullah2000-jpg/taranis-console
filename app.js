@@ -120,7 +120,7 @@ function ensureEntrySkin() {
 let DEMO = false;                 // sample-data mode
 let session = null;               // { email, token }
 let pollTimer = null;
-const counts = { today: 0, approvals: 0, opps: 0, intake: 0, hfn: 0, tools: 0 };
+const counts = { today: 0, approvals: 0, opps: 0, intake: 0, hfn: 0, tools: 0, validate: 0 };
 let intakeView = 'all';
 let todayView = 'opps';
 
@@ -839,6 +839,8 @@ const TABS = [
     sub: 'The ones a person has approved. A subset of Opportunities, not a separate list.' },
   { id: 'rejected', icon: '\u25BD', label: 'Rejected',      title: 'Rejected', group: 'wi',
     sub: 'Screened out on two or more criteria. Kept so you can see what was turned away, and why.' },
+  { id: 'validate', icon: '\u2713', label: 'To validate',   title: 'To validate', group: 'wi',
+    sub: 'Investors read out of a report wait here. Nothing in this list reaches Opportunities, Find or Ask until you confirm it.' },
   { id: 'hfn',      icon: '\u25A4', label: 'HFA & FOC',     title: 'Hedge Fund Alert & Family Office Confidential', group: 'wi',
     sub: 'Filed by publication, each with a summary written beside it so you need not open the PDF.' },
   { id: 'contacts', archived: true, icon: '\u25A0', label: 'Contacts',     title: 'Contacts',
@@ -1715,7 +1717,7 @@ async function wiStrip(host) {
     const since = new Date(Date.now() - 7 * 864e5).toISOString();
     const rows = await readRows('wi_mandates',
       'select=qualification,hard_fail_reasons,fit_reason,created_at'
-      + '&created_at=gte.' + since + '&limit=500', 'wi.mandates.list', {});
+      + '&created_at=gte.' + since + '&' + NOT_PENDING + '&limit=500', 'wi.mandates.list', {});
     if (!rows.length) return;
 
     const by = { matched: 0, uncertain: 0, rejected: 0 };
@@ -1796,7 +1798,7 @@ RENDER.today = function (body) {
   fill(body, async () => {
     const cutoff = new Date(Date.now() - 7 * 86400000).toISOString();
     const mands = await readRows('wi_mandates',
-      'select=*&qualification=neq.rejected&created_at=gte.' + cutoff
+      'select=*&qualification=neq.rejected&created_at=gte.' + cutoff + '&' + NOT_PENDING
       + '&order=id.desc&limit=150', 'today.mandates', {});
     return { mands: mands };
   }, (d) => {
@@ -3291,9 +3293,13 @@ function oppsPasses(m, skip) {
 
 // A row's verdict is new_qualification where the DB re-score set one, the old
 // qualification column otherwise. PostgREST filters for each side of it.
-const VERDICT_OPEN = 'or=(new_qualification.neq.rejected,'
+// Investors read out of a report wait in To validate until a person confirms
+// them (schema 10). Until then they are in no list, count or answer: this keeps
+// rows that are not from a report (null) and every decided one.
+const NOT_PENDING = 'and=(or(validation_status.is.null,validation_status.neq.pending))';
+const VERDICT_OPEN = NOT_PENDING + '&or=(new_qualification.neq.rejected,'
   + 'and(new_qualification.is.null,or(qualification.is.null,qualification.neq.rejected)))';
-const VERDICT_REJECTED = 'or=(new_qualification.eq.rejected,'
+const VERDICT_REJECTED = NOT_PENDING + '&or=(new_qualification.eq.rejected,'
   + 'and(new_qualification.is.null,qualification.eq.rejected))';
 
 // Everything the Opportunities tab lists, one row per investor: every row not
@@ -4770,6 +4776,204 @@ RENDER.docs = function (body) {
   });
 };
 
+/* ------------------------------------------------------------ To validate */
+
+// A report is the least-trusted source, so what HFN 02 reads out of one waits
+// here: mandates (wi_mandates, validation_status pending) and prospects with no
+// mandate (report_leads). Confirm sends a mandate into the pipeline, placed by
+// the same rescore() rule as every other row; Not an allocator rejects it; Fix
+// details corrects the fields and then confirms.
+async function validationQueue() {
+  const [mandates, leads] = await Promise.all([
+    supaSelect('wi_mandates', 'select=*&validation_status=eq.pending&order=id.desc&limit=500'),
+    supaSelect('report_leads', 'select=*&validation_status=eq.pending&order=id.desc&limit=500')
+  ]);
+  return { mandates: mandates || [], leads: leads || [] };
+}
+
+// A prospect has no mandate row; read it the way rescore() reads one.
+function leadAsMandate(l) {
+  return { investor_name: l.investor_name, investor_type: l.investor_type,
+    investor_country: l.investor_country, intention_summary: l.summary,
+    evidence: { signal: l.signal }, strategies: l.strategies, asset_classes: l.asset_classes };
+}
+
+// The PDF, opened at the page the passage came from.
+function reportPageUrl(url, page) {
+  const u = String(url || '').trim();
+  if (!u) return '';
+  return page ? u.replace(/#.*$/, '') + '#page=' + encodeURIComponent(page) : u;
+}
+
+const SUGGEST_LABEL = { strong_tech: 'Matched', strong: 'Matched', tech: 'Review (technology)',
+  hire: 'Review (an allocator\u2019s hire)', low: 'Low fit', needs_data: 'Needs data', rejected: 'Rejected' };
+
+function validationStamp(to) {
+  return { validation_status: to, validated_by: (session && session.email) || 'console',
+    validated_at: new Date().toISOString() };
+}
+
+// What Confirm writes for a mandate: confirmed, and placed by the rule.
+function confirmPatch(m) {
+  const r = rescore(m);
+  return Object.assign(validationStamp('confirmed'),
+    { qualification: legacyQual(r.q), new_qualification: r.q, new_fit_score: r.s });
+}
+
+function notAllocatorPatch() {
+  const why = 'Not an allocator - checked against the report by a person';
+  return Object.assign(validationStamp('not_an_allocator'),
+    { qualification: 'rejected', new_qualification: 'rejected', new_fit_score: 0,
+      fit_reason: why, hard_fail_reasons: [why], approved_at: null, approved_by: null });
+}
+
+const VALIDATE_FIELDS = [
+  ['investor_name',    'Investor'],
+  ['investor_type',    'Type'],
+  ['investor_city',    'City'],
+  ['investor_country', 'Country'],
+  ['contact_name',     'Contact'],
+  ['intention_summary', 'What they are doing', 'long']
+];
+const LEAD_FIELDS = [
+  ['investor_name',    'Investor'],
+  ['investor_type',    'Type'],
+  ['investor_city',    'City'],
+  ['investor_country', 'Country'],
+  ['contact_name',     'Contact'],
+  ['summary',          'What the report says', 'long']
+];
+
+RENDER.validate = function (body) {
+  const out = el('div');
+  body.appendChild(out);
+
+  const decide = async (table, row, patch, said) => {
+    try {
+      await supaPatch(table, 'id=eq.' + encodeURIComponent(row.id)
+        + '&validation_status=eq.pending', patch);
+      toast(said);
+      load();
+      poll();
+    } catch (e) {
+      toast(e.message, true);
+    }
+  };
+
+  function fixDetails(table, row) {
+    const fields = table === 'report_leads' ? LEAD_FIELDS : VALIDATE_FIELDS;
+    const F = {};
+    const FIT = 'width:100%;box-sizing:border-box;min-width:0';
+    const rows = fields.map(([key, label, kind]) => {
+      const input = kind === 'long'
+        ? el('textarea', { class: 'search', rows: '4', style: FIT + ';min-height:92px;resize:vertical;font:inherit;line-height:1.5' })
+        : el('input', { class: 'search', type: 'text', style: FIT });
+      input.value = row[key] == null ? '' : String(row[key]);
+      F[key] = input;
+      return el('label', { class: 'field' }, el('span', null, label), input);
+    });
+    // Short fields two to a row; the description takes the full width.
+    const short = rows.slice(0, -1), long = rows[rows.length - 1];
+    const grid = [];
+    for (let i = 0; i < short.length; i += 2) grid.push(el('div', { class: 'grid2' }, short[i], short[i + 1] || el('div')));
+    const save = el('button', { class: 'btn btn-sm' }, 'Save and confirm');
+    save.addEventListener('click', async () => {
+      const edits = {};
+      for (const [key] of fields) {
+        const v = F[key].value.trim();
+        edits[key] = v === '' ? null : v;
+      }
+      if (!edits.investor_name) return toast('The investor needs a name.', true);
+      const patch = table === 'report_leads'
+        ? Object.assign(edits, validationStamp('confirmed'))
+        : Object.assign(edits, confirmPatch(Object.assign({}, row, edits)));
+      save.setAttribute('disabled', '');
+      closeSheet();
+      await decide(table, row, patch, 'Corrected and confirmed.');
+    });
+    sheet('Fix details \u2014 ' + (row.investor_name || 'unnamed'),
+      [el('div', { style: 'width:100%' },
+        el('p', { style: 'margin:0 0 14px;font-size:13px;color:var(--ink-2);line-height:1.55' },
+          'Correct what the report got wrong. Saving confirms it, and the rule places it in the pipeline.'),
+        ...grid, long)],
+      [save, el('button', { class: 'btn btn-sm btn-quiet', onclick: closeSheet }, 'Cancel')]);
+  }
+
+  function card(table, row) {
+    const isLead = table === 'report_leads';
+    const m = isLead ? leadAsMandate(row) : row;
+    const ev = isLead ? {} : (() => {
+      let x = row.evidence;
+      for (let i = 0; i < 2 && typeof x === 'string'; i++) { try { x = JSON.parse(x); } catch (_) { x = {}; } }
+      return x && typeof x === 'object' ? x : {};
+    })();
+    const passage = String((isLead ? row.passage : ev.passage) || '').replace(/\s*\n\s*/g, ' ').trim();
+    const page = isLead ? row.source_page : (row.source_page || ev.page);
+    const pdf = reportPageUrl(isLead ? row.report_url : row.view_article_url, page);
+    const from = isLead ? 'Report' : (ev.from_report || 'Report');
+    const r = rescore(m);
+    const suggest = isLead ? 'Prospect \u2014 no mandate stated'
+      : (SUGGEST_LABEL[r.band] || r.band) + (r.s === null ? '' : '  \u00B7  ' + num(r.s));
+    const where = [row.investor_city, row.investor_country].filter(Boolean).join(', ');
+
+    const actions = [
+      { label: 'Confirm', primary: true, run: () => decide(table, row,
+          isLead ? validationStamp('confirmed') : confirmPatch(row),
+          isLead ? 'Confirmed as a prospect.' : 'Confirmed \u2014 it is in the pipeline as ' + (SUGGEST_LABEL[r.band] || r.band).toLowerCase() + '.') },
+      { label: 'Not an allocator', run: () => {
+          if (!confirm('Mark ' + (row.investor_name || 'this') + ' as not an allocator? It is rejected and leaves this list.')) return;
+          decide(table, row, isLead ? validationStamp('not_an_allocator') : notAllocatorPatch(), 'Marked as not an allocator.');
+        } },
+      { label: 'Fix details', run: () => fixDetails(table, row) }
+    ];
+    if (pdf) actions.push({ label: 'Open the PDF' + (page ? '  \u00B7  p.' + page : ''),
+      run: () => window.open(pdf, '_blank', 'noopener,noreferrer') });
+
+    return entry({
+      tone: isLead ? '' : (r.q === 'matched' ? 'good' : r.q === 'rejected' ? 'bad' : ''),
+      action: row.investor_name || 'Unnamed investor',
+      who: [row.investor_type || 'type not stated', where || 'geography not stated'].join('  \u00B7  '),
+      callout: passage ? '\u201C' + (passage.length > 480 ? passage.slice(0, 480) + '\u2026' : passage) + '\u201D' : null,
+      calloutLabel: 'In the report',
+      tags: [[isLead ? 'Prospect' : 'Mandate'], [from + (page ? ', p.' + page : '')]],
+      evidence: [
+        ['rule suggests', suggest],
+        ['signal', isLead ? (row.signal || row.summary) : (ev.signal || row.intention_summary)],
+        ['contact', row.contact_name]
+      ],
+      actions: actions
+    });
+  }
+
+  function load() {
+    busy(out);
+    fill(out, validationQueue, (q) => {
+      counts.validate = q.mandates.length + q.leads.length;
+      paintCounts();
+      if (!counts.validate) {
+        return out.appendChild(empty('Nothing to validate',
+          'Every investor read out of a report has been checked. New ones arrive after HFN 02 reads a report.'));
+      }
+      out.appendChild(el('div', { class: 'banner' },
+        el('b', null, counts.validate + ' waiting. '),
+        'Each came out of a report, the least-trusted source. Check the name against the passage, '
+        + 'then Confirm (the rule places it in the pipeline), mark it Not an allocator, or Fix the details first.'));
+      const section = (label, n) => el('p', { class: 'mono',
+        style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:22px 0 8px' },
+        label + '  \u00B7  ' + n);
+      if (q.mandates.length) {
+        out.appendChild(section('Mandates', q.mandates.length));
+        for (const m of q.mandates) out.appendChild(card('wi_mandates', m));
+      }
+      if (q.leads.length) {
+        out.appendChild(section('Prospects', q.leads.length));
+        for (const l of q.leads) out.appendChild(card('report_leads', l));
+      }
+    });
+  }
+  load();
+};
+
 RENDER.hfn = function (body) {
   clear(body);
 
@@ -5173,7 +5377,7 @@ function renderOpenOpps(host) {
     'select=id,investor_name,organization_name,investor_country,investor_city,investor_type,open_to_emerging_managers,strategies,asset_classes,aum_usd,aum_band,'
     + 'qualification,fit_score,new_qualification,new_fit_score,intention_summary,requirements_raw,appetite_raw,'
     + 'view_investor_url,linkedin_url,contact_name,evidence,seen_at,approved_at,alert_date'
-    + '&qualification=in.(matched,uncertain)&approved_at=is.null&seen_at=is.null'
+    + '&qualification=in.(matched,uncertain)&approved_at=is.null&seen_at=is.null&' + NOT_PENDING
     + '&order=new_fit_score.desc.nullslast,fit_score.desc.nullslast&limit=24'), (rows) => {
 
     if (!rows.length) return emptyOut();
@@ -5544,7 +5748,7 @@ RENDER.network = function (body) {
       try {
         mand = await readRows('wi_mandates',
           'select=id,investor_name,organization_name,linkedin_url,qualification,investor_country'
-          + '&linkedin_url=not.is.null&limit=400', 'wi.mandates.list', {});
+          + '&linkedin_url=not.is.null&' + NOT_PENDING + '&limit=400', 'wi.mandates.list', {});
       } catch (_) {}
 
       const seen = {};
@@ -5824,7 +6028,7 @@ RENDER.find = function (body) {
   fill(out, async () => {
     if (DEMO) return [];
     /* EDIT 8 — raise the row cap from 1000 so all ~1,286 mandates load. */
-    return await supaSelect('wi_mandates', 'select=*&order=id.desc&limit=5000');
+    return await supaSelect('wi_mandates', 'select=*&' + NOT_PENDING + '&order=id.desc&limit=5000');
   }, (rows) => { all = rows; allInvestors = dedupeInvestors(rows).length; run(); });
 };
 
@@ -6931,7 +7135,7 @@ async function localMandates(f) {
   const q = ['select=*', 'order=id.desc', 'limit=1000'];
   if (f.verdicts && f.verdicts.length) {
     const list = f.verdicts.join(',');
-    q.push('or=(new_qualification.in.(' + list + '),'
+    q.push(NOT_PENDING, 'or=(new_qualification.in.(' + list + '),'
       + 'and(new_qualification.is.null,qualification.in.(' + list + ')))');
   } else {
     q.push(VERDICT_OPEN);
@@ -7036,7 +7240,8 @@ async function answerLocally(host, question) {
   } else if (/opportunit|mandate|approve/.test(low)) {
     const m = await readRows('wi_mandates',
       'select=id,investor_name,organization_name,investor_country,investor_type,fit_score,fit_reason'
-      + '&qualification=eq.uncertain&published_at=is.null&order=new_fit_score.desc.nullslast,fit_score.desc.nullslast&limit=40',
+      + '&qualification=eq.uncertain&published_at=is.null&' + NOT_PENDING
+      + '&order=new_fit_score.desc.nullslast,fit_score.desc.nullslast&limit=40',
       'wi.reviews.pending', {});
     if (!m.length) { host.appendChild(el('p', null, 'Nothing is waiting on a decision.')); return; }
     host.appendChild(el('p', { class: 'mono',
@@ -7212,7 +7417,7 @@ async function answerLocally(host, question) {
   try {
     mandates = await readRows('wi_mandates',
       'select=id,investor_name,organization_name,investor_country,investor_type,fit_score,fit_reason'
-      + '&order=id.desc&limit=8'
+      + '&' + NOT_PENDING + '&order=id.desc&limit=8'
       + ilikeAny(['investor_name', 'organization_name', 'investor_country', 'fit_reason'], t),
       'wi.mandates.list', {});
   } catch (_) {}
@@ -7504,12 +7709,14 @@ async function poll() {
     const dayStart = new Date();
     dayStart.setHours(0, 0, 0, 0);
 
-    const [n, opps] = await Promise.all([
+    const [n, opps, waiting] = await Promise.all([
       supaSelect('app_notifications', 'select=id&read_at=is.null&limit=200'),
-      openOpportunityCount()
+      openOpportunityCount(),
+      validationQueue().catch(() => null)
     ]);
     counts.today = n.length;
     counts.opps = opps;
+    if (waiting) counts.validate = waiting.mandates.length + waiting.leads.length;
     counts.approvals = 0;
     counts.network = await newConnectionCount();
 
@@ -7625,7 +7832,7 @@ async function connectionFeed() {
     supaSelect('wi_mandates',
       'select=id,investor_name,organization_name,linkedin_url,qualification,'
       + 'investor_country,investor_city,fit_score,approved_at,source_kind,alert_date,seen_at'
-      + '&limit=3000'),
+      + '&' + NOT_PENDING + '&limit=3000'),
     supaSelect('linkedin_mutual',
       'select=full_name,profile_url,mutual_to,mutual_count&limit=20000'),
     supaSelect('contacts',
