@@ -4903,6 +4903,9 @@ const VALIDATE_GROUPS = [
   { q: 'rejected',   tone: 'bad',    label: 'Rule would reject', note: 'A manager, news, or not a hedge-fund allocator. Confirm still files it as rejected.' }
 ];
 
+const VALIDATE_DECIDED = { q: null, tone: 'muted', label: 'Already decided',
+  note: 'A person already set the verdict. Keep it to take the row off this list; the rule\u2019s suggestion is shown for reference only.' };
+
 function validationStamp(to) {
   return { validation_status: to, validated_by: (session && session.email) || 'console',
     validated_at: new Date().toISOString() };
@@ -5007,11 +5010,18 @@ RENDER.validate = function (body) {
     const pdf = reportPageUrl(isLead ? row.report_url : row.view_article_url, page);
     const from = isLead ? 'Report' : (ev.from_report || 'Report');
     const r = rescore(m);
+    // A verdict a person already set (schema 11) is shown as theirs, not the rule's.
+    const decided = !isLead && row.verdict_source === 'manual';
+    const handVerdict = BAND_LABEL[bandOf(row)] || bandOf(row);
     const suggest = isLead ? 'Prospect \u2014 no mandate stated'
       : (SUGGEST_LABEL[r.band] || r.band) + (r.s === null ? '' : '  \u00B7  ' + num(r.s));
     const where = [row.investor_city, row.investor_country].filter(Boolean).join(', ');
 
-    const actions = [
+    const actions = decided ? [
+      // Keeps the person's verdict: only the validation stamp is written.
+      { label: 'Keep as ' + handVerdict, primary: true, run: () => decide(table, row,
+          validationStamp('confirmed'), 'Kept as ' + handVerdict + ' \u2014 it leaves this list.') }
+    ] : [
       { label: 'Confirm', primary: true, run: () => decide(table, row,
           isLead ? validationStamp('confirmed') : confirmPatch(row),
           isLead ? 'Confirmed as a prospect.' : 'Confirmed \u2014 it is in the pipeline as ' + (SUGGEST_LABEL[r.band] || r.band).toLowerCase() + '.') },
@@ -5021,21 +5031,25 @@ RENDER.validate = function (body) {
         } },
       { label: 'Fix details', run: () => fixDetails(table, row) }
     ];
+    if (decided) actions.push({ label: 'Fix details', run: () => fixDetails(table, row) });
     if (pdf) actions.push({ label: 'Open the PDF' + (page ? '  \u00B7  p.' + page : ''),
       run: () => window.open(pdf, '_blank', 'noopener,noreferrer') });
 
     return entry({
-      tone: isLead ? '' : (r.q === 'matched' ? 'good' : r.q === 'rejected' ? 'bad' : ''),
+      tone: isLead ? '' : decided ? bandTone(bandOf(row)) : (r.q === 'matched' ? 'good' : r.q === 'rejected' ? 'bad' : ''),
       action: row.investor_name || 'Unnamed investor',
       who: [row.investor_type || 'type not stated', where || 'geography not stated'].join('  \u00B7  '),
       callout: passage ? '\u201C' + (passage.length > 480 ? passage.slice(0, 480) + '\u2026' : passage) + '\u201D' : null,
       calloutLabel: 'In the report',
       tags: [[isLead ? 'Prospect' : 'Mandate'], [from + (page ? ', p.' + page : '')]],
-      evidence: [
-        ['rule suggests', suggest],
+      evidence: (decided ? [
+        ['decided by hand', handVerdict + (row.fit_reason ? ' \u2014 ' + row.fit_reason : '')],
+        ['by', [row.verdict_set_by, row.verdict_set_at ? fmtDate(row.verdict_set_at) : null].filter(Boolean).join(', ')],
+        ['rule alone would say', suggest]
+      ] : [['rule suggests', suggest]]).concat([
         ['signal', isLead ? (row.signal || row.summary) : (ev.signal || row.intention_summary)],
         ['contact', row.contact_name]
-      ],
+      ]),
       actions: actions
     });
   }
@@ -5060,10 +5074,14 @@ RENDER.validate = function (body) {
       // shows), strongest first. Display only: what is pending and what Confirm
       // writes are unchanged. An empty group is not shown.
       const groups = VALIDATE_GROUPS.map(g => ({ g: g, rows: [] }));
+      const decidedRows = q.mandates.filter(m => m.verdict_source === 'manual');
       for (const m of q.mandates) {
+        if (m.verdict_source === 'manual') continue;
         const v = rescore(m).q;
         (groups.find(x => x.g.q === v) || groups[groups.length - 1]).rows.push(m);
       }
+      // A row a person already ruled on sits apart, just above Rule would reject.
+      groups.splice(groups.length - 1, 0, { g: VALIDATE_DECIDED, rows: decidedRows });
       for (const { g, rows } of groups) {
         if (!rows.length) continue;
         out.appendChild(el('div', { class: 'vgroup vgroup-' + g.tone },
