@@ -191,6 +191,16 @@ function el(tag, attrs, ...kids) {
   return n;
 }
 const $ = (id) => document.getElementById(id);
+// The drag-and-drop area of an upload form: a label for the hidden file input.
+function upZone(forId, input, heading, text) {
+  const ic = el('span', { class: 'up-ic', 'aria-hidden': 'true' });
+  ic.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" '
+    + 'stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4"/><path d="M7.5 8.5 12 4l4.5 4.5"/>'
+    + '<path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>';
+  return el('label', { class: 'upzone', for: forId },
+    input, ic, el('h4', null, heading), el('p', null, text),
+    el('span', { class: 'up-btn' }, 'Choose a file'));
+}
 function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
 
 function toast(msg, bad) {
@@ -839,10 +849,10 @@ const TABS = [
     sub: 'The ones a person has approved. A subset of Opportunities, not a separate list.' },
   { id: 'rejected', icon: '\u25BD', label: 'Rejected',      title: 'Rejected', group: 'wi',
     sub: 'Screened out on two or more criteria. Kept so you can see what was turned away, and why.' },
-  { id: 'validate', icon: '\u2713', label: 'To validate',   title: 'To validate', group: 'wi',
-    sub: 'Investors read out of a report wait here. Nothing in this list reaches Opportunities, Find or Ask until you confirm it.' },
   { id: 'hfn',      icon: '\u25A4', label: 'HFA & FOC',     title: 'Hedge Fund Alert & Family Office Confidential', group: 'wi',
     sub: 'Filed by publication, each with a summary written beside it so you need not open the PDF.' },
+  { id: 'validate', icon: '\u2713', label: 'To validate',   title: 'To validate', group: 'wi', sub2: true,
+    sub: 'Investors read out of a report wait here. Nothing in this list reaches Opportunities, Find or Ask until you confirm it.' },
   { id: 'contacts', archived: true, icon: '\u25A0', label: 'Contacts',     title: 'Contacts',
     sub: 'The fundraising book. Who knows Taranis, when you last emailed, and what is owed.' },
   { id: 'notes', archived: true,    icon: '\u25A5', label: 'Notes',        title: 'Notes',
@@ -4648,10 +4658,8 @@ RENDER.docs = function (body) {
 
   const input = el('input', { type: 'file', id: 'doc-file',
     accept: '.pdf,.pptx,.ppt,.docx,.doc,.xlsx,.xls,.png,.jpg,.jpeg' });
-  const drop = el('label', { class: 'drop', for: 'doc-file' },
-    input,
-    el('h4', null, 'Add a document'),
-    el('p', null, 'Drop a deck or report here, or click to choose one. Up to 50 MB.'));
+  const drop = upZone('doc-file', input, 'Add a document',
+    'Drop a deck or report here, or click to choose one. Up to 50 MB.');
 
   const chosen = el('div');
   const title = el('input', { class: 'search', placeholder: 'Title, e.g. Taranis Market Sentiment' });
@@ -4980,11 +4988,9 @@ RENDER.hfn = function (body) {
   let picked = null;
 
   const input = el('input', { type: 'file', id: 'hfn-file', accept: '.pdf' });
-  const drop = el('label', { class: 'drop', for: 'hfn-file' },
-    input,
-    el('h4', null, 'File a report'),
-    el('p', null, 'Drop a PDF here, or click to choose one. Up to 50 MB. '
-      + 'It is filed under the folder selected above.'));
+  const drop = upZone('hfn-file', input, 'File a report',
+    'Drop a PDF here, or click to choose one. Up to 50 MB. '
+      + 'It is filed under the folder selected above.');
 
   const folders = el('div', { class: 'chips', style: 'margin-bottom:14px' });
   const fBtn = {};

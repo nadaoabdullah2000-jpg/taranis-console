@@ -343,12 +343,32 @@ main{
 #toast.on{transform:translateX(-50%) translateY(0)}
 #toast.bad{background:var(--bad)}
 
-/* Documents upload */
-.drop{border:1.5px dashed var(--rule);border-radius:10px;background:var(--card);padding:26px 20px;text-align:center;cursor:pointer}
-.drop:hover,.drop.over{border-color:var(--sky);background:var(--accent-soft)}
-.drop h4{font-family:var(--font-display);font-stretch:125%;font-weight:600;font-size:17px;margin:0 0 4px}
-.drop p{margin:0;font-size:13px;color:var(--ink-3)}
-.drop input[type=file]{display:none}
+/* Upload drop zone (File a report, Documents). Its own class: the
+   Opportunities list injects a .drop card style that must not reach it. */
+.upzone{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+  min-height:190px;padding:30px 24px;text-align:center;cursor:pointer;
+  border:2px dashed rgba(0,161,196,.45);border-radius:14px;
+  background:linear-gradient(180deg,rgba(0,161,196,.05),rgba(0,161,196,0) 70%),var(--card);
+  box-shadow:0 1px 2px rgba(16,35,58,.04);
+  transition:border-color .15s,background-color .15s,box-shadow .15s}
+.upzone:hover{border-color:#00A1C4;background-color:var(--card);
+  box-shadow:0 2px 4px rgba(16,35,58,.05),0 12px 26px -14px rgba(0,120,160,.55)}
+.upzone.over{border-style:solid;border-color:#00A1C4;background:rgba(0,161,196,.10);
+  box-shadow:0 0 0 4px rgba(0,161,196,.16),0 12px 26px -14px rgba(0,120,160,.55)}
+.upzone .up-ic{width:54px;height:54px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  margin-bottom:8px;background:rgba(0,161,196,.12);color:#00A1C4;transition:transform .15s,background-color .15s}
+.upzone .up-ic svg{width:26px;height:26px}
+.upzone:hover .up-ic{background:rgba(0,161,196,.18)}
+.upzone.over .up-ic{transform:translateY(-3px);background:#00A1C4;color:#fff}
+.upzone h4{font-family:var(--font-display);font-stretch:125%;font-weight:600;font-size:18px;margin:0;color:var(--ink)}
+.upzone p{margin:0;max-width:440px;font-size:13px;line-height:1.5;color:var(--ink-3)}
+.upzone .up-btn{margin-top:12px;display:inline-block;padding:7px 16px;border-radius:999px;
+  border:1px solid #00A1C4;color:#00A1C4;font-size:13px;font-weight:600;letter-spacing:.01em;background:transparent}
+.upzone:hover .up-btn{background:#00A1C4;color:#fff}
+.upzone.over .up-btn{visibility:hidden}
+.upzone.over::after{content:'Release to add it';position:absolute;bottom:22px;left:0;right:0;
+  font-size:13px;font-weight:600;color:#00A1C4}
+.upzone input[type=file]{display:none}
 .picked{display:flex;align-items:center;gap:10px;background:var(--accent-soft);border-radius:7px;padding:9px 13px;margin-top:10px;font-size:13.5px}
 .picked .nm{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .picked .sz{font-family:var(--font-body);font-size:11.5px;color:var(--ink-3);margin-left:auto;flex:none}
