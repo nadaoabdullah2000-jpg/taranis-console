@@ -5689,6 +5689,9 @@ RENDER.reports = function (body) {
       };
       const H = (t) => el('p', { class: 'rpt-h' }, t);
 
+      // Snapshots from 16 Oct 2026 count investors, as the Opportunities Waiting button
+      // does; older ones counted rows, so their label says so.
+      const awaitLbl = m.wi_awaiting_basis === 'investors' ? 'Investors awaiting you' : 'Rows awaiting you';
       const kpis = el('div', { class: 'rpt-kpis' });
       // Brand palette: Primary #00A1C4 (rpt-c1), Secondary #C48500 (rpt-c2),
       // Accent #9FDCE9 (rpt-c3), Accent-dark #00657B (rpt-c4); Rejected keeps
@@ -5697,7 +5700,7 @@ RENDER.reports = function (body) {
         ['Screened', n(m.wi_new), 'wi_new', 'rpt-c4'],
         ['Matched', n(m.wi_matched), 'wi_matched', 'rpt-c1'],
         ['Rejected', n(m.wi_rejected), 'wi_rejected', 'rpt-cbad'],
-        ['Awaiting you', n(m.wi_awaiting), null, 'rpt-c2'],
+        [awaitLbl, n(m.wi_awaiting), null, 'rpt-c2'],
         ['Matched value', shortMoney(m.wi_ticket_value), null, 'rpt-c1'],
         ['Emails', n(m.crm_week), 'crm_week', 'rpt-c4'],
         ['LinkedIn', liCount == null ? '\u2014' : String(liCount), null, 'rpt-c4']
@@ -5720,7 +5723,7 @@ RENDER.reports = function (body) {
       host.appendChild(el('div', { class: 'rpt-funnel' },
         stage('Screened', n(m.wi_new), '#00657B'),
         stage('Matched', n(m.wi_matched), '#00A1C4'),
-        stage('Awaiting you', n(m.wi_awaiting), '#C48500'),
+        stage(awaitLbl, n(m.wi_awaiting), '#C48500'),
         stage('Rejected', n(m.wi_rejected), '#A6402E')));   // the light theme's --bad: white text stays readable in dark mode too
 
       const bar = (label, value, max, grad, tagAddr) => {
