@@ -959,7 +959,11 @@ function stagePane(build) {
   const old = $('pg-body');
   if (STAGE && !STAGE.done) STAGE.abandon();    // a newer view replaces one still loading
   if (!old.childNodes.length) busy(old);           // first view after sign-in: say so, never blank
+  // The new pane takes the old one's classes but never its busy dimming: a view
+  // abandoned mid-load leaves the old pane dimmed (pointer-events:none), and a
+  // copy of that class would keep every later view dimmed and unclickable.
   const next = el('div', { class: old.className, style: 'display:none' });
+  next.classList.remove('is-busy');
   old.parentNode.insertBefore(next, old.nextSibling);
   const st = { root: next, pending: 0, done: false };
   const slow = setTimeout(() => { if (!st.done) old.classList.add('is-busy'); }, STAGE_SLOW_MS);
@@ -971,9 +975,10 @@ function stagePane(build) {
     old.removeAttribute('id');
     next.id = 'pg-body';
     next.style.display = '';
+    next.classList.remove('is-busy');
     old.remove();
   };
-  st.abandon = () => { stop(); next.remove(); };
+  st.abandon = () => { stop(); next.remove(); old.classList.remove('is-busy'); };
   STAGE = st;
   st.pending++;
   let ret;
@@ -1522,14 +1527,9 @@ function qualificationControl(m, after) {
     o.selected = true;
     sel.insertBefore(o, sel.firstChild);
   }
-  sel.appendChild(el('option', { value: '__custom' }, 'Custom\u2026'));
 
   sel.addEventListener('change', async () => {
-    let to = sel.value;
-    if (to === '__custom') {
-      to = String(prompt('New qualification label') || '').trim().toLowerCase().replace(/\s+/g, '_');
-      if (!to) { sel.value = cur; return; }
-    }
+    const to = sel.value;
     if (to === cur) return;
     sel.disabled = true;
     try {
@@ -1586,10 +1586,16 @@ function investorKey(m) {
   return String(resolvedInvestor(m).name || '').toLowerCase().replace(/[.,]/g, '').replace(/\s+/g, ' ').trim();
 }
 
+const VERDICT_RANK = { matched: 5, uncertain: 4, low: 3, needs_data: 2, rejected: 1 };
 function dedupeInvestors(rows) {
   if (!Array.isArray(rows)) return rows;
-  const rank = (m) => [m && m.wi_enriched_at ? 1 : 0, Number(m && m.fit_score) || 0, Number(m && m.id) || 0];
-  const better = (a, b) => { const ra = rank(a), rb = rank(b); for (let i = 0; i < 3; i++) { if (ra[i] !== rb[i]) return ra[i] > rb[i]; } return false; };
+  // The investor's card is its strongest row by the console's verdict, then the
+  // re-score (new_fit_score, the old score only where there is none), then
+  // enrichment and recency. Ranking by the old fit_score alone let a needs_data
+  // row front an investor whose other row is matched (Haussmann Fund).
+  const rank = (m) => [VERDICT_RANK[bandOf(m)] || 0, sortFit(m) || 0,
+    m && m.wi_enriched_at ? 1 : 0, Number(m && m.id) || 0];
+  const better = (a, b) => { const ra = rank(a), rb = rank(b); for (let i = 0; i < ra.length; i++) { if (ra[i] !== rb[i]) return ra[i] > rb[i]; } return false; };
   const groups = new Map(), unnamed = [];
   for (const m of rows) {
     const key = investorKey(m);
