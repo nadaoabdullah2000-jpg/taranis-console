@@ -1344,6 +1344,92 @@ function bandTone(b) {
   return b === 'matched' ? 'good' : b === 'rejected' ? 'bad' : 'signal';
 }
 
+/* Why a row has its verdict, from the same source as the verdict.
+   The verdict is new_qualification: the rule's re-score (WI 01, HFN 02,
+   rescore() here) or a person's choice. fit_reason is something else: the
+   language model's opinion, written once at intake and never checked against
+   the verdict, so it can contradict it (NYU, matched 1.0, read "macro/CTA -
+   wrong fit"; 166 rows did on 12 Oct 2026). So the reason a person reads is
+   built from the rule's own signals, or is the person's own words where a
+   person decided. fit_reason is only ever shown as the AI's opinion. */
+const RE_HAND_REASON = /^(Not an allocator|Not a direct allocator|Not an investor mandate|Review: |Criteria mismatch)/;
+function handReason(m) {
+  const r = String((m && m.fit_reason) || '').trim();
+  return m && m.verdict_source === 'manual' && RE_HAND_REASON.test(r) ? r : '';
+}
+// The long/short or quant wording that made isStrong() true, named.
+function strongTerm(m, t) {
+  const sysOk = !RE_EXCL.test(t);
+  const u = t.replace(RE_NEGATED, ' ');
+  const hit = (u.match(RE_STRONG_CORE) || (sysOk && u.match(/systematic/)) || [])[0]
+    || stratWords(m).find(w => RE_STRONG_CORE.test(w) || (sysOk && /systematic/.test(w))) || '';
+  return /quant/.test(hit) ? 'quant' : /systematic/.test(hit) ? 'systematic' : 'long/short equity';
+}
+const capFirst = (x) => x ? x.charAt(0).toUpperCase() + x.slice(1) : x;
+function verdictReason(m) {
+  if (!m) return '';
+  const hand = handReason(m);
+  if (hand) return 'Decided by hand: ' + hand;
+  const lead = m.verdict_source === 'manual' ? 'Set by hand. ' : '';
+  const band = bandOf(m);
+  const t = sigText(m);
+  if (band === 'rejected') {
+    const typ = String(m.investor_type || '').trim();
+    const fails = rejectFails(m);
+    let s;
+    if (isNotMandate(m)) s = 'Not an investor mandate' + (m.investor_tag ? ': With Intelligence filed it under ' + m.investor_tag : '');
+    else if (KNOWN_MANAGERS.test(String(m.investor_name || ''))) s = 'A hedge-fund manager, not an allocator';
+    else if (typ.toLowerCase() === 'hedge fund' || RE_NOT_ALLOCATOR.test(typ.toLowerCase())) s = 'Not an allocator (' + typ + ')';
+    else if (fails.length) s = fails.map((f, i) => i ? f.charAt(0).toLowerCase() + f.slice(1) : f).join('; ');
+    else s = 'No hedge-fund mandate found';
+    return lead + s.replace(/[.\s]+$/, '') + '.';
+  }
+  const st = critStatus(m);   // buys hedge funds, long/short or quant, technology
+  const strong = st[1] === 'yes', tech = st[2] === 'yes';
+  const hedge = st[0] === 'yes' ? 'buys hedge funds' : st[0] === 'no' ? 'asset class stated without hedge funds' : 'hedge-fund appetite not stated';
+  const strongBit = strong ? capFirst(strongTerm(m, t)) + ' stated' : '';
+  const techBit = tech ? 'technology interest' : '';
+  let s;
+  if (band === 'matched') {
+    s = strong || tech ? [strongBit, techBit, st[0] === 'yes' ? hedge : ''].filter(Boolean).join(', ')
+      : 'Matched by the re-score, though the stored fields no longer show a long/short, quant or technology signal';
+  } else if (band === 'uncertain') {
+    if (strong && /^people$/i.test(String(m.investor_tag || '').trim())) s = 'An allocator\u2019s hire: worth a look, never an automatic match';
+    else if (tech && !strong) s = 'Technology interest, but no long/short or quant stated: worth a look';
+    else s = 'Held for a person to look at: ' + [strongBit, techBit, hedge].filter(Boolean).join(', ');
+  } else if (band === 'low') {
+    const x = t.match(RE_EXCL);
+    s = 'Only ' + (x ? x[0] : 'CTA, macro or market-neutral') + ' stated, no long/short, quant or technology signal: the wrong fit for a long-biased L/S equity fund';
+  } else {
+    const w = stratWords(m);
+    s = capFirst(hedge) + (st[0] === 'yes' ? ', but ' : '; ') + (w.length ? 'its strategy (' + w.slice(0, 3).join(', ') + ') is not long/short, quant or technology'
+      : 'no strategy or technology stated') + ': needs data';
+  }
+  const where = geoText(m);
+  const ctx = [where !== 'not stated' ? where : '',
+    m.open_to_emerging_managers === true ? 'open to emerging managers'
+      : m.open_to_emerging_managers === false ? 'not open to emerging managers' : ''].filter(Boolean).join(', ');
+  return lead + capFirst(s) + (ctx ? ' (' + ctx + ')' : '') + '.';
+}
+// The language model's opinion from intake, labelled as such and folded away.
+// Never the reason for the verdict; shown so nothing it said is hidden.
+function aiOpinion(m) {
+  // "Hard criteria failure" is the workflow's hard-fail stamp, not an opinion;
+  // the banner already says which criteria failed.
+  const r0 = handReason(m) ? '' : String((m && m.fit_reason) || '').trim();
+  const r = /^hard criteria failure$/i.test(r0) ? '' : r0;
+  const lists = [['Signals', m && m.positive_signals], ['Risks', m && m.risks],
+    ['Missing', m && m.missing_information]]
+    .map(([k, v]) => [k, jsonArr(v).map(x => htmlToText(String(x))).filter(Boolean)])
+    .filter(([, v]) => v.length);
+  if (!r && !lists.length) return null;
+  const score = m.fit_score !== null && m.fit_score !== undefined && m.fit_score !== '' ? scoreText(m.fit_score) : '';
+  return el('details', { class: 'ai-opinion', style: 'margin:-8px 0 18px;font-size:13px;color:var(--ink-3)' },
+    el('summary', { style: 'cursor:pointer' }, 'AI opinion at intake (not used for the verdict)'),
+    r ? el('p', { style: 'margin:6px 0 0' }, r + (score ? '  \u00B7  ' + score : '')) : null,
+    ...lists.map(([k, v]) => el('p', { style: 'margin:4px 0 0' }, k + ': ' + v.join('; '))));
+}
+
 function ensureMatchCss() {
   if (document.getElementById('taranis-matchcard-css')) return;
   const s = document.createElement('style');
@@ -1464,7 +1550,7 @@ function matchCard(m, opts) {
   if (Array.isArray(rawInts) && rawInts.length > 1) {
     const seen = {}, ints = [];
     for (const it of rawInts) {
-      const sum = String(it.intention_summary || it.fit_reason || '').replace(/\s+/g, ' ').trim();
+      const sum = String(it.intention_summary || '').replace(/\s+/g, ' ').trim();
       const key = sum.toLowerCase() + '|' + String(it.ticket_min_usd || '');
       if (seen[key]) continue;
       seen[key] = 1;
@@ -1784,7 +1870,7 @@ async function wiStrip(host) {
   try {
     const since = new Date(Date.now() - 7 * 864e5).toISOString();
     const rows = await readRows('wi_mandates',
-      'select=qualification,hard_fail_reasons,fit_reason,created_at'
+      'select=qualification,hard_fail_reasons,created_at'
       + '&created_at=gte.' + since + '&' + NOT_PENDING + '&limit=500', 'wi.mandates.list', {});
     if (!rows.length) return;
 
@@ -1796,7 +1882,7 @@ async function wiStrip(host) {
       if (q !== 'rejected') continue;
       let reasons = r.hard_fail_reasons;
       if (typeof reasons === 'string') { try { reasons = JSON.parse(reasons); } catch (_) { reasons = []; } }
-      if (!Array.isArray(reasons) || !reasons.length) reasons = r.fit_reason ? [r.fit_reason] : ['not stated'];
+      if (!Array.isArray(reasons) || !reasons.length) reasons = ['not stated'];
       for (const x of reasons) { const k = String(x).trim(); if (k) why[k] = (why[k] || 0) + 1; }
     }
     const top = Object.keys(why).sort((x, y) => why[y] - why[x]).slice(0, 5);
@@ -2012,7 +2098,7 @@ RENDER.intake = function (body) {
         calloutTone: 'signal',
         record: m,
         evidence: [
-          ['score     ', m.fit_score],
+          ['score     ', scoreText(m.new_fit_score)],
           ['published ', m.published_at ? fmtDate(m.published_at) : null],
           ['ticket    ', money(m.ticket_min_usd)],
           ['strategy  ', asText(m.strategies)],
@@ -2105,7 +2191,7 @@ RENDER.intake = function (body) {
             ['type       ', asText(m.investor_type)],
             ['strategy   ', asText(m.strategies)],
             ['ticket     ', money(m.ticket_min_usd)],
-            ['score      ', m.fit_score]
+            ['score      ', scoreText(m.new_fit_score)]
           ],
           tags: [[q, tone]],
           actions: [
@@ -2153,7 +2239,7 @@ RENDER.intake = function (body) {
 
     const ids = emails.map(e => e.id).filter(v => v !== null && v !== undefined);
     const mandates = ids.length ? await supaSelect('wi_mandates',
-      'select=id,raw_email_id,investor_name,organization_name,qualification,fit_score,'
+      'select=id,raw_email_id,investor_name,organization_name,qualification,new_qualification,new_fit_score,'
       + 'investor_country,investor_type,investor_tag,strategies,ticket_min_usd,intention_summary'
       + '&raw_email_id=in.(' + ids.join(',') + ')'
       + '&order=id.asc&limit=300') : [];
@@ -2188,7 +2274,8 @@ RENDER.approvals = function (body) {
     const rows = await readRows('wi_mandates',
       'select=id,investor_name,organization_name,investor_country,investor_type,'
       + 'ticket_min_usd,ticket_max_usd,alert_date,fit_score,fit_reason,approved_at,approved_by,seen_at,qualification,new_qualification,new_fit_score,'
-      + 'intention_summary,requirements_raw,appetite_raw,evidence,strategies,asset_classes,investor_city,open_to_emerging_managers'
+      + 'intention_summary,requirements_raw,appetite_raw,evidence,strategies,asset_classes,investor_city,open_to_emerging_managers,'
+      + 'investor_tag,hard_fail_reasons,verdict_source,positive_signals,risks,missing_information'
       + '&approved_at=not.is.null'
       + '&qualification=neq.rejected'
       + '&order=approved_at.desc.nullslast&limit=200',
@@ -2223,10 +2310,10 @@ RENDER.approvals = function (body) {
             ['country  ', asText(r.investor_country)],
             ['type     ', asText(r.investor_type)],
             ['ticket   ', money(r.ticket_min_usd)],
-            ['score    ', r.fit_score],
+            ['score    ', scoreText(r.new_fit_score)],
             ['approved ', r.approved_at ? fmtDate(r.approved_at) : null],
             ['by       ', r.approved_by],
-            ['reason   ', asText(r.fit_reason)]
+            ['reason   ', verdictReason(r)]
           ],
           tags: [['approved', 'good']],
           actions: [
@@ -3352,7 +3439,7 @@ function oppsPasses(m, skip) {
   }
   if (skip !== 'q'        && F.q) {
     const hay = [m.investor_name, m.organization_name, m.investor_city, m.investor_country,
-      m.investor_type, asText(m.strategies), asText(m.fit_reason)]
+      m.investor_type, asText(m.strategies), asText(m.intention_summary)]
       .filter(Boolean).join(' ').toLowerCase();
     if (!hay.includes(F.q.toLowerCase())) return false;
   }
@@ -5107,7 +5194,7 @@ RENDER.validate = function (body) {
         el('span', null, 'In the report'),
         '\u201C' + (passage.length > 480 ? passage.slice(0, 480) + '\u2026' : passage) + '\u201D') : null,
       el('div', { class: 'vcard-kvs' },
-        decided ? kv('decided by hand', handVerdict + (row.fit_reason ? ' \u2014 ' + row.fit_reason : '')) : null,
+        decided ? kv('decided by hand', handVerdict + (handReason(row) ? ' \u2014 ' + handReason(row) : '')) : null,
         decided ? kv('by', [row.verdict_set_by, row.verdict_set_at ? fmtDate(row.verdict_set_at) : null].filter(Boolean).join(', ')) : null,
         kv(decided ? 'rule alone would say' : 'rule suggests', suggest),
         kv('signal', isLead ? (row.signal || row.summary) : (ev.signal || row.intention_summary)),
@@ -6718,7 +6805,6 @@ function investorView(full, m) {
   const who = [asText(full.investor_type), geoText(full) !== 'not stated' ? geoText(full) : '',
     full.aum_band ? 'AUM ' + asText(full.aum_band) : ''].filter(Boolean).join('  \u00B7  ');
   const summary = asText(full.intention_summary);
-  const signals = jsonArr(full.positive_signals).map(String).filter(Boolean);
   let ev = full.evidence;
   for (let i = 0; i < 2 && typeof ev === 'string'; i++) { try { ev = JSON.parse(ev); } catch (_) { ev = {}; } }
   // WI sends the profile as HTML (<p>, <em>); show its words, not its tags.
@@ -6726,14 +6812,13 @@ function investorView(full, m) {
   box.appendChild(section('Summary',
     who ? para(who, true) : null,
     summary ? para(summary) : para('The alert gave no summary.', true),
-    profile && profile !== summary ? para('WI profile: ' + profile, true) : null,
-    signals.length ? list(signals) : null));
+    profile && profile !== summary ? para('WI profile: ' + profile, true) : null));
 
   // Intentions: every distinct intention when the investor has several,
   // otherwise what this one asks for.
   const seen = {}, ints = [];
   for (const it of ((m && m._intentions) || full._intentions || [])) {
-    const t = String(it.intention_summary || it.fit_reason || '').replace(/\s+/g, ' ').trim();
+    const t = String(it.intention_summary || '').replace(/\s+/g, ' ').trim();
     if (!t || seen[t.toLowerCase()]) continue;
     seen[t.toLowerCase()] = 1;
     ints.push([it.alert_date ? fmtDate(it.alert_date) : '', t, money(it.ticket_min_usd)]);
@@ -6801,7 +6886,9 @@ async function openMandate(m) {
     host.appendChild(el('div', { class: 'banner',
       style: q === 'rejected' ? 'border-color:var(--bad);background:transparent;color:var(--bad)' : '' },
       el('b', null, q === 'rejected' ? 'Rejected. ' : q === 'matched' ? 'Matched. ' : 'Awaiting a decision. '),
-      asText(full.fit_reason) || 'No reason recorded.'));
+      verdictReason(full)));
+    const opinion = aiOpinion(full);
+    if (opinion) host.appendChild(opinion);
 
     if (full.linkedin_url) {
       const handle = String(full.linkedin_url)
@@ -6910,7 +6997,9 @@ async function openMandate(m) {
       'view_article_url','view_intention_url','view_investor_url',
       // shown in the readable investor view above
       'intention_summary','positive_signals','requirements_raw','appetite_raw','allocation_timing',
-      'contact_name','emails','linkedin_urls','aum_band'];
+      'contact_name','emails','linkedin_urls','aum_band',
+      // the model's opinion, shown folded under the verdict (aiOpinion)
+      'risks','missing_information','recommended_next_action'];
 
     const HIDE = ['record_key','raw_email_id','source_message_id','block_index',
       'source_email_date','created_at','updated_at','field_sources','soft_flags',
@@ -7502,7 +7591,7 @@ async function answerLocally(host, question) {
     return;
   } else if (/opportunit|mandate|approve/.test(low)) {
     const m = await readRows('wi_mandates',
-      'select=id,investor_name,organization_name,investor_country,investor_type,fit_score,fit_reason'
+      'select=' + MANDATE_LIST_COLS
       + '&qualification=eq.uncertain&published_at=is.null&' + NOT_PENDING
       + '&order=new_fit_score.desc.nullslast,fit_score.desc.nullslast&limit=40',
       'wi.reviews.pending', {});
@@ -7512,10 +7601,10 @@ async function answerLocally(host, question) {
       m.length + ' waiting on a decision'));
     for (const x of m) {
       host.appendChild(entry({
-        tone: 'signal', rail: x.fit_score !== null && x.fit_score !== undefined ? String(x.fit_score) : '',
+        tone: 'signal', rail: scoreText(x.new_fit_score).replace(' / 1', ''),
         action: x.investor_name || x.organization_name || ('Mandate #' + x.id),
         who: [x.organization_name, asText(x.investor_country), asText(x.investor_type)].filter(Boolean).join('  \u00B7  '),
-        evidence: [['why  ', asText(x.fit_reason)]],
+        evidence: [['why  ', verdictReason(x)]],
         actions: [
           { label: 'View the mandate', primary: true, run: () => openMandate(x) },
           { label: 'See what is waiting', run: () => { oppsView = 'pending'; go('opps'); } }
@@ -7679,9 +7768,9 @@ async function answerLocally(host, question) {
   } catch (_) {}
   try {
     mandates = await readRows('wi_mandates',
-      'select=id,investor_name,organization_name,investor_country,investor_type,fit_score,fit_reason'
+      'select=' + MANDATE_LIST_COLS
       + '&' + NOT_PENDING + '&order=id.desc&limit=8'
-      + ilikeAny(['investor_name', 'organization_name', 'investor_country', 'fit_reason'], t),
+      + ilikeAny(['investor_name', 'organization_name', 'investor_country', 'intention_summary'], t),
       'wi.mandates.list', {});
   } catch (_) {}
 
@@ -7713,10 +7802,10 @@ async function answerLocally(host, question) {
       'Opportunities'));
     for (const m of mandates) {
       host.appendChild(entry({
-        tone: 'accent', rail: m.fit_score !== null && m.fit_score !== undefined ? String(m.fit_score) : '',
+        tone: 'accent', rail: scoreText(m.new_fit_score).replace(' / 1', ''),
         action: investorLabel(m),
         who: [orgLabel(m), m.investor_country, m.investor_type].filter(Boolean).join('  \u00B7  '),
-        evidence: [['why  ', m.fit_reason]]
+        evidence: [['why  ', verdictReason(m)]]
       }));
     }
   }
