@@ -1196,7 +1196,7 @@ function rejectFails(m) {
   const noLabel = ['Does not buy hedge funds', 'No long/short or quant', 'No technology focus'];
   for (let i = 0; i < st.length; i++) if (st[i] === 'no' && noLabel[i]) add(noLabel[i]);
   const tmax = Number(m.ticket_max_usd || m.ticket_min_usd || 0);
-  if (tmax > 0 && tmax < 500000) add('Ticket below USD 500k floor');
+  if (tmax > 0 && tmax < 100000) add('Ticket below USD 100k floor');
   let w = m.hard_fail_reasons;
   for (let i = 0; i < 2 && typeof w === 'string'; i++) { try { w = JSON.parse(w); } catch (_) { w = []; } }
   if (Array.isArray(w)) for (const r of w) add(r);
