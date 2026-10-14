@@ -1,5 +1,7 @@
 // Runs WI 01 v2's two parser Code nodes outside n8n, on fixture blocks.
-//   node test/run.js active|previous|proposed
+//   node test/run.js active|previous|proposed [scrubbed|real|all]
+// The second argument picks the fixture sets: scrubbed (committed, the default when the
+// real ones are absent), real (fixtures/, kept out of git) or all (default when both exist).
 // active   = nodes/active-e8e08232   (published 12 Oct 2026)
 // previous = nodes/previous-e6d4c5a5 (before the 12 Oct header fix)
 // proposed = the 13 Oct news-headline fix + the active Normalize node
@@ -19,8 +21,14 @@ if (!files) { console.error('usage: node test/run.js active|previous|proposed');
 const det = new Function('$json', fs.readFileSync(path.join(root, files[0]), 'utf8'));
 const norm = new Function('$json', '$', fs.readFileSync(path.join(root, files[1]), 'utf8'));
 
-const sets = ['test/synthetic.fixtures.js', 'fixtures/header-and-profile.fixtures.js', 'fixtures/news-headline.fixtures.js']
+const pick = process.argv[3] || 'all';
+const SCRUBBED = ['test/header-and-profile.scrubbed.fixtures.js', 'test/news-headline.scrubbed.fixtures.js'];
+const REAL = ['fixtures/header-and-profile.fixtures.js', 'fixtures/news-headline.fixtures.js'];
+if (!['all', 'scrubbed', 'real'].includes(pick)) { console.error('fixture set must be scrubbed, real or all'); process.exit(2); }
+const sets = ['test/synthetic.fixtures.js']
+  .concat(pick !== 'real' ? SCRUBBED : [], pick !== 'scrubbed' ? REAL : [])
   .filter(f => fs.existsSync(path.join(root, f)));
+if (pick === 'real' && sets.length === 1) { console.error('the real fixtures are not in fixtures/'); process.exit(2); }
 let checked = 0, failed = 0;
 for (const f of sets) {
   console.log('\n# ' + f);
