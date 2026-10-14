@@ -4053,7 +4053,6 @@ RENDER.rejected = function (body) {
     ['strategy',  'Strategy',              'r'],
     ['asset',     'Asset class',           'r'],
     ['type',      'Investor type',         'r'],
-    ['country',   'Outside GB/CH/US',      'r'],
     ['emerging',  'No emerging managers',  'r'],
     ['parse',     'Failed parse',          'r'],
     ['ticket',    'Ticket below USD 500k', 'd']
@@ -4147,10 +4146,6 @@ RENDER.rejected = function (body) {
     type: (m, why) => /ineligible type/i.test(why.join(' '))
       || /private equity|venture|\bvc\b|service provider|placement agent|law firm|real estate|infrastructure/i
            .test(strOf(m.investor_type)),
-
-    country: (m, why) => /outside gb/i.test(why.join(' '))
-      || (String(m.investor_country || '').trim() !== '' &&
-          ['GB','UK','CH','US'].indexOf(String(m.investor_country).toUpperCase().slice(0, 2)) < 0),
 
     emerging: (m, why) => /emerging managers/i.test(why.join(' '))
       || m.open_to_emerging_managers === false,
