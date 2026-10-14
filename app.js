@@ -4054,11 +4054,8 @@ RENDER.rejected = function (body) {
     ['asset',     'Asset class',           'r'],
     ['type',      'Investor type',         'r'],
     ['emerging',  'No emerging managers',  'r'],
-    ['parse',     'Failed parse',          'r'],
-    ['ticket',    'Ticket below USD 500k', 'd']
+    ['parse',     'Failed parse',          'r']
   ];
-  const DATA_ONLY = { ticket: 'A minimum ticket below USD 500,000 is not itself a rejection '
-    + '\u2014 only a maximum below the floor is. These were turned away for other reasons.' };
 
   const chips = el('div');
   const btns = {};
@@ -4067,12 +4064,11 @@ RENDER.rejected = function (body) {
 
   const rowX = el('div', { class: 'chips' });
   const rowR = el('div', { class: 'chips' });
-  const rowD = el('div', { class: 'chips' });
   for (const [k, lbl, grp] of CHIPS) {
     btns[k] = el('button', { class: 'chip', onclick: () => { tone = k; paintChips(); paint(); } }, lbl);
-    (grp === 'r' ? rowR : grp === 'd' ? rowD : rowX).appendChild(btns[k]);
+    (grp === 'r' ? rowR : rowX).appendChild(btns[k]);
   }
-  chips.append(rowX, groupLabel('Turned away for'), rowR, groupLabel('Or by what the record says'), rowD);
+  chips.append(rowX, groupLabel('Turned away for'), rowR);
   function paintChips() {
     for (const [k, lbl] of CHIPS) {
       const b = btns[k];
@@ -4127,7 +4123,6 @@ RENDER.rejected = function (body) {
     : n === 3 ? 'three criteria missed'
     : n + ' criteria missed';
 
-  const num = (v) => (v === null || v === undefined || v === '') ? null : Number(v);
   const strOf = (v) => asText(v).toLowerCase();
 
   const TESTS = {
@@ -4149,13 +4144,6 @@ RENDER.rejected = function (body) {
 
     emerging: (m, why) => /emerging managers/i.test(why.join(' '))
       || m.open_to_emerging_managers === false,
-
-    ticket: (m) => {
-      const hi = num(m.ticket_max_usd), lo = num(m.ticket_min_usd);
-      if (hi !== null && hi > 0) return hi < 500000;
-      if (lo !== null && lo > 0) return lo < 500000;
-      return false;
-    },
 
     parse: (m, why) => /failed parse/i.test(why.join(' '))
       || (!String(m.investor_country || '').trim()
@@ -4183,11 +4171,6 @@ RENDER.rejected = function (body) {
 
     rows = sortMandates(rows, sortModeOf('rejected'));
 
-    if (DATA_ONLY[tone]) {
-      out.appendChild(el('div', { class: 'banner' },
-        el('b', null, 'This filter reads the record, not the reason. '), DATA_ONLY[tone]));
-    }
-
     if (tone === 'news') {
       out.appendChild(el('div', { class: 'banner' },
         el('b', null, 'These were never mandates. '),
@@ -4201,7 +4184,6 @@ RENDER.rejected = function (body) {
         tone === 'one'    ? 'No mandate was turned away on a single criterion.'
         : tone === 'none' ? 'Every rejected mandate failed a hard criterion \u2014 none were rejected on the score alone.'
         : tone === 'news'   ? 'No launches or industry pieces have been set aside yet.'
-        : tone === 'ticket' ? 'No rejected mandate has a ticket under USD 500,000.'
         : 'No mandate was turned away for that reason.'));
     }
 
