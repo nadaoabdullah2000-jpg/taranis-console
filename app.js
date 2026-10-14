@@ -3677,7 +3677,7 @@ RENDER.opps = function (body) {
       const fAsset = sel([['', 'Any asset class'], ['hedge', 'Hedge funds'], ['equit', 'Equities'],
         ['credit', 'Credit'], ['private', 'Private markets'], ['real', 'Real assets'],
         ['multi', 'Multi-asset']]);
-      const fTick = sel([['', 'Any ticket'], ['500000', 'USD 500k and up'],
+      const fTick = sel([['', 'Any ticket'], ['100000', 'USD 100k and up'],
         ['1000000', 'USD 1m and up'], ['5000000', 'USD 5m and up'], ['10000000', 'USD 10m and up']]);
       const fQ = el('input', { class: 'search', type: 'search',
         placeholder: 'Name, organisation or what the alert said\u2026' });
@@ -6168,7 +6168,7 @@ RENDER.find = function (body) {
   const fStrat = sel([['', 'Any strategy'], ['equity_long_short', 'Equity long/short'],
     ['macro', 'Macro'], ['cta', 'CTA / managed futures'], ['market_neutral', 'Market neutral'],
     ['quant', 'Quant / systematic'], ['multi_strategy', 'Multi-strategy'], ['event', 'Event driven']]);
-  const fTick = sel([['', 'Any ticket'], ['500000', 'USD 500k and up'],
+  const fTick = sel([['', 'Any ticket'], ['100000', 'USD 100k and up'],
     ['1000000', 'USD 1m and up'], ['5000000', 'USD 5m and up'], ['10000000', 'USD 10m and up']]);
   /* EDIT 9 — Outcome dropdown on the fine-grained re-score bands. */
   const fStat = sel([['', 'Any outcome'], ['matched', 'Matched'],
