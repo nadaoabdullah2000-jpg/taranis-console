@@ -584,6 +584,25 @@ async function supaSelect(table, query) {
   return await res.json();
 }
 
+// Call a database function through PostgREST. The arguments travel as JSON and
+// arrive in the function as bound parameters, never as SQL text.
+async function supaRpc(fn, args) {
+  if (!CFG.supabaseUrl || !session || !session.token) throw new Error('NO_SUPABASE');
+  await ensureToken();
+  const res = await fetch(CFG.supabaseUrl + '/rest/v1/rpc/' + fn, {
+    method: 'POST',
+    headers: {
+      apikey: CFG.supabaseAnonKey,
+      Authorization: 'Bearer ' + session.token,
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    },
+    body: JSON.stringify(args || {})
+  });
+  if (!res.ok) throw new Error(await supaWhy(res, 'calling ' + fn));
+  return await res.json();
+}
+
 // How many rows match, without downloading them: a HEAD request with
 // Prefer: count=exact, read from Content-Range ("*/41").
 async function supaCount(table, filter) {
@@ -888,7 +907,10 @@ const TABS = [
     sub: 'The Friday dashboard, read from the stored snapshot rather than a Telegram attachment.' },
   { id: 'network',  icon: '\u25CB', label: 'Network',      title: 'LinkedIn network',
     sub: 'Every LinkedIn profile that arrived on an opportunity, and whether anyone here can reach them.' },
-  { id: 'find',     icon: '\u2317', label: 'Find an investor', foot: true,
+  { id: 'search',   icon: '\u2315', label: 'Search', foot: true,
+    title: 'Search',
+    sub: 'Start typing a company \u2014 part of a word is enough \u2014 and see every mandate, contact, document and LinkedIn link we hold on it.' },
+  { id: 'find',     icon: '\u2317', label: 'Find an investor',
     title: 'Find an investor',
     sub: 'Every screened mandate, narrowed by date, investor type, geography, asset class, strategy, ticket or outcome.' },
   { id: 'ask',      icon: '\u25C7', label: 'Ask',          title: 'Ask',
@@ -6309,7 +6331,237 @@ RENDER.find = function (body) {
   }, (rows) => { all = rows; allInvestors = dedupeInvestors(rows).length; run(); });
 };
 
-RENDER.search = function (body) { return RENDER.find(body); };
+/* ------------------------------------------------------------- search */
+
+// Type part of a company's name and pick it from what we already hold.
+// Suggestions come from console_search_suggest (schema-13): investor and
+// organisation names on mandates and the companies in the contact book, merged
+// case-insensitively and matched on any part of a word or a close spelling.
+// Picking one loads console_search_company: its mandates, contacts, documents
+// and LinkedIn network. Both read straight from Supabase like the other tabs
+// and fall back to the gateway's search.suggest / search.company actions.
+// Everything from the database is written with textContent (el()), never HTML.
+let searchLast = '';                       // the company on screen, kept across visits
+const SEARCH_MIN = 2, SEARCH_WAIT_MS = 200, SEARCH_LIMIT = 10;
+const SEARCH_KIND = { mandate: 'WI mandate', contact: 'Contact book' };
+
+async function searchSuggest(q) {
+  if (DEMO) {
+    const d = await demoResponse('search.suggest');
+    const lq = q.toLowerCase();
+    return (d.suggestions || []).filter(s => s.name.toLowerCase().includes(lq));
+  }
+  let r;
+  try { r = await supaRpc('console_search_suggest', { p_q: q, p_limit: SEARCH_LIMIT }); }
+  catch (e) {
+    if (e.message !== 'NO_SUPABASE') throw e;
+    r = await callGateway('search.suggest', { q, limit: SEARCH_LIMIT });
+  }
+  return Array.isArray(r) ? r : ((r && r.suggestions) || []);
+}
+
+async function searchCompany(name) {
+  if (DEMO) return demoResponse('search.company');
+  try { return await supaRpc('console_search_company', { p_name: name }); }
+  catch (e) {
+    if (e.message !== 'NO_SUPABASE') throw e;
+    return await callGateway('search.company', { name });
+  }
+}
+
+function ensureSearchCss() {
+  if (document.getElementById('taranis-search-css')) return;
+  const s = document.createElement('style');
+  s.id = 'taranis-search-css';
+  s.textContent =
+    ".srch{position:relative;max-width:640px}"
+  + ".srch .search{width:100%;box-sizing:border-box;font-size:15px;padding:12px 14px}"
+  + ".srch-list{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:20;margin:0;padding:4px;list-style:none;background:var(--card);border:1px solid var(--rule);border-radius:8px;box-shadow:var(--shadow);max-height:360px;overflow:auto}"
+  + ".srch-list[hidden]{display:none}"
+  + ".srch-opt{display:flex;justify-content:space-between;gap:12px;align-items:baseline;padding:8px 10px;border-radius:6px;cursor:pointer}"
+  + ".srch-opt[aria-selected=true]{background:var(--accent-soft)}"
+  + ".srch-opt .nm{color:var(--ink)}"
+  + ".srch-opt .kd{font-size:11px;color:var(--ink-3);white-space:nowrap}"
+  + ".srch-status{font-size:12.5px;color:var(--ink-3);margin:8px 2px 0;min-height:1.2em}"
+  + ".srch-h{font-family:var(--font-display);font-size:22px;font-weight:400;margin:22px 0 4px;color:var(--ink)}"
+  + ".srch-sec{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:22px 0 8px}"
+  + ".srch-none{font-size:13px;color:var(--ink-3);margin:0}";
+  document.head.appendChild(s);
+}
+
+RENDER.search = function (body) {
+  clear(body);
+  ensureSearchCss();
+
+  const LIST_ID = 'srch-list';
+  const input = el('input', {
+    class: 'search', type: 'search', autocomplete: 'off', spellcheck: 'false',
+    placeholder: 'Company name — e.g. mirab, pictet, carnegie',
+    role: 'combobox', 'aria-autocomplete': 'list', 'aria-expanded': 'false',
+    'aria-controls': LIST_ID, 'aria-label': 'Search companies'
+  });
+  const list = el('ul', { class: 'srch-list', id: LIST_ID, role: 'listbox', hidden: '' });
+  const status = el('p', { class: 'srch-status', 'aria-live': 'polite' });
+  const detail = el('div');
+  body.append(el('div', { class: 'srch' }, input, list), status, detail);
+
+  let items = [], active = -1, timer = null, seq = 0;
+
+  function closeList() {
+    list.hidden = true;
+    input.setAttribute('aria-expanded', 'false');
+    input.removeAttribute('aria-activedescendant');
+    active = -1;
+  }
+  function setActive(i) {
+    const opts = list.querySelectorAll('[role=option]');
+    opts.forEach((o, k) => o.setAttribute('aria-selected', k === i ? 'true' : 'false'));
+    active = i;
+    if (i >= 0 && opts[i]) {
+      input.setAttribute('aria-activedescendant', opts[i].id);
+      opts[i].scrollIntoView({ block: 'nearest' });
+    } else {
+      input.removeAttribute('aria-activedescendant');
+    }
+  }
+  function drawList(q) {
+    clear(list);
+    if (!items.length) {
+      closeList();
+      status.textContent = 'No company matches “' + q + '”. Try fewer letters or another word in the name.';
+      return;
+    }
+    status.textContent = items.length + (items.length === 1 ? ' match' : ' matches')
+      + ' — arrow keys to move, Enter to open.';
+    items.forEach((s, i) => {
+      const kinds = String(s.kind || '').split(',').filter(Boolean)
+        .map(k => SEARCH_KIND[k] || k).join(' · ');
+      const n = Number(s.count) || 0;
+      const opt = el('li', { class: 'srch-opt', role: 'option', id: LIST_ID + '-' + i, 'aria-selected': 'false' },
+        el('span', { class: 'nm' }, String(s.name || '')),
+        el('span', { class: 'kd' }, kinds + (n > 1 ? '  ·  ' + n + ' records' : '')));
+      // mousedown, not click: picking must happen before the input's blur closes the list.
+      opt.addEventListener('mousedown', (e) => { e.preventDefault(); pick(s.name); });
+      opt.addEventListener('mousemove', () => { if (active !== i) setActive(i); });
+      list.appendChild(opt);
+    });
+    list.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
+    setActive(-1);
+  }
+
+  async function suggest(q) {
+    const my = ++seq;
+    status.textContent = 'Searching…';
+    try {
+      const rows = await searchSuggest(q);
+      if (my !== seq) return;              // a newer keystroke has taken over
+      items = rows.slice(0, SEARCH_LIMIT);
+      drawList(q);
+    } catch (e) {
+      if (my !== seq) return;
+      items = []; closeList();
+      status.textContent = 'Search failed: ' + e.message;
+    }
+  }
+
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    const q = input.value.trim();
+    if (q.length < SEARCH_MIN) {
+      seq++; items = []; closeList();
+      status.textContent = q.length ? 'Keep typing — two letters or more.' : '';
+      return;
+    }
+    timer = setTimeout(() => suggest(q), SEARCH_WAIT_MS);
+  });
+  input.addEventListener('keydown', (e) => {
+    const open = !list.hidden && items.length;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (open) setActive(active < items.length - 1 ? active + 1 : 0);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (open) setActive(active > 0 ? active - 1 : items.length - 1);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (open) pick(items[active >= 0 ? active : 0].name);
+    } else if (e.key === 'Escape') {
+      if (!list.hidden) { e.preventDefault(); closeList(); }
+    }
+  });
+  input.addEventListener('blur', closeList);
+  input.addEventListener('focus', () => { if (items.length && input.value.trim().length >= SEARCH_MIN) drawList(input.value.trim()); });
+
+  function pick(name) {
+    clearTimeout(timer);
+    seq++;
+    input.value = name;
+    closeList();
+    status.textContent = '';
+    searchLast = name;
+    showCompany(name);
+  }
+
+  function section(title, rows, draw) {
+    detail.appendChild(el('p', { class: 'srch-sec' }, title + '  ' + rows.length));
+    if (!rows.length) { detail.appendChild(el('p', { class: 'srch-none' }, 'None on file.')); return; }
+    const stack = el('div');
+    for (const r of rows) stack.appendChild(draw(r));
+    detail.appendChild(stack);
+  }
+  const https = (u) => /^https:\/\//i.test(String(u || '')) ? String(u) : null;
+  const similar = (r) => r.match === 'partial' ? [['Similar name', 'quiet']] : [];
+
+  function showCompany(name) {
+    fill(detail, () => searchCompany(name), (d) => {
+      const mand = d.mandates || [], cont = d.contacts || [], docs = d.documents || [], net = d.network || [];
+      detail.appendChild(el('h3', { class: 'srch-h' }, name));
+      if (!mand.length && !cont.length && !docs.length && !net.length) {
+        detail.appendChild(empty('Nothing on file', 'No mandate, contact, document or LinkedIn profile carries that name.'));
+        return;
+      }
+      section('Mandates', mand, (m) => {
+        const band = bandOf(m);
+        const tags = [[band.replace('_', ' '), bandTone(band)]].concat(similar(m));
+        if (m.is_tech_investor === true) tags.push(['Tech investor', 'good']);
+        if (m.open_to_emerging_markets === true) tags.push(['Emerging markets', 'good']);
+        return entry({
+          tone: bandTone(band), action: m.investor_name || 'Unnamed',
+          who: (m.organization_name && m.organization_name !== m.investor_name) ? m.organization_name : '',
+          tags,
+          evidence: [['country', m.investor_country], ['alert', m.alert_date ? fmtDate(m.alert_date) : ''],
+                     ['said', m.intention_summary]],
+          actions: (DEMO || !m.id) ? [] : [{ label: 'Open', primary: true, run: () => openMandateById(m.id, 'search') }]
+        });
+      });
+      section('Contacts', cont, (c) => entry({
+        action: c.name || 'Unnamed contact',
+        who: [c.title || c.role, c.company].filter(Boolean).join(' · '),
+        tags: similar(c),
+        evidence: [['email', c.email], ['where', [c.city, c.country].filter(Boolean).join(', ')],
+                   ['last contact', c.last_contact_at ? fmtDate(c.last_contact_at) : '']]
+      }));
+      section('Documents', docs, (x) => entry({
+        action: x.title || x.doc_key || 'Document',
+        who: [x.version_label, x.period_date ? fmtDate(x.period_date) : ''].filter(Boolean).join(' · '),
+        actions: https(x.public_url) ? [{ label: 'Open', run: () => window.open(https(x.public_url), '_blank', 'noopener') }] : []
+      }));
+      section('LinkedIn network', net, (p) => {
+        const via = Array.isArray(p.mutual_to) ? p.mutual_to.filter(Boolean) : [];
+        return entry({
+          action: p.full_name || 'LinkedIn profile',
+          who: via.length ? 'Reachable through ' + via.join(', ') : 'No one here is connected yet',
+          tags: [[p.via === 'mandate' ? 'From a mandate' : 'From the contact book', '']],
+          actions: https(p.profile_url) ? [{ label: 'Profile', run: () => window.open(https(p.profile_url), '_blank', 'noopener') }] : []
+        });
+      });
+    });
+  }
+
+  if (searchLast) { input.value = searchLast; showCompany(searchLast); }
+  setTimeout(() => input.focus(), 0);
+};
 
 // The Ask conversation, kept while the console is open so the thread survives
 // a trip to another tab, and so the agent sees what was said before: each
@@ -8364,6 +8616,30 @@ function demoResponse(action) {
       { full_name: 'Miles Kerstein', profile_url: 'https://www.linkedin.com/in/example',
         mutual_to: ['Nada Osama'], mutual_count: 1, in_contact_book: true, last_synced: Date.now() - 8.6e7 }
     ] },
+    'search.suggest': { suggestions: [
+      { name: 'Mirabaud', kind: 'mandate,contact', count: 3 },
+      { name: 'Mirabaud Asset Management', kind: 'mandate', count: 1 },
+      { name: 'Pictet Wealth Management', kind: 'contact', count: 2 },
+      { name: 'Carnegie Mellon University (CMU)', kind: 'mandate', count: 3 }
+    ] },
+    'search.company': { name: 'Mirabaud',
+      mandates: [
+        { id: 0, investor_name: 'Mirabaud', organization_name: 'Mirabaud', investor_country: 'CH',
+          alert_date: '2026-08-19', new_qualification: 'matched', match: 'exact', is_tech_investor: null,
+          open_to_emerging_markets: null, intention_summary: 'Eyes L/S and global macro for a $1.7bn fund of hedge funds.' },
+        { id: 0, investor_name: 'Mirabaud Asset Management (MAM)', organization_name: 'Mirabaud Asset Management (MAM)',
+          investor_country: 'CH', alert_date: '2026-08-19', new_qualification: 'matched', match: 'partial',
+          intention_summary: 'Looking at long/short equity and global macro managers.' }
+      ],
+      contacts: [
+        { name: 'Sophie Ravel', title: 'Head of Manager Selection', company: 'Mirabaud', city: 'Geneva',
+          country: 'CH', email: 's.ravel@example.ch', last_contact_at: Date.now() - 1.1e9, match: 'exact' }
+      ],
+      documents: [],
+      network: [
+        { full_name: 'Sophie Ravel', profile_url: 'https://www.linkedin.com/in/example', via: 'contact',
+          mutual_to: ['Nada Osama'], mutual_count: 1 }
+      ] },
     'zoom.upcoming': { rows: [] },
     'crm.email.draft': { draft_id: 'drf-9931', contact_name: 'Miles Kerstein', to_addr: 'm.kerstein@example.ch',
       subject: 'July TMS, and twenty minutes if you have them',

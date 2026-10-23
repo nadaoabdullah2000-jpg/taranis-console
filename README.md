@@ -148,7 +148,16 @@ a fundraise loses a week of alerts. Run both for a fortnight.
 | `assistant.ask` | `{question}` | `{answer, sources:[…]}` |
 | `docs.list` | — | `{rows:[…]}` |
 | `li.search` | `{q}` | `{rows:[…]}` |
+| `search.suggest` | `{q, limit?}` | `{suggestions:[{name, kind, count}]}` |
+| `search.company` | `{name}` | `{mandates:[…], contacts:[…], documents:[…], network:[…]}` |
 | `zoom.create` / `zoom.upcoming` | `{contact,start,minutes}` | `{join_url,…}` |
+
+`search.suggest` / `search.company` are thin wrappers over two database
+functions, `console_search_suggest($1, $2)` and `console_search_company($1)`
+(schema-13). The console calls the same functions directly through
+`/rest/v1/rpc/…` and uses the gateway only when it has no Supabase session.
+The typed text is a bound parameter on both paths, never SQL text. Node setup:
+[docs/gateway-search-actions.md](docs/gateway-search-actions.md).
 
 `wi.mandate.fill` must keep the allow-list from `Parse WI Fill` — the current
 node builds SQL by string concatenation, which is safe only because that list
