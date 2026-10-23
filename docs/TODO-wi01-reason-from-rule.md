@@ -20,7 +20,7 @@ verdict. For example, NYU (2026) was matched 1.0 by the rule, but GPT's reason r
 
 ## Change
 
-1. **Schema** (new file `schema-14-ai-opinion.sql`):
+1. **Schema** (new file `schema-15-ai-opinion.sql`):
    ```sql
    alter table wi_mandates
      add column if not exists ai_fit_reason text,

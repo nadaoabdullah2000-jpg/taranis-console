@@ -1,7 +1,8 @@
 /* Run with: npm test
-   schema.sql is the source of truth for DDL. Its section 5 must stay
-   byte-identical to the migration that applies it, so the two can never
-   describe different columns, indexes or search functions. */
+   schema.sql is the source of truth for DDL. Its section 5 must equal the
+   migrations that built it: schema-13's body, with console_search_company as
+   schema-14 replaced it. So the two can never describe different columns,
+   indexes or search functions. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -9,19 +10,45 @@ import { readFileSync } from 'node:fs';
 const read = (f) => readFileSync(new URL('../' + f, import.meta.url), 'utf8');
 const START = '-- ---------------------------------------------------------------------\n-- 1. TECH INVESTOR';
 const END = '-- ---------------------------------------------------------------------\n-- ROLLBACK';
+const FN = '-- search.company: everything held on one company.';
+const fnBlock = (src) => {
+  const a = src.indexOf(FN);
+  const b = src.indexOf('$$;', src.indexOf('create or replace function public.console_search_company', a)) + 3;
+  assert.ok(a >= 0 && b > a, 'console_search_company block found');
+  return src.slice(a, b);
+};
 
-test('schema.sql section 5 matches schema-13-enrich-and-search.sql', () => {
-  const mig = read('schema-13-enrich-and-search.sql');
-  const body = mig.slice(mig.indexOf(START), mig.indexOf(END)).trimEnd();
-  const schema = read('schema.sql');
-  assert.ok(mig.includes(START) && mig.includes(END), 'migration markers present');
-  assert.ok(schema.includes(body), 'schema.sql section 5 differs from the migration');
+test('schema.sql section 5 = schema-13 with schema-14\'s console_search_company', () => {
+  const m13 = read('schema-13-enrich-and-search.sql');
+  const m14 = read('schema-14-search-dedupe.sql');
+  const body13 = m13.slice(m13.indexOf(START), m13.indexOf(END)).trimEnd();
+  const expected = body13.replace(fnBlock(m13), () => fnBlock(m14));   // a function: '$$' in a replacement string means '$'
+  assert.notEqual(expected, body13, 'schema-14 changes the function');
+  assert.ok(read('schema.sql').includes(expected), 'schema.sql section 5 differs from the migrations');
 });
 
 test('search functions take the typed text only as an argument', () => {
-  const mig = read('schema-13-enrich-and-search.sql');
-  // No dynamic SQL: nothing is EXECUTEd or format()ed from the query text.
-  assert.doesNotMatch(mig, /\bexecute\b\s+(format|'|\$)/i);
-  assert.doesNotMatch(mig, /\bformat\s*\(/i);
-  assert.match(mig, /language sql stable/);
+  for (const f of ['schema-13-enrich-and-search.sql', 'schema-14-search-dedupe.sql']) {
+    const sql = read(f);
+    // No dynamic SQL: nothing is EXECUTEd or format()ed from the query text.
+    assert.doesNotMatch(sql, /\bexecute\b\s+(format|'|\$)/i, f);
+    assert.doesNotMatch(sql, /\bformat\s*\(/i, f);
+    assert.match(sql, /language sql stable/, f);
+  }
+});
+
+test('schema-14 collapses copies on exactly the agreed signature', () => {
+  const fn = fnBlock(read('schema-14-search-dedupe.sql'));
+  // The five signature fields, case-insensitive name, NULL-safe.
+  for (const part of [
+    'lower(coalesce(m.organization_name, m.investor_name))',
+    "coalesce(m.intention_summary, '')", "coalesce(m.alert_type, '')",
+    "coalesce(m.alert_date::text, '')", "coalesce(m.source_subject, '')"]) {
+    assert.ok(fn.includes(part), 'signature includes ' + part);
+  }
+  // One row per signature: newest email first, highest id on a tie.
+  assert.match(fn, /partition by a\.sig_name, a\.sig_summary, a\.sig_type, a\.sig_date, a\.sig_subject\s+order by a\.source_email_date desc nulls last, a\.id desc/);
+  assert.match(fn, /where r\.copy_rank = 1/);
+  assert.match(fn, /count\(\*\) over w\s+as source_count/);
+  assert.match(fn, /r\.source_count/);
 });

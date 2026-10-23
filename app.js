@@ -6526,6 +6526,10 @@ RENDER.search = function (body) {
         const tags = [[band.replace('_', ' '), bandTone(band)]].concat(similar(m));
         if (m.is_tech_investor === true) tags.push(['Tech investor', 'good']);
         if (m.open_to_emerging_markets === true) tags.push(['Emerging markets', 'good']);
+        // schema-14 folds copies of one WI alert (same alert in several emails)
+        // into one card; source_count says how many. Absent on older data.
+        const copies = Number(m.source_count) || 1;
+        if (copies > 1) tags.push([copies + ' sources', '']);
         return entry({
           tone: bandTone(band), action: m.investor_name || 'Unnamed',
           who: (m.organization_name && m.organization_name !== m.investor_name) ? m.organization_name : '',
