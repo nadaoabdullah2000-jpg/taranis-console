@@ -195,7 +195,17 @@ is the one that writes.) Database only, no gateway action:
    row the Opportunity column shows, with `fit_reason` (the AI's intake note)
    on hover. A firm in review shows its top candidate's fit, marked as not
    confirmed, and sorts below every confirmed match. How the name matched
-   (exact / alias / fuzzy and its score) stays under the opportunity.
+   stays under the opportunity, worded as the iConnections side
+   ("iConnections match: exact 100%"), apart from the Taranis status.
+   One representative row per firm (`iconnRep`): the row the matcher chose
+   behind the match (most in play, newest first). The Opportunity status,
+   the fit and the verdict chips all read that row, as loaded with
+   `MANDATE_LIST_COLS`, else as staged; a run staged before schema-16 has
+   no stored fit, and the same row fills it.
+   Chips: Everything; **Taranis verdict** of that row for matched firms, one
+   chip per verdict present (Matched, Uncertain, Low fit, Needs data,
+   Rejected); then the name-match state, **iConnections — matched / review /
+   no match**; Duplicates; Conflicts.
    Where that opportunity's verdict is `needs_data`, the cell shows the same
    "NEEDS DATA · x/3" meter as its Opportunities card instead of a number:
    x = `critOf()`, how many of the three criteria (buys hedge funds,

@@ -8518,6 +8518,7 @@ function ensureIconnCss() {
   + "tr.ic-rej td:first-child{box-shadow:inset 4px 0 0 var(--bad)}"
   + "tr.ic-rej .ic-nm{color:var(--bad);font-weight:600}"
   + ".ic-rej-tag{font-weight:700}"
+  + ".ic-chips{align-items:center}.ic-chipk{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin:0 2px 0 8px}"
   + "tr.ic-rev td{background:var(--signal-soft)}"
   + "tr.ic-rev td:first-child{box-shadow:inset 4px 0 0 var(--signal)}"
   + "tr.ic-none td{color:var(--ink-3)}"
@@ -8837,17 +8838,40 @@ function iconnProfileSearch() {
 
 const ICONN_DUP = (f) => (f.opp_ids || []).length > 1 || (f.same_opportunity || []).length > 0;
 
-// The Taranis criteria fit a row shows, and whose it is. A matched firm
-// shows its opportunity's fit (the same row as the Opportunity column:
-// coalesce(new_fit_score, fit_score), schema-16). A firm in review shows its
-// top candidate's fit, marked as the candidate's; no match shows nothing.
-function iconnFit(f) {
+// The one opportunity row a firm stands for, and what the results show
+// about it. The Opportunity column's name and status, the Taranis fit and
+// the verdict chips all read this, so they cannot disagree. A matched firm:
+// the row the matcher chose behind the match (the one most in play, newest
+// first; schema-16). A firm in review: its top candidate, marked as the
+// candidate's. No match: null.
+// Verdict and fit come from that row as loaded here (MANDATE_LIST_COLS:
+// coalesce(new_qualification, qualification) and coalesce(new_fit_score,
+// fit_score)), else from what the matcher staged for it. A run staged
+// before schema-16 has no fit; the loaded row fills it from the same id.
+function iconnRep(f) {
   const n = (v) => v === null || v === undefined || v === '' || !isFinite(Number(v)) ? null : Number(v);
-  if (f.bucket === 'matched') return { fit: n(f.matched_fit), whose: 'match', reason: f.matched_fit_reason || '' };
-  const c = f.bucket === 'review' && (f.candidates || [])[0];
-  if (c) return { fit: n(c.fit), whose: 'candidate', reason: c.fit_reason || '', name: c.name };
-  return { fit: null, whose: null, reason: '' };
+  let whose, st;
+  if (f.bucket === 'matched' && f.matched_id) {
+    whose = 'match';
+    st = { id: f.matched_id, name: f.matched_name, status: f.matched_status, fit: f.matched_fit, reason: f.matched_fit_reason };
+  } else {
+    const c = f.bucket === 'review' && (f.candidates || [])[0];
+    if (!c) return null;
+    whose = 'candidate';
+    st = { id: c.id, name: c.name, status: c.status, fit: c.fit, reason: c.fit_reason };
+  }
+  const m = (ICONN.mand && st.id && ICONN.mand[st.id]) || null;
+  const fit = m ? (n(m.new_fit_score) !== null ? n(m.new_fit_score) : n(m.fit_score)) : n(st.fit);
+  return { id: st.id, whose, name: st.name, m,
+           verdict: m ? bandOf(m) : String(st.status || 'uncertain').trim().toLowerCase(),
+           fit: fit !== null ? fit : n(st.fit),
+           reason: (m && m.fit_reason) || st.reason || '' };
 }
+// Verdict words on this page. 'uncertain' is spelt out rather than shown
+// as "review", which here would read as the iConnections name-match state.
+const ICONN_VERDICT = [['matched', 'Matched'], ['uncertain', 'Uncertain'], ['low', 'Low fit'],
+                       ['needs_data', 'Needs data'], ['rejected', 'Rejected']];
+const iconnVerdictLabel = (v) => ((ICONN_VERDICT.find(x => x[0] === v) || [])[1] || String(v || '').replace(/_/g, ' '));
 const ICONN_TIER = { matched: 0, review: 1, none: 2 };
 
 // The opportunity rows behind the results, read with the columns the
@@ -8875,22 +8899,9 @@ async function iconnLoadMandates(res) {
   if (current === 'iconn' && ICONN.result === res) go('iconn');
 }
 
-// The opportunity a row's fit belongs to: the matched one, or the top
-// candidate for a firm in review. null until loaded.
-function iconnFitRow(f, fx) {
-  const id = fx.whose === 'match' ? f.matched_id : ((f.candidates || [])[0] || {}).id;
-  return (ICONN.mand && id && ICONN.mand[id]) || null;
-}
-
-// The verdict band of the row a fit belongs to: from the loaded row, else
-// from what the matcher returned (the same new_qualification / qualification).
-function iconnFitStatus(f, fx, m) {
-  return m ? bandOf(m) : String((fx.whose === 'match' ? f.matched_status : ((f.candidates || [])[0] || {}).status) || '').toLowerCase();
-}
-
 function iconnFitCell(f, fx) {
-  const m = iconnFitRow(f, fx);
-  const status = iconnFitStatus(f, fx, m);
+  const m = fx.m;
+  const status = fx.verdict;
   const needsData = status === 'needs_data';
   const wrap = el('div');
   const btn = el('button', { class: 'ic-fitbtn', type: 'button', 'aria-expanded': 'false',
@@ -8911,7 +8922,7 @@ function iconnFitCell(f, fx) {
     const open = btn.getAttribute('aria-expanded') === 'true';
     btn.setAttribute('aria-expanded', String(!open));
     if (open) { if (box) box.hidden = true; return; }
-    if (!box) { box = iconnFitDetail(f, fx, m, status); wrap.appendChild(box); }
+    if (!box) { box = iconnFitDetail(fx); wrap.appendChild(box); }
     box.hidden = false;
   });
   return wrap;
@@ -8919,13 +8930,14 @@ function iconnFitCell(f, fx) {
 
 // What the database holds for that opportunity: nothing is computed here
 // except the three criteria marks, by the same critRows the cards use.
-function iconnFitDetail(f, fx, m, status) {
+function iconnFitDetail(fx) {
+  const m = fx.m, status = fx.verdict;
   const pct = (v) => v === null || v === undefined || v === '' || !isFinite(Number(v)) ? '\u2014' : Math.round(Number(v) * 100) + '%';
   const box = el('div', { class: 'ic-fitbox' });
   box.appendChild(el('div', { class: 'ic-fitk' }, fx.whose === 'candidate' ? 'Top candidate: ' + (fx.name || '') : 'Matched opportunity'));
   box.appendChild(el('div', null, 'Stored Taranis fit: ', el('b', null, pct(fx.fit)),
     m ? ' (re-score ' + pct(m.new_fit_score) + ', intake score ' + pct(m.fit_score) + ')' : ''));
-  box.appendChild(el('div', null, 'Status: ' + (BAND_LABEL[status] || status.replace(/_/g, ' ') || '\u2014')));
+  box.appendChild(el('div', null, 'Status: ' + (iconnVerdictLabel(status) || '\u2014')));
   if (m) {
     box.appendChild(el('div', { class: 'ic-fitk', style: 'margin-top:8px' },
       status === 'needs_data' ? 'What the record shows (needs data)' : 'Criteria in the record'));
@@ -8933,7 +8945,7 @@ function iconnFitDetail(f, fx, m, status) {
   } else if (!DEMO) {
     box.appendChild(el('div', { class: 'ic-meth' }, 'Criteria not loaded. Open the opportunity to see them.'));
   }
-  const reason = (m && m.fit_reason) || fx.reason;
+  const reason = fx.reason;
   if (reason) {
     box.appendChild(el('div', { class: 'ic-fitk', style: 'margin-top:8px' }, 'AI note at intake'));
     box.appendChild(el('div', { class: 'ic-fitnote' }, reason));
@@ -8997,19 +9009,19 @@ function iconnFirmRow(f, showPeople) {
   } else prof.appendChild(el('span', { class: 'ic-dash' }, '—'));
 
   // 3. Opportunity
+  const fx = iconnRep(f);
   const opp = el('td', { class: 'ic-opp' });
   if (f.bucket === 'matched' && f.matched_id) {
-    const band = String(f.matched_status || 'uncertain').toLowerCase();
+    const band = fx.verdict;
     opp.appendChild(el('button', { class: 'ic-link', onclick: () => openMandateById(f.matched_id, 'iconn') }, f.matched_name || ('#' + f.matched_id)));
     opp.appendChild(el('div', { class: 'ic-flags' },
-      f.rejected ? el('span', { class: 'tag bad ic-rej-tag' }, 'rejected')
-                 : el('span', { class: 'tag ' + bandTone(band) }, 'status: ' + (BAND_LABEL[band] || band.replace('_', ' '))),
+      el('span', { class: 'tag ' + bandTone(band) + (band === 'rejected' ? ' ic-rej-tag' : '') }, 'status: ' + iconnVerdictLabel(band)),
       !f.rejected && f.opp_rejected > 0
         ? el('span', { class: 'ic-sub', style: 'margin:0' }, f.opp_rejected + ' of ' + f.opp_ids.length + ' rows rejected') : null));
     // How the file's name was linked to it, kept in view so a loose link
     // never reads as a sure one just because the fit beside it is high.
     opp.appendChild(el('div', { class: 'ic-how' + (f.match_method === 'fuzzy' ? ' fuzzy' : '') },
-      'name match: ' + (f.match_method || '?')
+      'iConnections match: ' + (f.match_method || '?')
       + (f.confidence !== null && f.confidence !== undefined ? ' ' + Math.round(Number(f.confidence) * 100) + '%' : '')));
   } else if (f.bucket === 'review') {
     opp.appendChild(el('div', { class: 'ic-sub', style: 'margin:0 0 4px' },
@@ -9020,12 +9032,12 @@ function iconnFirmRow(f, showPeople) {
       remember.addEventListener('click', () => iconnRemember(f, c, remember));
       opp.appendChild(el('div', { class: 'ic-cand' },
         el('button', { class: 'ic-link', onclick: () => openMandateById(c.id, 'iconn') }, c.name),
-        el('span', { class: 'ic-sub', style: 'margin:0' }, 'name match ' + Math.round(Number(c.score) * 100) + '%'
-          + (c.status ? ' · status: ' + (BAND_LABEL[c.status] || c.status) : '')),
+        el('span', { class: 'ic-sub', style: 'margin:0' }, 'iConnections match ' + Math.round(Number(c.score) * 100) + '%'
+          + (c.status ? ' · status: ' + iconnVerdictLabel(c.status) : '')),
         remember));
     }
   } else {
-    opp.appendChild(el('span', { class: 'ic-dash' }, '— no match'));
+    opp.appendChild(el('span', { class: 'ic-dash' }, '— iConnections: no match'));
   }
 
   // 4. Taranis fit. A fully scored opportunity shows its fit %. One whose
@@ -9033,9 +9045,8 @@ function iconnFirmRow(f, showPeople) {
   // Opportunities card instead of a fit that only means "not scored yet".
   // Click (or Enter) opens the stored score, the AI's intake note and the
   // three criteria as the record shows them.
-  const fx = iconnFit(f);
   const rank = el('td', { class: 'ic-rank' });
-  if (fx.whose) rank.appendChild(iconnFitCell(f, fx));
+  if (fx) rank.appendChild(iconnFitCell(f, fx));
   tr.append(firm);
   if (showPeople) tr.appendChild(iconnPeopleCell(f));
   tr.append(prof, opp, rank);
@@ -9062,30 +9073,47 @@ function iconnResults(body) {
     body.appendChild(el('ul', { class: 'ic-notes' }, ...ICONN.notes.map(n => el('li', null, n))));
   }
 
-  const FILTERS = [
-    ['all', 'Everything', firms.length], ['matched', 'Matched', c.matched || 0], ['rejected', 'Rejected', c.rejected || 0],
-    ['review', 'Needs review', c.review || 0], ['none', 'No match', c.none || 0],
-    ['dup', 'Duplicates', c.duplicates || 0], ['conflict', 'Conflicts', c.conflicts || 0]];
-  body.appendChild(el('div', { class: 'chips', style: 'margin:14px 0 10px' },
-    ...FILTERS.map(([k, label, n]) => el('button', {
-      class: 'btn btn-sm ' + (ICONN.filter === k ? '' : 'btn-quiet'), 'aria-pressed': String(ICONN.filter === k),
-      onclick: () => { ICONN.filter = k; go('iconn'); } }, label + ' ' + n))));
+  // Chips. Matched firms by the Taranis verdict of their representative
+  // row (iconnRep: the same row the Opportunity status and the fit come
+  // from), one chip per verdict present. Firms with no verdict, and the
+  // in-book set as a whole, by the iConnections name-match state.
+  const verdictOf = (f) => f.bucket === 'matched' && f.matched_id ? iconnRep(f).verdict : null;
+  const vCount = {};
+  for (const f of firms) { const v = verdictOf(f); if (v) vCount[v] = (vCount[v] || 0) + 1; }
+  const vKeys = ICONN_VERDICT.map(x => x[0]).filter(v => vCount[v])
+    .concat(Object.keys(vCount).filter(v => !ICONN_VERDICT.some(x => x[0] === v)).sort());
+  const nB = (b) => firms.filter(f => f.bucket === b).length;
+  const keepBy = { all: () => true, dup: ICONN_DUP, conflict: (f) => !!f.conflicts,
+    'ic:matched': (f) => f.bucket === 'matched', 'ic:review': (f) => f.bucket === 'review', 'ic:none': (f) => f.bucket === 'none' };
+  for (const v of vKeys) keepBy['v:' + v] = (f) => verdictOf(f) === v;
+  if (!keepBy[ICONN.filter]) ICONN.filter = 'all';
+  const chip = ([k, label, n]) => el('button', {
+    class: 'btn btn-sm ' + (ICONN.filter === k ? '' : 'btn-quiet'), 'aria-pressed': String(ICONN.filter === k),
+    onclick: () => { ICONN.filter = k; go('iconn'); } }, label + ' ' + n);
+  const chipLabel = (t) => el('span', { class: 'ic-chipk' }, t);
+  body.appendChild(el('div', { class: 'chips ic-chips', style: 'margin:14px 0 4px' },
+    chip(['all', 'Everything', firms.length]),
+    vKeys.length ? chipLabel('Taranis verdict') : null,
+    ...vKeys.map(v => chip(['v:' + v, iconnVerdictLabel(v), vCount[v]]))));
+  body.appendChild(el('div', { class: 'chips ic-chips', style: 'margin:0 0 10px' },
+    chipLabel('Name match'),
+    chip(['ic:matched', 'iConnections \u2014 matched', nB('matched')]),
+    chip(['ic:review', 'iConnections \u2014 review', nB('review')]),
+    chip(['ic:none', 'iConnections \u2014 no match', nB('none')]),
+    chip(['dup', 'Duplicates', firms.filter(ICONN_DUP).length]),
+    chip(['conflict', 'Conflicts', firms.filter(f => !!f.conflicts).length])));
 
-  const keep = {
-    all: () => true, matched: (f) => f.bucket === 'matched', rejected: (f) => !!f.rejected,
-    review: (f) => f.bucket === 'review', none: (f) => f.bucket === 'none',
-    dup: ICONN_DUP, conflict: (f) => !!f.conflicts }[ICONN.filter] || (() => true);
+  const keep = keepBy[ICONN.filter];
   // Sorting by fit keeps confirmed matches above review rows above no
   // match, whichever way it runs, so an unconfirmed candidate's high fit
   // never tops the list. Within each, scored rows come before needs-data
   // rows (whose stored number is not yet a fit), best first by default;
   // needs-data rows order by their x/3, then the stored score.
   const sortKey = (f) => {
-    const fx = iconnFit(f);
-    const m = iconnFitRow(f, fx);
-    const nd = fx.whose && iconnFitStatus(f, fx, m) === 'needs_data';
-    const x = fx.fit === null ? -1 : fx.fit;
-    return [nd ? 1 : 0, nd && m ? critOf(m).filter(Boolean).length + x / 10 : x];
+    const fx = iconnRep(f);
+    const nd = !!fx && fx.verdict === 'needs_data';
+    const x = !fx || fx.fit === null ? -1 : fx.fit;
+    return [nd ? 1 : 0, nd && fx.m ? critOf(fx.m).filter(Boolean).length + x / 10 : x];
   };
   const dir = ICONN.sortDir === 'asc' ? 1 : -1;
   const list = firms.filter(keep).map(f => [f, sortKey(f)]).sort(ICONN.sortBy === 'firm'
@@ -9124,7 +9152,7 @@ function iconnResults(body) {
   body.appendChild(el('p', { style: 'margin:12px 0 0;font-size:12px;color:var(--ink-3)' },
     'Taranis fit: the matched opportunity’s criteria score (the re-score where there is one), from the same row as '
     + 'the Opportunity column; for a firm in review, its top candidate’s, not confirmed. '
-    + 'Name match: 100% exact, 95% a known alias, fuzzy spellings scored by similarity; '
+    + 'iConnections match: 100% exact, 95% a known alias, fuzzy spellings scored by similarity; '
     + Math.round(((run.thresholds && run.thresholds.auto) || 0.75) * 100) + '% and up is a match, '
     + Math.round(((run.thresholds && run.thresholds.review) || 0.45) * 100) + '–'
     + (Math.round(((run.thresholds && run.thresholds.auto) || 0.75) * 100) - 1) + '% needs review and is never linked on its own. '
