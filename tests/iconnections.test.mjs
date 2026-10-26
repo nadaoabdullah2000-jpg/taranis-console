@@ -115,7 +115,7 @@ test('more than 5,000 rows is refused, not truncated', async () => {
 });
 
 test('header synonyms, and a person name column is not taken for the firm', () => {
-  assert.deepEqual(R.detectColumns(['First Name', 'Last Name', 'Name', 'Company', 'LinkedIn URL', 'Email']), { name: 3 });
+  assert.deepEqual(R.detectColumns(['First Name', 'Last Name', 'Name', 'Company', 'LinkedIn URL', 'Email']), { name: 3, person: 2 });
   assert.deepEqual(R.detectColumns(['  FIRM_NAME ', 'Firm Website', 'Total AUM ($mm)', 'Investor Type', 'HQ Location']),
     { name: 0, domain: 1, aum: 2, type: 3, country: 4 });
   assert.deepEqual(R.detectColumns(['Allocator', 'Domain', 'AUM Range', 'Allocator Type', 'Domicile']),
@@ -175,7 +175,7 @@ test('contacts export: Name + Firm on a later sheet, one row per firm with a con
   const sheets = await book([notes, contacts]);
   const pick = R.chooseSheet(sheets);
   assert.equal(pick.sheet.name, 'I-connection');
-  assert.deepEqual(pick.cols, { name: 2 }, 'Firm is the allocator; the person\'s Name column is not used');
+  assert.deepEqual(pick.cols, { name: 2, person: 1 }, 'Firm is the allocator; Name is the person');
   const out = R.buildRows(pick.sheet, pick.headerIndex, pick.cols);
   assert.equal(out.sheetRows, 6);
   assert.deepEqual(out.unnamed, [7]);
@@ -190,4 +190,41 @@ test('contacts export: Name + Firm on a later sheet, one row per firm with a con
     assert.equal(r.investor_type, null); assert.equal(r.country, null);
   }
   assert.deepEqual([out.aumUnread, out.countryUnread], [[], []]);
+});
+
+test('Investors: names by sheet row, read in the browser and never put into the rows sent', async () => {
+  const contacts = { name: 'I-connection', rows: [
+    [null, 'Name', 'Firm'],
+    [null, 'Aliya Garaeva', 'Weybourne Holdings'],
+    [null, 'Amir Mirza', 'Weybourne Holdings'],
+    [null, '  Aliya  Garaeva ', 'weybourne holdings'],
+    [null, null, 'Topwater Capital'],
+    [null, 'Kari Nordmann', 'Norges Bank Investment Management']] };
+  const pick = R.chooseSheet(await book([contacts]));
+  const people = R.peopleByRow(pick.sheet, pick.headerIndex, pick.cols);
+  assert.deepEqual([...people], [[2, 'Aliya Garaeva'], [3, 'Amir Mirza'], [4, 'Aliya Garaeva'], [6, 'Kari Nordmann']]);
+  const out = R.buildRows(pick.sheet, pick.headerIndex, pick.cols);
+  const sent = JSON.stringify(out.rows);
+  for (const n of ['Aliya', 'Amir', 'Kari', 'Garaeva']) assert.ok(!sent.includes(n), n + ' must not be in the rows sent');
+  assert.deepEqual(out.rows.map(r => [r.name, r.row_nos]), [
+    ['Weybourne Holdings', [2, 3, 4]], ['Topwater Capital', [5]], ['Norges Bank Investment Management', [6]]]);
+  assert.deepEqual(R.SENT_FIELDS, ['name', 'domain', 'aum', 'type', 'country'], 'person is not a sent field');
+});
+
+test('Investors: Contact / Full name / First + Last are read; no person column gives no names', async () => {
+  const one = (rows) => book([{ name: 'S', rows }]).then(R.chooseSheet);
+  let p = await one([['Firm Name', 'Contact'], ['A Co', 'Jo Bloggs']]);
+  assert.deepEqual([...R.peopleByRow(p.sheet, p.headerIndex, p.cols)], [[2, 'Jo Bloggs']]);
+  p = await one([['Organization', 'Full Name'], ['A Co', 'Jo Bloggs']]);
+  assert.deepEqual([...R.peopleByRow(p.sheet, p.headerIndex, p.cols)], [[2, 'Jo Bloggs']]);
+  p = await one([['Company', 'First Name', 'Last Name'], ['A Co', 'Jo', 'Bloggs'], ['B Co', null, 'Smith']]);
+  assert.equal(p.cols.person, undefined);
+  assert.deepEqual([...R.peopleByRow(p.sheet, p.headerIndex, p.cols)], [[2, 'Jo Bloggs'], [3, 'Smith']]);
+  p = await one([['Firm Name', 'Website'], ['A Co', 'a.com']]);
+  assert.equal(R.peopleByRow(p.sheet, p.headerIndex, p.cols).size, 0);
+});
+
+test('Investors: an e-mail, phone or title column is never taken for the person', () => {
+  assert.deepEqual(R.detectColumns(['Firm Name', 'Contact Email', 'Contact Phone', 'Contact Title']), { name: 0 });
+  assert.deepEqual(R.detectColumns(['Firm Name', 'Contact Email', 'Contact Name']), { name: 0, person: 2 });
 });

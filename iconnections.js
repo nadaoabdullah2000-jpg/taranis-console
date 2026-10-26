@@ -270,8 +270,19 @@
       names: ['country', 'hq country', 'headquarters country', 'firm country', 'country of domicile',
               'domicile', 'location country', 'hq location', 'headquarters', 'hq', 'location', 'country region'],
       patterns: [/\bcountry\b/, /\bdomicile\b/]
+    },
+    // The people at each firm, as a contacts export lists them. Read for the
+    // Investors column only: it is never put into the rows that are sent,
+    // their raw cells or the column mapping, so names stay in the browser.
+    person: {
+      label: 'Investor (person) name',
+      browserOnly: true,
+      names: ['full name', 'contact name', 'name', 'contact', 'person', 'person name', 'contact person', 'investor contact'],
+      patterns: [/\b(contact|full|person) name\b/]
     }
   };
+  // Fields that may leave the browser, in the order they are detected.
+  const SENT_FIELDS = ['name', 'domain', 'aum', 'type', 'country'];
 
   // Which column holds each field. Returns {field: columnIndex}; a field the
   // headers do not name is left out.
@@ -279,7 +290,7 @@
     const norm = headers.map(normHeader);
     const used = new Set();
     const out = {};
-    for (const field of ['name', 'domain', 'aum', 'type', 'country']) {
+    for (const field of SENT_FIELDS.concat('person')) {
       const spec = FIELDS[field];
       let pick = -1;
       for (const n of spec.names) {
@@ -290,7 +301,8 @@
         for (const re of spec.patterns) {
           // "LinkedIn URL" or "Email" is not the firm's website.
           pick = norm.findIndex((h, i) => h && re.test(h) && !used.has(i)
-            && !(field === 'domain' && /linkedin|twitter|facebook|logo|email|e mail/.test(h)));
+            && !(field === 'domain' && /linkedin|twitter|facebook|logo|email|e mail/.test(h))
+            && !(field === 'person' && /email|e mail|phone|title|linkedin|url/.test(h)));
           if (pick >= 0) break;
         }
       }
@@ -503,7 +515,8 @@
       if (countryCell !== null && countryCell !== undefined && !country) countryUnread.push({ row: row.r, value: String(countryCell) });
       const typeCell = get(row.cells, 'type');
       const raw = {};
-      for (const f of Object.keys(cols)) {
+      for (const f of SENT_FIELDS) {
+        if (cols[f] === undefined) continue;
         if (cols[f] !== null && cols[f] >= 0 && row.cells[cols[f]] !== null && row.cells[cols[f]] !== undefined) {
           raw[String(headers[cols[f]] || f)] = row.cells[cols[f]];
         }
@@ -546,13 +559,37 @@
     return { rows, sheetRows, unnamed, aumUnread, countryUnread };
   }
 
+  // Sheet row number -> the person named on it, for the Investors column.
+  // From the person column, or First + Last name when that is how the file
+  // splits it. Stays in the browser: nothing here goes into buildRows.
+  // An empty map when the file names no people.
+  function peopleByRow(sheet, headerIndex, cols) {
+    const out = new Map();
+    const headers = sheet.rows[headerIndex] ? sheet.rows[headerIndex].cells : [];
+    const norm = headers.map(normHeader);
+    const used = new Set(SENT_FIELDS.map(f => cols[f]).filter(i => i !== undefined && i !== null && i >= 0));
+    let pick = (cols.person !== undefined && cols.person !== null && cols.person >= 0 && !used.has(cols.person)) ? [cols.person] : null;
+    if (!pick && cols.person === undefined) {
+      const first = norm.findIndex((h, i) => /^(first|given) name$/.test(h) && !used.has(i));
+      const last = norm.findIndex((h, i) => /^(last|family|sur) ?name$/.test(h) && !used.has(i));
+      if (first >= 0 || last >= 0) pick = [first, last].filter(i => i >= 0);
+    }
+    if (!pick) return out;
+    for (const row of sheet.rows.slice(headerIndex + 1)) {
+      const v = pick.map(i => row.cells[i]).filter(c => c !== null && c !== undefined && String(c).trim() !== '')
+        .map(c => String(c).replace(/\s+/g, ' ').trim()).join(' ');
+      if (v) out.set(row.r, v);
+    }
+    return out;
+  }
+
   async function sha256Hex(buf) {
     const subtle = (root.crypto && root.crypto.subtle) || (typeof require === 'function' ? require('crypto').webcrypto.subtle : null);
     const d = await subtle.digest('SHA-256', buf);
     return Array.from(new Uint8Array(d), b => b.toString(16).padStart(2, '0')).join('');
   }
 
-  const api = { MAX_ROWS, ReadError, readZip, readWorkbook, parseSheet, normHeader, detectColumns, findHeader,
+  const api = { MAX_ROWS, SENT_FIELDS, peopleByRow, ReadError, readZip, readWorkbook, parseSheet, normHeader, detectColumns, findHeader,
                 chooseSheet, headerUnit, parseAum, parseDomain, parseCountry, buildRows, sha256Hex, colName, FIELDS };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.IconnReader = api;

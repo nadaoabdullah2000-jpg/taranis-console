@@ -8448,7 +8448,9 @@ function importSheet() {
 const ICONN = { file: null, sha: null, sheets: null, sheetIdx: 0, headerIndex: 0, cols: {}, built: null,
                 errors: [], result: null, runId: null, filter: 'all', open: {}, sortBy: 'fit', sortDir: 'desc' };
 const ICONN_CHUNK = 150;   // firms per call: well inside the 8 s statement limit
-const ICONN_FIELDS = ['name', 'domain', 'aum', 'type', 'country'];
+// 'person' is offered in the mapping but read in the browser only (the
+// Investors column); iconnMatch sends IconnReader.SENT_FIELDS and nothing else.
+const ICONN_FIELDS = ['name', 'person', 'domain', 'aum', 'type', 'country'];
 let iconnReaderLoad = null;
 
 function loadIconnReader() {
@@ -8488,6 +8490,11 @@ function ensureIconnCss() {
   + ".ic-sort{all:unset;cursor:pointer;font:inherit;letter-spacing:inherit;text-transform:inherit;color:inherit}"
   + ".ic-sort:focus-visible{outline:2px solid var(--accent);outline-offset:2px}"
   + ".ic-firm{width:34%}.ic-prof{width:13%;white-space:nowrap}.ic-opp{width:38%}.ic-rank{width:17%}"
+  + ".ic-table.with-ppl{min-width:900px}"
+  + ".ic-table.with-ppl .ic-firm{width:22%}.ic-table.with-ppl .ic-opp{width:30%}"
+  + ".ic-ppl{width:17%}"
+  + ".ic-people{margin:0;padding-left:16px;font-size:13px;line-height:1.55;color:var(--ink-2)}"
+  + ".ic-more{font-size:12px;margin:3px 0 0 16px}"
   + ".ic-how{font-size:11px;letter-spacing:.04em;color:var(--ink-3);margin-top:5px}"
   + ".ic-how.fuzzy{color:var(--signal)}"
   + ".ic-score.cand{color:var(--signal);font-weight:500}"
@@ -8580,7 +8587,8 @@ async function iconnOpenRun(id) {
   try {
     const res = await supaRpc('console_iconnections_run', { p_run_id: id });
     if (!res) return toast('That run is no longer stored.', true);
-    ICONN.result = res; ICONN.runId = id; ICONN.built = null; ICONN.filter = 'all'; ICONN.open = {};
+    // A run reopened from the list has no file in the browser, so no people.
+    ICONN.result = res; ICONN.runId = id; ICONN.built = null; ICONN.people = null; ICONN.filter = 'all'; ICONN.open = {};
     go('iconn');
   } catch (e) { toast(e.message, true); }
 }
@@ -8674,7 +8682,8 @@ function iconnMapping(stage) {
       ICONN.picked = true;
       iconnMapping(stage);
     });
-    map.append(el('label', { for: 'iconn-col-' + f }, spec.label + (spec.required ? ' *' : '')), sel);
+    map.append(el('label', { for: 'iconn-col-' + f }, spec.label + (spec.required ? ' *' : '')
+      + (spec.browserOnly ? ' \u2014 stays in your browser' : '')), sel);
   }
   stage.appendChild(map);
 
@@ -8721,7 +8730,10 @@ async function iconnMatch(btn, stage) {
   const sheet = ICONN.sheets[ICONN.sheetIdx];
   const headers = (sheet.rows[ICONN.headerIndex] || { cells: [] }).cells;
   const columns = {};
-  for (const f of ICONN_FIELDS) if (ICONN.cols[f] !== undefined) columns[f] = String(headers[ICONN.cols[f]] || window.IconnReader.colName(ICONN.cols[f]));
+  for (const f of window.IconnReader.SENT_FIELDS) if (ICONN.cols[f] !== undefined) columns[f] = String(headers[ICONN.cols[f]] || window.IconnReader.colName(ICONN.cols[f]));
+  // The people at each firm, by sheet row, for the Investors column. Kept
+  // here, never sent: the rows above carry firm-level fields only.
+  const people = window.IconnReader.peopleByRow(sheet, ICONN.headerIndex, ICONN.cols);
   btn.disabled = true;
   try {
     let res;
@@ -8740,7 +8752,7 @@ async function iconnMatch(btn, stage) {
       res = await supaRpc('console_iconnections_run', { p_run_id: runId });
       ICONN.runId = runId;
     }
-    ICONN.result = res; ICONN.filter = 'all'; ICONN.open = {};
+    ICONN.result = res; ICONN.people = people; ICONN.filter = 'all'; ICONN.open = {};
     go('iconn');
   } catch (e) {
     const msg = e.message === 'NO_SUPABASE'
@@ -8930,9 +8942,37 @@ function iconnFitDetail(f, fx, m, status) {
   return box;
 }
 
-// One table row per firm: Firm | Intelligence profile |
-// Opportunity (name, status, how the name matched) | Taranis fit.
-function iconnFirmRow(f) {
+// The people the file lists at a firm: every sheet row folded into it,
+// in sheet order, each name once.
+function iconnPeopleOf(f) {
+  const seen = new Set(), out = [];
+  for (const r of (f.row_nos || [])) {
+    const n = ICONN.people && ICONN.people.get(Number(r));
+    const k = n && n.toLowerCase();
+    if (n && !seen.has(k)) { seen.add(k); out.push(n); }
+  }
+  return out;
+}
+
+function iconnPeopleCell(f) {
+  const names = iconnPeopleOf(f);
+  const td = el('td', { class: 'ic-ppl' });
+  if (!names.length) { td.appendChild(el('span', { class: 'ic-dash' }, '\u2014')); return td; }
+  const SHOW = 4;
+  const ul = el('ul', { class: 'ic-people' }, ...names.slice(0, SHOW).map(n => el('li', null, n)));
+  td.appendChild(ul);
+  if (names.length > SHOW) {
+    const more = el('button', { class: 'ic-link ic-more', type: 'button' }, '+' + (names.length - SHOW) + ' more');
+    more.addEventListener('click', () => { names.slice(SHOW).forEach(n => ul.appendChild(el('li', null, n))); more.remove(); });
+    td.appendChild(more);
+  }
+  return td;
+}
+
+// One table row per firm: Firm | Investors (when the file names people) |
+// Intelligence profile | Opportunity (name, status, how the name matched) |
+// Taranis fit.
+function iconnFirmRow(f, showPeople) {
   const tone = f.rejected ? 'ic-rej' : f.bucket === 'review' ? 'ic-rev' : f.bucket === 'none' ? 'ic-none' : '';
   const tr = el('tr', { class: tone });
 
@@ -8996,7 +9036,9 @@ function iconnFirmRow(f) {
   const fx = iconnFit(f);
   const rank = el('td', { class: 'ic-rank' });
   if (fx.whose) rank.appendChild(iconnFitCell(f, fx));
-  tr.append(firm, prof, opp, rank);
+  tr.append(firm);
+  if (showPeople) tr.appendChild(iconnPeopleCell(f));
+  tr.append(prof, opp, rank);
   return tr;
 }
 
@@ -9063,13 +9105,16 @@ function iconnResults(body) {
   };
   const LIMIT = 300;
   const shown = ICONN.open.all ? list : list.slice(0, LIMIT);
-  const table = el('table', { class: 'ic-table' },
+  // Only when this result came from a file read here that names people.
+  const showPeople = !!(ICONN.people && ICONN.people.size);
+  const table = el('table', { class: 'ic-table' + (showPeople ? ' with-ppl' : '') },
     el('thead', null, el('tr', null,
       sortHead('firm', 'Firm / allocator'),
+      showPeople ? el('th', { scope: 'col' }, 'Investors') : null,
       el('th', { scope: 'col' }, 'Intelligence profile'),
       el('th', { scope: 'col' }, 'Opportunity'),
       sortHead('fit', 'Taranis fit'))),
-    el('tbody', null, ...shown.map(iconnFirmRow)));
+    el('tbody', null, ...shown.map(f => iconnFirmRow(f, showPeople))));
   body.appendChild(el('div', { class: 'ic-wrap' }, table));
   if (!list.length) body.appendChild(el('p', { class: 'ic-notes', style: 'padding:0;color:var(--ink-3)' }, 'None.'));
   if (shown.length < list.length) {

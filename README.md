@@ -205,6 +205,12 @@ is the one that writes.) Database only, no gateway action:
    note. The rows are read client-side with `MANDATE_LIST_COLS`, so no
    extra backend field is needed. Earlier matches are listed at the top of
    the page, and hidden when there are none.
+   Right of Firm, **Investors** lists the people from the file's name column
+   (Name / Contact / Full name, or First + Last) for that firm, deduped, the
+   first four then "+N more". It is built in the browser from the file
+   (`peopleByRow`); `p_columns` / `p_rows` only carry `SENT_FIELDS`, so names
+   are never sent or stored. With no name column, or for a reopened earlier
+   run, the column is hidden.
    A **Company profile** box at the top opens
    the same Search view for any company typed, in the file or not, with Back
    returning to the results. Nothing on this page links to With Intelligence.
