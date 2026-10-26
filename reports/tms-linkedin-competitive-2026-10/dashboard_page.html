@@ -1,0 +1,389 @@
+<style>
+.tx { display: grid; gap: var(--cds-gap-xl); font-family: var(--font-anthropic-sans); color: var(--color-fg); }
+.tx-head h1 { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); margin: 0; text-wrap: balance; }
+.tx-head p { margin: var(--cds-gap-xs) 0 0; color: var(--color-fg-muted); max-width: 70ch; }
+.tx-nav { display: flex; flex-wrap: wrap; gap: var(--cds-gap-sm); }
+.tx-nav a { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); text-decoration: none; border: 1px solid var(--color-border-line); border-radius: 999px; padding: 2px 10px; }
+.tx-nav a:hover, .tx-nav a:focus-visible { color: var(--color-fg); }
+.tx-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: var(--cds-gap-md); }
+.tx-tile { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-lg); display: grid; gap: var(--cds-gap-xs); align-content: start; }
+.tx-tile .lab { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+.tx-tile .num { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); font-variant-numeric: tabular-nums; min-height: 1.2em; }
+.tx-tile .sub { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+.tx-sec { display: grid; gap: var(--cds-gap-md); }
+.tx-sec > h2 { font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); margin: 0; }
+.tx-sec > p.note { margin: 0; color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); max-width: 80ch; }
+.tx-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: var(--cds-gap-md); }
+.tx-card { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-lg); display: grid; gap: var(--cds-gap-sm); min-width: 0; align-content: start; }
+.tx-card h3 { margin: 0; font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); }
+.tx-card .cap { margin: 0; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+.tx-chart { position: relative; min-height: 220px; }
+.tx-chart.tall { min-height: 520px; }
+.tx-tip { position: absolute; pointer-events: none; background: var(--cds-surface-popover); border: 1px solid var(--cds-border); border-radius: var(--cds-radius); box-shadow: var(--cds-shadow-popover); padding: var(--cds-pad-xs) var(--cds-pad-sm); font-size: var(--cds-font-size-caption); white-space: nowrap; z-index: 2; }
+.tx-tip .k { color: var(--cds-text-secondary); }
+.tx-scroll { overflow-x: auto; }
+.tx-scroll.capped { max-height: 32rem; overflow: auto; }
+.tx-table { width: 100%; border-collapse: collapse; font-size: var(--cds-font-size-caption); font-variant-numeric: tabular-nums; }
+.tx-table th { text-align: left; font-weight: var(--cds-font-weight-medium); color: var(--color-fg-muted); border-bottom: 1px solid var(--color-border-line); padding: 6px 8px; position: sticky; top: 0; background: var(--color-panel); vertical-align: bottom; }
+.tx-table td { border-bottom: 1px solid var(--color-border-line); padding: 6px 8px; vertical-align: top; min-width: 7rem; }
+.tx-table td.n { text-align: right; min-width: 4rem; white-space: nowrap; }
+.tx-table a { color: inherit; }
+.tx-search { font: inherit; font-size: var(--cds-font-size-caption); padding: 4px 8px; border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); background: var(--color-bg); color: var(--color-fg); max-width: 20rem; }
+.tx-swot { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: var(--cds-gap-md); }
+.tx-swot ul { margin: 0; padding-left: 1.1em; display: grid; gap: 4px; font-size: var(--cds-font-size-body); }
+.tx-legend { display: flex; flex-wrap: wrap; gap: var(--cds-gap-md); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+.tx-legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; background: var(--sw); }
+[data-dash-source-state=refreshing] { opacity: .5; transition: opacity var(--cds-dur-slow); }
+[data-dash-source-state=empty] { color: transparent; }
+</style>
+
+<div class="tx">
+  <header class="tx-head" id="top">
+    <h1>TMS LinkedIn Competitive Review</h1>
+    <p id="tx-takeaway">Taranis posts <b data-source="cadence" data-field="posts_per_week" data-where="account=Taranis" class="dash-skeleton">—</b> times a week on its company page. BIT Capital, the most active close competitor, posts <b data-source="cadence" data-field="posts_per_week" data-where="account=BIT%20Capital" class="dash-skeleton">—</b>, and Contour, Jericho and Shannon River post nothing. The channel is open: a founder-led plan of about five posts a week would lead the peer set.</p>
+    <p>LinkedIn window: 13 weeks, 17 Jun – 16 Sep 2026. The Crustdata index ends mid-September, so newer posts are not counted. Every figure links to its source in Sources.</p>
+  </header>
+
+  <nav class="tx-nav" aria-label="Sections">
+    <a href="#competitors">Competitor set</a><a href="#pages">Product pages</a><a href="#cadence">LinkedIn cadence</a><a href="#monchau">Monchau</a><a href="#voices">Tech voices</a><a href="#plan">SWOT &amp; plan</a><a href="#raw">Raw posts</a>
+  </nav>
+
+  <div class="tx-tiles" data-fetchpriority="high">
+    <div class="tx-tile"><span class="lab">Taranis company page, posts / week</span><span class="num dash-skeleton" data-source="cadence" data-field="posts_per_week" data-where="account=Taranis">—</span><span class="sub"><span data-source="cadence" data-field="posts_13w" data-where="account=Taranis">—</span> posts in 13 weeks</span></div>
+    <div class="tx-tile"><span class="lab">BIT Capital (top competitor), posts / week</span><span class="num dash-skeleton" data-source="cadence" data-field="posts_per_week" data-where="account=BIT%20Capital">—</span><span class="sub"><span data-source="cadence" data-field="posts_13w" data-where="account=BIT%20Capital">—</span> posts in 13 weeks</span></div>
+    <div class="tx-tile"><span class="lab">Monchau, posts / week</span><span class="num dash-skeleton" data-source="cadence" data-field="posts_per_week" data-where="account=Charles-Henry%20Monchau%20(Syz%20CIO)">—</span><span class="sub"><span data-source="cadence" data-field="posts_13w" data-where="account=Charles-Henry%20Monchau%20(Syz%20CIO)">—</span> posts in 13 weeks</span></div>
+    <div class="tx-tile"><span class="lab">Monchau posts crediting a "Source"</span><span class="num dash-skeleton" data-source="curatedShare" data-field="share">—</span><span class="sub">curation share, 1 Jun – 16 Sep 2026</span></div>
+  </div>
+
+  <section class="tx-sec" id="competitors">
+    <h2>1. Competitor set</h2>
+    <p class="note">Three of the five starting candidates held up. Wellington's long/short tech fund appears closed, and Wavelength and Act II have no current footprint. BIT Capital, Symbit and Shannon River replace them. Ranked by closeness to TMS's hybrid systematic + discretionary tech model.</p>
+    <div class="tx-card">
+      <div class="tx-scroll"><table class="tx-table" id="tbl-competitors" data-source="competitors" data-row-key="fund">
+        <thead><tr><th data-field="rank">#</th><th data-field="fund">Fund</th><th data-field="aum">AUM</th><th data-field="aum_date">As of</th><th data-field="hq">HQ</th><th data-field="vehicle">Vehicle</th><th data-field="strategy">Strategy</th><th data-field="why_closest">Why close to TMS</th><th data-field="source">Source</th></tr></thead>
+        <tbody></tbody></table></div>
+    </div>
+  </section>
+
+  <section class="tx-sec" id="pages">
+    <h2>2. Product-page comparison</h2>
+    <p class="note">Behind its gate, TMS shows no performance, fund facts or team, and does not state its two sleeves. Schroders/Contour and UBP/Shannon River publish full returns and documents behind the same kind of Swiss qualified-investor gate.</p>
+    <div class="tx-card">
+      <div class="tx-scroll"><table class="tx-table" id="tbl-pages" data-source="product_pages" data-row-key="fund">
+        <thead><tr><th data-field="fund">Fund</th><th data-field="gate">Gate</th><th data-field="strategy_depth">Strategy text</th><th data-field="performance_disclosure">Performance shown</th><th data-field="team_visibility">Team</th><th data-field="ctas">Calls to action</th><th data-field="product_page">Page</th></tr></thead>
+        <tbody></tbody></table></div>
+    </div>
+  </section>
+
+  <section class="tx-sec" id="cadence">
+    <h2>3. LinkedIn cadence and format</h2>
+    <div class="tx-grid">
+      <div class="tx-card" style="grid-column: 1 / -1">
+        <h3>Posts per week, 13 weeks to 16 Sep 2026</h3>
+        <p class="cap">Taranis and competitors in color; benchmarks and tech voices muted. Bars past the axis end are cut, with the value at the end.</p>
+        <div class="tx-legend" id="leg-cadence"></div>
+        <div class="tx-chart tall" id="ch-cadence" data-source="cadence"></div>
+      </div>
+      <div class="tx-card">
+        <h3>Engagement by format</h3>
+        <p class="cap">Share of Monchau's original posts reaching 25+ reactions, 1 Jun – 16 Sep 2026. No competitor posts enough to test this.</p>
+        <div class="tx-chart" id="ch-format" data-source="monchau_format"></div>
+      </div>
+      <div class="tx-card">
+        <h3>Format mix</h3>
+        <p class="cap">Monchau's original posts by format, same window.</p>
+        <div class="tx-chart" id="ch-formatmix" data-source="monchau_format"></div>
+      </div>
+    </div>
+    <div class="tx-card">
+      <h3>Channel, cadence and best post by account</h3>
+      <div class="tx-scroll"><table class="tx-table" id="tbl-li" data-source="linkedin_compare" data-row-key="account">
+        <thead><tr><th data-field="account">Account</th><th data-field="channel">Channel</th><th data-field="posts_13w">Posts, 13w</th><th data-field="posts_per_week">Per week</th><th data-field="dominant_format">Dominant format</th><th data-field="best_post_reactions">Best post reactions</th><th data-field="best_post_url">Best post</th><th data-field="source">Source</th></tr></thead>
+        <tbody></tbody></table></div>
+    </div>
+  </section>
+
+  <section class="tx-sec" id="monchau">
+    <h2>4. Monchau deep-dive</h2>
+    <div class="tx-grid">
+      <div class="tx-card">
+        <h3>Average posts per day, 2026</h3>
+        <p class="cap">Crustdata person 28667460. July's spike is not verified post by post.</p>
+        <div class="tx-chart" id="ch-monthly" data-source="monchau_monthly"></div>
+      </div>
+      <div class="tx-card">
+        <h3>Curated vs own view</h3>
+        <p class="cap">Share of posts reaching 54+ reactions, 1 Jun – 16 Sep 2026.</p>
+        <div class="tx-chart" id="ch-mix" data-source="monchau_mix"></div>
+      </div>
+      <div class="tx-card">
+        <h3>Topic mix</h3>
+        <p class="cap">Share of all posts matching each keyword group. Groups overlap and miss chart-only posts.</p>
+        <div class="tx-chart" id="ch-topics" data-source="monchau_topics"></div>
+      </div>
+      <div class="tx-card">
+        <h3>Reaction distribution</h3>
+        <p class="cap">Share of all posts at or above each reaction count.</p>
+        <div class="tx-chart" id="ch-react" data-source="monchau_reactions"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="tx-sec" id="voices">
+    <h2>5. Famous tech voices</h2>
+    <p class="note">Compare their formats, not their reaction counts: their audiences are in the millions.</p>
+    <div class="tx-card">
+      <div class="tx-scroll"><table class="tx-table" id="tbl-voices" data-source="voices" data-row-key="name">
+        <thead><tr><th data-field="name">Voice</th><th data-field="posts_per_week">Posts / week</th><th data-field="dominant_format_top3">Top formats</th><th data-field="best_post_reactions">Best post reactions</th><th data-field="best_post_url">Best post</th><th data-field="what_taranis_can_borrow">What Taranis can borrow</th></tr></thead>
+        <tbody></tbody></table></div>
+    </div>
+  </section>
+
+  <section class="tx-sec" id="plan">
+    <h2>6. SWOT and recommendations</h2>
+    <div class="tx-swot">
+      <div class="tx-card"><h3>Strengths</h3><ul><li>An ownable data asset: a market-sentiment signal running since 2016</li><li>CEO with recurring BFM Business TV airtime</li><li>Award history and a clear AI-disruption thesis</li></ul></div>
+      <div class="tx-card"><h3>Weaknesses</h3><ul><li>Small following; company page only reshares TV clips</li><li>Recent posts are French-only</li><li>Product page shows no performance, sleeves or team; the award label says "Managed Futures"</li></ul></div>
+      <div class="tx-card"><h3>Opportunities</h3><ul><li>Close competitors are almost silent on LinkedIn</li><li>Monchau proves a large Swiss audience for tech and AI market charts</li><li>No peer publishes a proprietary sentiment read</li></ul></div>
+      <div class="tx-card"><h3>Threats</h3><ul><li>BIT already tells the human + AI story with hard metrics</li><li>Symbit occupies "Swiss + AI + long/short"</li><li>Swiss marketing rules limit public performance talk</li></ul></div>
+    </div>
+    <div class="tx-card">
+      <h3>Operating plan</h3>
+      <div class="tx-scroll"><table class="tx-table" id="tbl-plan" data-source="plan" data-row-key="lever">
+        <thead><tr><th data-field="lever">Lever</th><th data-field="recommendation">Recommendation</th><th data-field="target_posts_per_week">Posts / week</th><th data-field="evidence">Evidence</th></tr></thead>
+        <tbody></tbody></table></div>
+    </div>
+  </section>
+
+  <section class="tx-sec" id="raw">
+    <h2>7. Raw posts</h2>
+    <p class="note">Every post pulled for this review. True dates are decoded from LinkedIn post IDs, because the index's dates for older posts are imputed. Download the full CSV from Sources.</p>
+    <div class="tx-card">
+      <input class="tx-search" id="raw-search" type="search" placeholder="Filter by author or text" aria-label="Filter raw posts">
+      <div class="tx-scroll capped"><table class="tx-table" id="tbl-raw" data-source="posts_raw" data-row-key="url">
+        <thead><tr><th data-field="author">Author</th><th data-field="true_date_utc">Date</th><th data-field="format">Format</th><th data-field="reactions">Reactions</th><th data-field="comments">Comments</th><th data-field="shares">Shares</th><th data-field="text_truncated">Text</th><th data-field="url">Link</th></tr></thead>
+        <tbody></tbody></table></div>
+    </div>
+  </section>
+</div>
+
+<script>
+dash.calc('curatedShare', {
+  inputs: ['monchau_mix'],
+  title: 'Monchau curated share',
+  description: 'Posts crediting a Source divided by curated plus non-credited posts.',
+  fn: (monchau_mix) => {
+    const cur = monchau_mix.find(r => r.segment.startsWith('Curated'));
+    const non = monchau_mix.find(r => r.segment.startsWith('Not source'));
+    return [{ share: +cur.posts / (+cur.posts + +non.posts) }];
+  }
+});
+
+(function () {
+  const fmt = { pct: d3.format('.0%'), pct1: d3.format('.1%'), dec: d3.format(',.2~f'), int: d3.format(',') };
+  const linkCols = new Set(['source', 'product_page', 'best_post_url', 'url']);
+  const numCols = new Set(['rank', 'posts_13w', 'posts_per_week', 'best_post_reactions', 'reactions', 'comments', 'shares', 'target_posts_per_week']);
+
+  function tip(box) {
+    let t = box.querySelector('.tx-tip');
+    if (!t) { t = document.createElement('div'); t.className = 'tx-tip'; t.hidden = true; box.appendChild(t); }
+    return {
+      show(ev, k, v) {
+        t.replaceChildren();
+        const a = document.createElement('div'); a.className = 'k'; a.textContent = k;
+        const b = document.createElement('div'); b.textContent = v;
+        t.append(a, b); t.hidden = false;
+        const r = box.getBoundingClientRect();
+        let x = ev.clientX - r.left + 12, y = ev.clientY - r.top + 12;
+        x = Math.min(x, r.width - t.offsetWidth - 4); x = Math.max(4, x);
+        t.style.left = x + 'px'; t.style.top = y + 'px';
+      },
+      hide() { t.hidden = true; }
+    };
+  }
+
+  function failed(box) {
+    box.replaceChildren();
+    const d = document.createElement('div');
+    d.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:6px;min-height:inherit;height:100%;color:var(--color-fg-muted);font-size:var(--cds-font-size-caption)';
+    const dot = document.createElement('span'); dot.style.cssText = 'width:.375rem;height:.375rem;border-radius:50%;background:var(--color-bad)';
+    d.append(dot, document.createTextNode('Failed to load'));
+    box.appendChild(d);
+  }
+
+  // Horizontal bar chart. rows: [{label, value, color, text}]
+  function hbar(box, rows, opt) {
+    box.replaceChildren();
+    const W = box.clientWidth || 600;
+    const bh = opt.bar || 18, gap = opt.gap || 8;
+    const svg = d3.select(box).append('svg').attr('width', '100%');
+    const probe = svg.append('g').attr('font-size', 12);
+    let lw = 0, vw = 0;
+    rows.forEach(r => {
+      const t = probe.append('text').text(r.label); lw = Math.max(lw, t.node().getComputedTextLength()); t.remove();
+      const u = probe.append('text').text(r.text); vw = Math.max(vw, u.node().getComputedTextLength()); u.remove();
+    });
+    probe.remove();
+    lw = Math.min(lw, W * 0.45);
+    const m = { l: lw + 10, r: vw + 12, t: 4, b: 22 };
+    const H = m.t + m.b + rows.length * (bh + gap);
+    svg.attr('viewBox', `0 0 ${W} ${H}`).attr('height', H);
+    const max = opt.max ?? d3.max(rows, r => r.value) ?? 1;
+    const x = d3.scaleLinear([0, max], [m.l, W - m.r]);
+    const g = svg.append('g');
+    g.append('g').attr('transform', `translate(0,${H - m.b})`)
+      .call(d3.axisBottom(x).ticks(Math.max(2, Math.floor((W - m.l - m.r) / 80))).tickFormat(opt.tick || fmt.dec).tickSizeOuter(0))
+      .attr('font-size', null).attr('font-family', null)
+      .call(a => a.selectAll('text').attr('fill', 'var(--color-fg-muted)').style('font-size', 'var(--cds-font-size-caption)'))
+      .call(a => a.selectAll('line,path').attr('stroke', 'var(--cds-chart-axis)'));
+    g.append('g').selectAll('line').data(x.ticks(Math.max(2, Math.floor((W - m.l - m.r) / 80)))).join('line')
+      .attr('x1', d => x(d)).attr('x2', d => x(d)).attr('y1', m.t).attr('y2', H - m.b).attr('stroke', 'var(--cds-chart-grid)');
+    const T = tip(box);
+    const row = g.selectAll('g.r').data(rows).join('g').attr('class', 'r')
+      .attr('transform', (d, i) => `translate(0,${m.t + i * (bh + gap)})`);
+    row.append('text').attr('x', m.l - 8).attr('y', bh / 2).attr('dy', '0.35em').attr('text-anchor', 'end')
+      .attr('fill', 'var(--color-fg)').style('font-size', 'var(--cds-font-size-caption)').text(d => d.label);
+    row.append('rect').attr('x', m.l).attr('height', bh).attr('rx', 4)
+      .attr('width', d => Math.max(d.value > 0 ? 2 : 0, x(Math.min(d.value, max)) - m.l)).attr('fill', d => d.color);
+    row.filter(d => d.value > max).append('path')
+      .attr('d', d => { const e = x(max); return `M${e - 10},${-1} l6,${bh + 2} M${e - 5},${-1} l6,${bh + 2}`; })
+      .attr('stroke', 'var(--color-panel)').attr('stroke-width', 2.5);
+    row.append('text').attr('x', d => x(Math.min(d.value, max)) + 6).attr('y', bh / 2).attr('dy', '0.35em')
+      .attr('fill', 'var(--color-fg-muted)').style('font-size', 'var(--cds-font-size-caption)').text(d => d.text);
+    row.append('rect').attr('x', 0).attr('width', W).attr('y', -gap / 2).attr('height', bh + gap).attr('fill', 'transparent')
+      .on('mousemove', (ev, d) => T.show(ev, d.label, d.tipText || d.text)).on('mouseleave', () => T.hide());
+  }
+
+  // Vertical bars. rows: [{label, value, text}]
+  function vbar(box, rows, opt) {
+    box.replaceChildren();
+    const W = box.clientWidth || 500, H = 220;
+    const m = { l: 36, r: 8, t: 18, b: 34 };
+    const svg = d3.select(box).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).attr('height', H);
+    const x = d3.scaleBand(rows.map(r => r.label), [m.l, W - m.r]).padding(0.3);
+    const y = d3.scaleLinear([0, (d3.max(rows, r => r.value) || 1) * 1.1], [H - m.b, m.t]).nice();
+    svg.append('g').selectAll('line').data(y.ticks(4)).join('line').attr('x1', m.l).attr('x2', W - m.r)
+      .attr('y1', d => y(d)).attr('y2', d => y(d)).attr('stroke', 'var(--cds-chart-grid)');
+    svg.append('g').attr('transform', `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(4).tickFormat(opt.tick || fmt.dec).tickSize(0))
+      .attr('font-size', null).attr('font-family', null)
+      .call(a => a.select('path').remove())
+      .call(a => a.selectAll('text').attr('fill', 'var(--color-fg-muted)').style('font-size', 'var(--cds-font-size-caption)'));
+    const xa = svg.append('g').attr('transform', `translate(0,${H - m.b})`).call(d3.axisBottom(x).tickSizeOuter(0))
+      .attr('font-size', null).attr('font-family', null)
+      .call(a => a.selectAll('line,path').attr('stroke', 'var(--cds-chart-axis)'))
+      .call(a => a.selectAll('text').attr('fill', 'var(--color-fg-muted)').style('font-size', 'var(--cds-font-size-caption)'));
+    const bw = x.bandwidth();
+    xa.selectAll('text').each(function () { if (this.getComputedTextLength() > bw + x.step() * 0.3) d3.select(this).attr('transform', 'rotate(-20)').attr('text-anchor', 'end'); });
+    const T = tip(box);
+    const bars = svg.append('g').selectAll('g').data(rows).join('g');
+    bars.append('rect').attr('x', d => x(d.label) + Math.max(0, (bw - 32) / 2)).attr('width', Math.min(32, bw))
+      .attr('y', d => y(d.value)).attr('height', d => y(0) - y(d.value)).attr('rx', 4).attr('fill', opt.color || dash.colors[0]);
+    if (bw >= 26) bars.append('text').attr('x', d => x(d.label) + bw / 2).attr('y', d => y(d.value) - 4).attr('text-anchor', 'middle')
+      .attr('fill', 'var(--color-fg-muted)').style('font-size', 'var(--cds-font-size-caption)').text(d => d.text);
+    bars.append('rect').attr('x', d => x(d.label)).attr('width', bw).attr('y', m.t).attr('height', H - m.t - m.b).attr('fill', 'transparent')
+      .on('mousemove', (ev, d) => T.show(ev, d.label, d.tipText || d.text)).on('mouseleave', () => T.hide());
+  }
+
+  function table(id, src, cols, filterText) {
+    const tb = document.querySelector(`#${id} tbody`);
+    const d = dash.data(src);
+    tb.replaceChildren();
+    if (d.status !== 'ok') return;
+    let rows = d.data;
+    if (filterText) { const q = filterText.toLowerCase(); rows = rows.filter(r => cols.some(c => String(r[c] ?? '').toLowerCase().includes(q))); }
+    const key = document.getElementById(id).dataset.rowKey;
+    rows.forEach(r => {
+      const tr = document.createElement('tr');
+      tr.dataset.key = r[key] ?? '';
+      cols.forEach(c => {
+        const td = document.createElement('td');
+        const v = r[c] ?? '';
+        if (numCols.has(c)) td.className = 'n';
+        if (linkCols.has(c) && /^https?:\/\//.test(v)) {
+          const a = document.createElement('a'); a.href = v; a.target = '_blank'; a.rel = 'noopener';
+          a.textContent = c === 'url' || c === 'best_post_url' ? 'Open post' : (new URL(v)).hostname.replace('www.', '');
+          td.appendChild(a);
+        } else td.textContent = v;
+        tr.appendChild(td);
+      });
+      tb.appendChild(tr);
+    });
+  }
+
+  const groupColor = g => g === 'Taranis' ? dash.colors[1] : g === 'Competitor' || g === 'Competitor parent' ? dash.colors[0] : 'var(--cds-chart-muted)';
+
+  function legend() {
+    const L = document.getElementById('leg-cadence');
+    if (L.childElementCount) return;
+    [['Taranis', dash.colors[1]], ['Competitors (and Contour fund platform)', dash.colors[0]], ['Benchmarks and tech voices', 'var(--cds-chart-muted)']].forEach(([t, c]) => {
+      const s = document.createElement('span'); s.textContent = t; s.style.setProperty('--sw', c); L.appendChild(s);
+    });
+  }
+
+  const search = document.getElementById('raw-search');
+  search.addEventListener('input', () => table('tbl-raw', 'posts_raw', ['author', 'true_date_utc', 'format', 'reactions', 'comments', 'shares', 'text_truncated', 'url'], search.value));
+
+  dash.onData(() => {
+    // tiles + takeaway
+    const c = dash.data('cadence');
+    document.querySelectorAll('[data-source="cadence"][data-where]').forEach(el => {
+      el.classList.remove('dash-skeleton');
+      if (c.status !== 'ok') { el.textContent = '—'; return; }
+      const acct = decodeURIComponent(el.dataset.where.split('=')[1]);
+      const r = c.data.find(x => x.account === acct);
+      el.textContent = r ? (el.dataset.field === 'posts_per_week' ? fmt.dec(+r.posts_per_week) : fmt.int(+r.posts_13w)) : '—';
+    });
+    const cs = dash.data('curatedShare');
+    const csEl = document.querySelector('[data-source="curatedShare"]');
+    csEl.classList.remove('dash-skeleton');
+    csEl.textContent = cs.status === 'ok' && cs.data[0] ? fmt.pct(cs.data[0].share) : '—';
+
+    // cadence chart
+    const cb = document.getElementById('ch-cadence');
+    if (c.status === 'ok') {
+      legend();
+      const rows = c.data.map(r => ({ label: r.account, value: +r.posts_per_week, color: groupColor(r.group), text: fmt.dec(+r.posts_per_week), tipText: `${fmt.dec(+r.posts_per_week)} / week · ${fmt.int(+r.posts_13w)} posts in 13 weeks · ${r.channel}` }))
+        .sort((a, b) => b.value - a.value);
+      hbar(cb, rows, { max: 16, bar: 16, gap: 8 });
+    } else if (c.status === 'error') failed(cb); else cb.replaceChildren();
+
+    const f = dash.data('monchau_format');
+    const fb = document.getElementById('ch-format'), fm = document.getElementById('ch-formatmix');
+    if (f.status === 'ok') {
+      vbar(fb, f.data.map(r => ({ label: r.format, value: +r.share_ge25, text: fmt.pct(+r.share_ge25), tipText: `${fmt.pct1(+r.share_ge25)} · ${fmt.int(+r.original_posts_ge25)} of ${fmt.int(+r.original_posts)} posts` })), { tick: fmt.pct, color: dash.colors[0] });
+      const tot = d3.sum(f.data, r => +r.original_posts);
+      hbar(fm, f.data.map(r => ({ label: r.format, value: +r.original_posts / tot, color: dash.colors[2], text: fmt.pct(+r.original_posts / tot), tipText: `${fmt.int(+r.original_posts)} posts` })), { tick: fmt.pct, max: 1, bar: 22, gap: 12 });
+    } else if (f.status === 'error') { failed(fb); failed(fm); } else { fb.replaceChildren(); fm.replaceChildren(); }
+
+    const mo = dash.data('monchau_monthly'), mb = document.getElementById('ch-monthly');
+    if (mo.status === 'ok') vbar(mb, mo.data.map(r => ({ label: r.month.replace(' (Jan-Mar)', '').replace('2026-', '').replace('09 (1-16)', 'Sep 1-16').replace(/^0?(\d+)$/, (_, n) => d3.utcFormat('%b')(new Date(Date.UTC(2026, +n - 1, 1)))), value: +r.posts_per_day, text: d3.format('.1f')(+r.posts_per_day), tipText: `${d3.format('.1f')(+r.posts_per_day)} / day · ${fmt.int(+r.posts)} posts over ${r.days} days` })), { tick: d3.format('~f'), color: dash.colors[0] });
+    else if (mo.status === 'error') failed(mb); else mb.replaceChildren();
+
+    const mx = dash.data('monchau_mix'), xb = document.getElementById('ch-mix');
+    if (mx.status === 'ok') hbar(xb, mx.data.map((r, i) => ({ label: r.segment, value: +r.share_ge54, color: i === 2 ? dash.colors[1] : dash.colors[0], text: fmt.pct(+r.share_ge54), tipText: `${fmt.pct1(+r.share_ge54)} · ${fmt.int(+r.posts_ge54)} of ${fmt.int(+r.posts)} posts` })), { tick: fmt.pct, max: 1, bar: 22, gap: 12 });
+    else if (mx.status === 'error') failed(xb); else xb.replaceChildren();
+
+    const tp = dash.data('monchau_topics'), tbx = document.getElementById('ch-topics');
+    if (tp.status === 'ok') hbar(tbx, tp.data.map(r => ({ label: r.topic, value: +r.share_of_1244, color: dash.colors[0], text: fmt.pct(+r.share_of_1244), tipText: `${fmt.int(+r.posts)} posts · ${r.keywords}` })), { tick: fmt.pct, bar: 18, gap: 10 });
+    else if (tp.status === 'error') failed(tbx); else tbx.replaceChildren();
+
+    const rc = dash.data('monchau_reactions'), rb = document.getElementById('ch-react');
+    if (rc.status === 'ok') vbar(rb, rc.data.map(r => ({ label: `≥${r.threshold}`, value: +r.share_of_1244, text: fmt.pct(+r.share_of_1244), tipText: `${fmt.int(+r.posts_at_or_above)} posts at or above ${r.threshold} reactions` })), { tick: fmt.pct, color: dash.colors[0] });
+    else if (rc.status === 'error') failed(rb); else rb.replaceChildren();
+
+    table('tbl-competitors', 'competitors', ['rank', 'fund', 'aum', 'aum_date', 'hq', 'vehicle', 'strategy', 'why_closest', 'source']);
+    table('tbl-pages', 'product_pages', ['fund', 'gate', 'strategy_depth', 'performance_disclosure', 'team_visibility', 'ctas', 'product_page']);
+    table('tbl-li', 'linkedin_compare', ['account', 'channel', 'posts_13w', 'posts_per_week', 'dominant_format', 'best_post_reactions', 'best_post_url', 'source']);
+    table('tbl-voices', 'voices', ['name', 'posts_per_week', 'dominant_format_top3', 'best_post_reactions', 'best_post_url', 'what_taranis_can_borrow']);
+    table('tbl-plan', 'plan', ['lever', 'recommendation', 'target_posts_per_week', 'evidence']);
+    table('tbl-raw', 'posts_raw', ['author', 'true_date_utc', 'format', 'reactions', 'comments', 'shares', 'text_truncated', 'url'], search.value);
+  });
+
+  const named = document.getElementById(location.hash.slice(1));
+  if (named) setTimeout(() => { named.scrollIntoView(); dash.setLink(named.id); }, 300);
+  document.querySelectorAll('.tx-nav a').forEach(a => a.addEventListener('click', ev => {
+    const el = document.getElementById(a.getAttribute('href').slice(1));
+    if (el) { ev.preventDefault(); el.scrollIntoView(); dash.setLink(el.id); }
+  }));
+})();
+</script>

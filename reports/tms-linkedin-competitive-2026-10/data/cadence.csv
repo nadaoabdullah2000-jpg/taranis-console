@@ -1,8 +1,8 @@
 account,group,channel,posts_13w,posts_per_week,profile_url
 Charles-Henry Monchau (Syz CIO),Benchmark,Individual,1051,80.8,https://www.linkedin.com/in/charles-henry-monchau-cfa-cmt-caia-4003096
 Ethan Mollick,Tech voice,Individual,199,15.3,https://www.linkedin.com/in/emollick
-Wellington Management,Competitor parent,Company page,116,8.9,https://www.linkedin.com/company/wellington-management
-Schroders,Competitor parent,Company page,112,8.6,https://www.linkedin.com/company/schroders
+Wellington Management,Large-manager reference,Company page,116,8.9,https://www.linkedin.com/company/wellington-management
+Schroders (Contour's fund platform),Competitor parent,Company page,112,8.6,https://www.linkedin.com/company/schroders
 Syz Group,Benchmark,Company page,73,5.6,https://www.linkedin.com/company/syz-group
 Bill Gates,Tech voice,Individual,68,5.2,https://www.linkedin.com/in/williamhgates
 Allie K. Miller,Tech voice,Individual,53,4.1,https://www.linkedin.com/in/alliekmiller
@@ -10,8 +10,12 @@ Reid Hoffman,Tech voice,Individual,31,2.4,https://www.linkedin.com/in/reidhoffma
 Satya Nadella,Tech voice,Individual,24,1.8,https://www.linkedin.com/in/satyanadella
 Andrew Ng,Tech voice,Individual,14,1.1,https://www.linkedin.com/in/andrewyng
 Aravind Srinivas,Tech voice,Individual,13,1.0,https://www.linkedin.com/in/aravind-srinivas-16051987
-Taranis (company page),Taranis,Company page,2,0.15,https://www.linkedin.com/company/taranis-sa
+BIT Capital,Competitor,Company page,11,0.85,https://www.linkedin.com/company/bit-capital-gmbh
+Jan Beckers (BIT founder/PM),Competitor,Individual,2,0.15,https://www.linkedin.com/in/janbeckers
+Symbit Capital,Competitor,Company page,2,0.15,https://www.linkedin.com/company/symbit-capital
+Symbit founders (4 people combined),Competitor,Individual,2,0.15,https://www.linkedin.com/in/marius-skrondal
+Taranis,Taranis,Company page,2,0.15,https://www.linkedin.com/company/taranis-sa
 Julien Leegenhoek (Taranis CEO),Taranis,Individual,1,0.08,https://www.linkedin.com/in/julien-leegenhoek
-Contour Asset Management,Competitor,Company page,0,0,https://www.linkedin.com/company/contour-asset-management
-Jericho Capital Asset Management,Competitor,Company page,0,0,https://www.linkedin.com/company/jericho-capital-asset-management-l-p
-Wavelength Asset Management,Competitor,Company page,0,0,https://www.linkedin.com/company/wavelength-asset-management-llc
+Shannon River Capital Mgmt,Competitor,Company page,0,0,https://www.linkedin.com/company/shannon-river-capital-management
+Jericho Capital,Competitor,Company page,0,0,https://www.linkedin.com/company/jericho-capital-asset-management-l-p
+Contour (David Meyer) + Jericho (Josh Resnick),Competitor,Individual,0,0,https://www.linkedin.com/in/josh-resnick-a3027a12
