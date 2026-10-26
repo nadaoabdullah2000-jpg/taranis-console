@@ -1505,6 +1505,38 @@ function contextRows(host, m) {
   }
 }
 
+// The "NEEDS DATA · x/3" meter: the verdict band, then how many of the
+// three MATCH_CRITERIA critOf() finds (buys hedge funds, long/short or quant,
+// technology focus), drawn as segments. Used by matchCard and by the Taranis
+// fit cell on the iConnections results, so the two always look the same.
+function critMeter(m) {
+  ensureMatchCss();
+  const crit  = critOf(m);
+  const score = crit.filter(Boolean).length;
+  const q     = bandOf(m);
+  const qLabel = (q === 'rejected') ? 'RECLAIMED' : (BAND_LABEL[q] || q.replace(/_/g, ' ')).toUpperCase();
+  const seg = el('div', { class: 'mcard-seg' });
+  for (let i = 0; i < crit.length; i++) seg.appendChild(el('div', { class: 'seg' + (i < score ? ' on' : '') }));
+  return [el('div', { class: 'mcard-score' }, el('span', null, qLabel), el('b', null, score + '/' + crit.length)), seg];
+}
+// The three criteria, each met (\u2713), not stated (?) or contradicted (\u2717).
+function critRows(m) {
+  ensureMatchCss();
+  const crit = critOf(m);
+  const stat = critStatus(m);
+  const cr = el('div', { class: 'mcard-crit' });
+  MATCH_CRITERIA.forEach((name, i) => {
+    const st   = crit[i] ? 'yes' : (stat[i] === 'unknown' ? 'unknown' : 'no');
+    const mark = st === 'yes' ? '\u2713' : st === 'unknown' ? '?' : '\u2717';
+    const cls  = st === 'yes' ? 'yes' : st === 'unknown' ? 'unk' : 'no';
+    const row  = el('div', { class: 'mcard-c' },
+      el('span', { class: 'mk ' + cls }, mark), el('span', null, name));
+    if (st === 'unknown') row.appendChild(el('span', { class: 'mcard-unk' }, 'unknown'));
+    cr.appendChild(row);
+  });
+  return cr;
+}
+
 function matchCard(m, opts) {
   opts = opts || {};
   ensureMatchCss();
@@ -1538,25 +1570,8 @@ function matchCard(m, opts) {
     contextRows(cr, m);
     card.appendChild(cr);
   } else {
-    const qLabel = (q === 'rejected') ? 'RECLAIMED' : (BAND_LABEL[q] || q.replace(/_/g, ' ')).toUpperCase();
-    card.appendChild(el('div', { class: 'mcard-score' },
-      el('span', null, qLabel), el('b', null, score + '/' + crit.length)));
-
-    const seg = el('div', { class: 'mcard-seg' });
-    for (let i = 0; i < crit.length; i++) seg.appendChild(el('div', { class: 'seg' + (i < score ? ' on' : '') }));
-    card.appendChild(seg);
-
-    const stat = critStatus(m);
-    const cr = el('div', { class: 'mcard-crit' });
-    MATCH_CRITERIA.forEach((name, i) => {
-      const st   = crit[i] ? 'yes' : (stat[i] === 'unknown' ? 'unknown' : 'no');
-      const mark = st === 'yes' ? '\u2713' : st === 'unknown' ? '?' : '\u2717';
-      const cls  = st === 'yes' ? 'yes' : st === 'unknown' ? 'unk' : 'no';
-      const row  = el('div', { class: 'mcard-c' },
-        el('span', { class: 'mk ' + cls }, mark), el('span', null, name));
-      if (st === 'unknown') row.appendChild(el('span', { class: 'mcard-unk' }, 'unknown'));
-      cr.appendChild(row);
-    });
+    card.append(...critMeter(m));
+    const cr = critRows(m);
     contextRows(cr, m);
     card.appendChild(cr);
   }
@@ -8472,11 +8487,18 @@ function ensureIconnCss() {
   + ".ic-table tbody tr:last-child td{border-bottom:0}"
   + ".ic-sort{all:unset;cursor:pointer;font:inherit;letter-spacing:inherit;text-transform:inherit;color:inherit}"
   + ".ic-sort:focus-visible{outline:2px solid var(--accent);outline-offset:2px}"
-  + ".ic-firm{width:34%}.ic-prof{width:13%;white-space:nowrap}.ic-opp{width:38%}.ic-rank{width:15%;white-space:nowrap}"
+  + ".ic-firm{width:34%}.ic-prof{width:13%;white-space:nowrap}.ic-opp{width:38%}.ic-rank{width:17%}"
   + ".ic-how{font-size:11px;letter-spacing:.04em;color:var(--ink-3);margin-top:5px}"
   + ".ic-how.fuzzy{color:var(--signal)}"
   + ".ic-score.cand{color:var(--signal);font-weight:500}"
-  + ".ic-why{margin:3px 0 0;cursor:help;text-decoration:underline dotted}"
+  + ".ic-why{margin:3px 0 0;text-decoration:underline dotted}"
+  + ".ic-fitbtn{all:unset;display:block;cursor:pointer;min-width:120px;border-radius:4px}"
+  + ".ic-fitbtn:focus-visible{outline:2px solid var(--accent);outline-offset:3px}"
+  + ".ic-fitbtn .mcard-score{margin-bottom:5px}.ic-fitbtn .mcard-seg{margin-bottom:4px}"
+  + ".ic-fitbox{margin-top:8px;padding:10px 12px;border:1px solid var(--rule);border-radius:6px;background:var(--card);font-size:12.5px;line-height:1.55;color:var(--ink-2);white-space:normal}"
+  + ".ic-fitbox .mcard-crit{margin:4px 0 0}"
+  + ".ic-fitk{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px}"
+  + ".ic-fitnote{font-style:italic}"
   + ".ic-sub{font-size:12px;color:var(--ink-2);margin-top:4px;line-height:1.5}"
   + ".ic-flags{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:5px}"
   + ".ic-link{all:unset;cursor:pointer;color:var(--accent);text-decoration:underline;text-underline-offset:2px}"
@@ -8514,6 +8536,12 @@ RENDER.iconn = function (body) {
   body.appendChild(el('div', { class: 'acts', style: 'margin-bottom:16px' },
     el('button', { class: 'btn btn-sm btn-quiet', onclick: () => go('opps') }, '← Opportunities')));
 
+  // Earlier runs first, so one can be reopened without scrolling past the
+  // uploader. iconnRecent adds nothing when there are none.
+  const recent = el('div');
+  body.appendChild(recent);
+  if (!DEMO) iconnRecent(recent);
+
   body.appendChild(el('div', { class: 'callout' },
     el('span', { class: 'callout-k' }, 'Compare only'),
     el('span', { class: 'callout-v' },
@@ -8529,10 +8557,6 @@ RENDER.iconn = function (body) {
       'An .xlsx file. It is read here in your browser; only the allocator rows are sent on to be matched.')));
   body.appendChild(stage);
   if (ICONN.sheets) iconnMapping(stage);
-
-  const recent = el('div');
-  body.appendChild(recent);
-  if (!DEMO) iconnRecent(recent);
 };
 
 async function iconnRecent(host) {
@@ -8542,7 +8566,8 @@ async function iconnRecent(host) {
       'select=id,file_name,sheet_name,row_count,import_no,last_matched_at&order=last_matched_at.desc&limit=5');
   } catch (_) { return; }   // no Supabase session, or schema-15 not applied yet: nothing to list
   if (!runs || !runs.length) return;
-  host.appendChild(el('p', { class: 'ic-sec' }, 'Earlier matches'));
+  host.style.marginBottom = '22px';
+  host.appendChild(el('p', { class: 'ic-sec', style: 'margin-top:6px' }, 'Earlier matches'));
   for (const r of runs) {
     host.appendChild(el('div', { class: 'ic-row' }, el('div', { class: 'ic-line' },
       el('span', { class: 'ic-nm' }, r.file_name || 'iConnections export'),
@@ -8813,6 +8838,98 @@ function iconnFit(f) {
 }
 const ICONN_TIER = { matched: 0, review: 1, none: 2 };
 
+// The opportunity rows behind the results, read with the columns the
+// Opportunities list reads (MANDATE_LIST_COLS), so critOf / critStatus see
+// exactly what they see there. Keyed by id; filled once per result.
+async function iconnLoadMandates(res) {
+  if (ICONN.mandFor === res) return;
+  ICONN.mandFor = res;
+  ICONN.mand = {};
+  if (DEMO) return;
+  const ids = new Set();
+  for (const f of (res.firms || [])) {
+    if (f.bucket === 'matched' && f.matched_id) ids.add(Number(f.matched_id));
+    const c = f.bucket === 'review' && (f.candidates || [])[0];
+    if (c && c.id) ids.add(Number(c.id));
+  }
+  const list = [...ids].filter(Number.isFinite);
+  if (!list.length) return;
+  try {
+    for (let i = 0; i < list.length; i += 100) {
+      const rows = await supaSelect('wi_mandates', 'select=' + MANDATE_LIST_COLS + '&id=in.(' + list.slice(i, i + 100).join(',') + ')');
+      for (const r of rows || []) ICONN.mand[r.id] = r;
+    }
+  } catch (_) { /* no rows: the cell falls back to the stored fit */ }
+  if (current === 'iconn' && ICONN.result === res) go('iconn');
+}
+
+// The opportunity a row's fit belongs to: the matched one, or the top
+// candidate for a firm in review. null until loaded.
+function iconnFitRow(f, fx) {
+  const id = fx.whose === 'match' ? f.matched_id : ((f.candidates || [])[0] || {}).id;
+  return (ICONN.mand && id && ICONN.mand[id]) || null;
+}
+
+// The verdict band of the row a fit belongs to: from the loaded row, else
+// from what the matcher returned (the same new_qualification / qualification).
+function iconnFitStatus(f, fx, m) {
+  return m ? bandOf(m) : String((fx.whose === 'match' ? f.matched_status : ((f.candidates || [])[0] || {}).status) || '').toLowerCase();
+}
+
+function iconnFitCell(f, fx) {
+  const m = iconnFitRow(f, fx);
+  const status = iconnFitStatus(f, fx, m);
+  const needsData = status === 'needs_data';
+  const wrap = el('div');
+  const btn = el('button', { class: 'ic-fitbtn', type: 'button', 'aria-expanded': 'false',
+    title: 'Show the stored score and the criteria the record shows' });
+  if (needsData && m) {
+    btn.append(...critMeter(m));
+  } else if (fx.fit !== null) {
+    btn.appendChild(el('span', { class: 'ic-score' + (fx.whose === 'candidate' ? ' cand' : '') }, Math.round(fx.fit * 100) + '%'));
+  } else {
+    btn.appendChild(el('span', { class: 'ic-dash' }, needsData ? 'needs data' : 'no score'));
+  }
+  if (fx.whose === 'candidate') btn.appendChild(el('div', { class: 'ic-meth' }, 'candidate\u2019s, not confirmed'));
+  btn.appendChild(el('div', { class: 'ic-meth ic-why' }, 'details'));
+  wrap.appendChild(btn);
+
+  let box = null;
+  btn.addEventListener('click', () => {
+    const open = btn.getAttribute('aria-expanded') === 'true';
+    btn.setAttribute('aria-expanded', String(!open));
+    if (open) { if (box) box.hidden = true; return; }
+    if (!box) { box = iconnFitDetail(f, fx, m, status); wrap.appendChild(box); }
+    box.hidden = false;
+  });
+  return wrap;
+}
+
+// What the database holds for that opportunity: nothing is computed here
+// except the three criteria marks, by the same critRows the cards use.
+function iconnFitDetail(f, fx, m, status) {
+  const pct = (v) => v === null || v === undefined || v === '' || !isFinite(Number(v)) ? '\u2014' : Math.round(Number(v) * 100) + '%';
+  const box = el('div', { class: 'ic-fitbox' });
+  box.appendChild(el('div', { class: 'ic-fitk' }, fx.whose === 'candidate' ? 'Top candidate: ' + (fx.name || '') : 'Matched opportunity'));
+  box.appendChild(el('div', null, 'Stored Taranis fit: ', el('b', null, pct(fx.fit)),
+    m ? ' (re-score ' + pct(m.new_fit_score) + ', intake score ' + pct(m.fit_score) + ')' : ''));
+  box.appendChild(el('div', null, 'Status: ' + (BAND_LABEL[status] || status.replace(/_/g, ' ') || '\u2014')));
+  if (m) {
+    box.appendChild(el('div', { class: 'ic-fitk', style: 'margin-top:8px' },
+      status === 'needs_data' ? 'What the record shows (needs data)' : 'Criteria in the record'));
+    box.appendChild(critRows(m));
+  } else if (!DEMO) {
+    box.appendChild(el('div', { class: 'ic-meth' }, 'Criteria not loaded. Open the opportunity to see them.'));
+  }
+  const reason = (m && m.fit_reason) || fx.reason;
+  if (reason) {
+    box.appendChild(el('div', { class: 'ic-fitk', style: 'margin-top:8px' }, 'AI note at intake'));
+    box.appendChild(el('div', { class: 'ic-fitnote' }, reason));
+    box.appendChild(el('div', { class: 'ic-meth' }, 'Written once when the alert arrived; never re-checked against the verdict.'));
+  }
+  return box;
+}
+
 // One table row per firm: Firm | Intelligence profile |
 // Opportunity (name, status, how the name matched) | Taranis fit.
 function iconnFirmRow(f) {
@@ -8871,28 +8988,21 @@ function iconnFirmRow(f) {
     opp.appendChild(el('span', { class: 'ic-dash' }, '— no match'));
   }
 
-  // 4. Taranis fit. fit_reason is the AI's note written at intake and never
-  // re-checked against the verdict, so it is offered on hover as that.
+  // 4. Taranis fit. A fully scored opportunity shows its fit %. One whose
+  // verdict is needs_data shows the same "NEEDS DATA · x/3" meter as its
+  // Opportunities card instead of a fit that only means "not scored yet".
+  // Click (or Enter) opens the stored score, the AI's intake note and the
+  // three criteria as the record shows them.
   const fx = iconnFit(f);
   const rank = el('td', { class: 'ic-rank' });
-  if (fx.fit !== null) {
-    rank.appendChild(el('span', { class: 'ic-score' + (fx.whose === 'candidate' ? ' cand' : '') }, Math.round(fx.fit * 100) + '%'));
-    if (fx.whose === 'candidate') rank.appendChild(el('div', { class: 'ic-meth' }, 'candidate’s fit, not confirmed'));
-    if (fx.reason) {
-      rank.setAttribute('title', (fx.whose === 'candidate' ? fx.name + ' — ' : '')
-        + 'AI note at intake (not re-checked against the verdict): ' + fx.reason);
-      rank.appendChild(el('div', { class: 'ic-meth ic-why' }, 'why? hover'));
-    }
-  } else if (fx.whose) {
-    rank.appendChild(el('span', { class: 'ic-dash' }, 'no score'));
-  }
-
+  if (fx.whose) rank.appendChild(iconnFitCell(f, fx));
   tr.append(firm, prof, opp, rank);
   return tr;
 }
 
 function iconnResults(body) {
   const res = ICONN.result;
+  iconnLoadMandates(res);
   const firms = res.firms || [];
   const c = res.counts || {};
   const run = res.run || {};
@@ -8925,13 +9035,21 @@ function iconnResults(body) {
     dup: ICONN_DUP, conflict: (f) => !!f.conflicts }[ICONN.filter] || (() => true);
   // Sorting by fit keeps confirmed matches above review rows above no
   // match, whichever way it runs, so an unconfirmed candidate's high fit
-  // never tops the list. Within each, best fit first by default.
-  const fitOf = (f) => { const x = iconnFit(f).fit; return x === null ? -1 : x; };
+  // never tops the list. Within each, scored rows come before needs-data
+  // rows (whose stored number is not yet a fit), best first by default;
+  // needs-data rows order by their x/3, then the stored score.
+  const sortKey = (f) => {
+    const fx = iconnFit(f);
+    const m = iconnFitRow(f, fx);
+    const nd = fx.whose && iconnFitStatus(f, fx, m) === 'needs_data';
+    const x = fx.fit === null ? -1 : fx.fit;
+    return [nd ? 1 : 0, nd && m ? critOf(m).filter(Boolean).length + x / 10 : x];
+  };
   const dir = ICONN.sortDir === 'asc' ? 1 : -1;
-  const list = firms.filter(keep).sort(ICONN.sortBy === 'firm'
-    ? (a, b) => dir * -1 * a.name.localeCompare(b.name, 'en', { sensitivity: 'base' })
-    : (a, b) => (ICONN_TIER[a.bucket] - ICONN_TIER[b.bucket]) || dir * (fitOf(a) - fitOf(b))
-                || a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
+  const list = firms.filter(keep).map(f => [f, sortKey(f)]).sort(ICONN.sortBy === 'firm'
+    ? (a, b) => dir * -1 * a[0].name.localeCompare(b[0].name, 'en', { sensitivity: 'base' })
+    : (a, b) => (ICONN_TIER[a[0].bucket] - ICONN_TIER[b[0].bucket]) || (a[1][0] - b[1][0]) || dir * (a[1][1] - b[1][1])
+                || a[0].name.localeCompare(b[0].name, 'en', { sensitivity: 'base' })).map(x => x[0]);
 
   const sortHead = (key, label) => {
     const on = (ICONN.sortBy || 'fit') === key;

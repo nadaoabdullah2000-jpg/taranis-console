@@ -196,6 +196,15 @@ is the one that writes.) Database only, no gateway action:
    on hover. A firm in review shows its top candidate's fit, marked as not
    confirmed, and sorts below every confirmed match. How the name matched
    (exact / alias / fuzzy and its score) stays under the opportunity.
+   Where that opportunity's verdict is `needs_data`, the cell shows the same
+   "NEEDS DATA · x/3" meter as its Opportunities card instead of a number:
+   x = `critOf()`, how many of the three criteria (buys hedge funds,
+   long/short or quant, technology focus) the record shows. Those rows sort
+   after the scored ones. Clicking the cell shows the stored score
+   (re-score and intake score), the status, the three criteria and the AI
+   note. The rows are read client-side with `MANDATE_LIST_COLS`, so no
+   extra backend field is needed. Earlier matches are listed at the top of
+   the page, and hidden when there are none.
    A **Company profile** box at the top opens
    the same Search view for any company typed, in the file or not, with Back
    returning to the results. Nothing on this page links to With Intelligence.
