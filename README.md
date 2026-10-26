@@ -159,6 +159,33 @@ functions, `console_search_suggest($1, $2)` and `console_search_company($1)`
 The typed text is a bound parameter on both paths, never SQL text. Node setup:
 [docs/gateway-search-actions.md](docs/gateway-search-actions.md).
 
+### Matching an iConnections export (schema-15)
+
+Opportunities → **Match an iConnections export**. Read-only against
+Opportunities: it compares, it does not import. (**Import an investor list**
+is the one that writes.) Database only, no gateway action:
+
+1. The browser reads the .xlsx itself (`iconnections.js`, no library, loaded on
+   demand). It skips a cover sheet, finds the header row, maps the columns
+   (allocator name required; website, AUM, type and country if present) and
+   lets you change the mapping. A legacy .xls, an encrypted file or an unknown
+   cell type stops the import with the reason and the cell, never a partial read.
+2. Rows go to `console_iconnections_match` 250 at a time. A run is keyed on the
+   file's SHA-256, so the same file again reuses its run (`import_no` + 1)
+   instead of adding rows. Staged in `iconnections_import_runs` / `_rows`.
+3. Matching, in order: exact normalised name → alias (`investor_aliases`, or a
+   bracketed acronym) → trigram score. Thresholds are in `iconn_thresholds()`:
+   0.75 and up is a match, 0.45 to 0.75 is Needs review, below is No match.
+4. `console_iconnections_run` returns the rows with flags. A duplicate is
+   several opportunity rows behind one allocator, or several file rows landing
+   on one opportunity. A conflict is a disagreement on AUM (more than 2× apart),
+   type group, country, or a website whose contacts work elsewhere.
+
+`investor_aliases` can be edited from the Supabase table editor by console
+users, or from a Needs-review row (**Same firm — remember**).
+`tests/fixtures/iconnections-sample.xlsx` is a sample export with one row for
+each case.
+
 `wi.mandate.fill` must keep the allow-list from `Parse WI Fill` — the current
 node builds SQL by string concatenation, which is safe only because that list
 exists. Behind a web form it needs parameterised queries instead.

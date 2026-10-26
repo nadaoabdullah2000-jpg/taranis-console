@@ -52,3 +52,24 @@ test('schema-14 collapses copies on exactly the agreed signature', () => {
   assert.match(fn, /count\(\*\) over w\s+as source_count/);
   assert.match(fn, /r\.source_count/);
 });
+
+test('schema.sql section 6 = schema-15 (iConnections matching)', () => {
+  const m15 = read('schema-15-iconnections-import.sql');
+  const a = m15.indexOf('-- ---------------------------------------------------------------------\n-- 1. ALIASES');
+  const b = m15.indexOf(END);
+  assert.ok(a > 0 && b > a, 'schema-15 sections found');
+  assert.ok(read('schema.sql').includes(m15.slice(a, b).trimEnd()), 'schema.sql section 6 differs from schema-15');
+});
+
+test('schema-15 reads Opportunities and never writes to them', () => {
+  const sql = read('schema-15-iconnections-import.sql').replace(/--.*$/gm, '');
+  assert.doesNotMatch(sql, /\b(insert\s+into|update|delete\s+from|alter\s+table|create\s+(unique\s+)?index[^;]*\bon)\s+(public\.)?wi_mandates\b/i);
+  assert.doesNotMatch(sql, /\bexecute\b\s+(format|'|\$)/i, 'no dynamic SQL');
+  assert.doesNotMatch(sql, /\bformat\s*\(/i);
+  // The review line must stay at or above the trigram prefilter, or the
+  // index would hide candidates that score between the two.
+  const review = Number(/"review":\s*([0-9.]+)/.exec(sql)[1]);
+  const prefilter = Number(/pg_trgm\.similarity_threshold = '([0-9.]+)'/.exec(sql)[1]);
+  assert.ok(review >= prefilter, 'review ' + review + ' >= prefilter ' + prefilter);
+  assert.ok(Number(/"auto":\s*([0-9.]+)/.exec(sql)[1]) > review);
+});

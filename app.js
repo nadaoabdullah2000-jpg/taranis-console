@@ -916,7 +916,10 @@ const TABS = [
   { id: 'ask',      icon: '\u25C7', label: 'Ask',          title: 'Ask',
     sub: 'Anything you used to type into the bot. It queries before it answers.' },
   { id: 'tools',    icon: '\u25A3', label: 'Tools & CPs',  title: 'Tools & counterparties', foot: true,
-    sub: 'Every tool, vendor and counterparty Taranis uses, and where each one stands.' }
+    sub: 'Every tool, vendor and counterparty Taranis uses, and where each one stands.' },
+  // Reached from the Opportunities toolbar, not the nav.
+  { id: 'iconn', hidden: true, icon: '\u21C4', label: 'iConnections', title: 'Match an iConnections export',
+    sub: 'Which of your opportunities each allocator in the file matches, with duplicates and disagreements flagged. Read-only.' }
 ];
 
 let current = 'opps';
@@ -927,7 +930,7 @@ function buildNav() {
   const GROUPS = { wi: 'With Intelligence' };
   let openGroup = null;
   for (const t of TABS) {
-    if (t.archived) continue;
+    if (t.archived || t.hidden) continue;
     if (t.group && t.group !== openGroup) {
       list.appendChild(el('p', { class: 'mono',
         style: 'font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;'
@@ -3587,8 +3590,13 @@ RENDER.opps = function (body) {
   const list  = el('div');
 
   body.appendChild(el('div', { class: 'toolbar', style: 'margin-bottom:12px' },
-    el('button', { class: 'btn btn-sm btn-quiet', onclick: () => importSheet() },
-      'Import an investor list')));
+    el('button', { class: 'btn btn-sm btn-quiet', onclick: () => importSheet(),
+      title: 'Adds the investors in a spreadsheet to Opportunities, screened on the way in.' },
+      'Import an investor list'),
+    el('button', { class: 'btn btn-sm btn-quiet', onclick: () => importIconnections(),
+      title: 'Compares an iConnections .xlsx export with your opportunities and shows which allocator matches which. '
+           + 'Adds and changes nothing in Opportunities.' },
+      'Match an iConnections export')));
   body.append(modeRow, filterBar, chips, sortBar, list);
 
   const VIEWS = [
@@ -8405,6 +8413,450 @@ function importSheet() {
       go.disabled = false; go.textContent = 'Read it';
     }
   }
+}
+
+/* ---- iConnections: match an export against Opportunities ----
+   Read-only against Opportunities. The .xlsx is read here in the browser by
+   iconnections.js (loaded the first time it is needed); only the parsed
+   allocator rows go to console_iconnections_match (schema-15), which stages
+   them and matches each one; console_iconnections_run reads the run back.
+   Nothing is added to or changed in wi_mandates. "Import an investor list"
+   is the importer that writes; this one only compares. */
+const ICONN = { file: null, sha: null, sheets: null, sheetIdx: 0, headerIndex: 0, cols: {}, built: null,
+                errors: [], result: null, runId: null, filter: 'all', open: {} };
+const ICONN_CHUNK = 250;
+const ICONN_FIELDS = ['name', 'domain', 'aum', 'type', 'country'];
+let iconnReaderLoad = null;
+
+function loadIconnReader() {
+  if (window.IconnReader) return Promise.resolve(window.IconnReader);
+  if (iconnReaderLoad) return iconnReaderLoad;
+  iconnReaderLoad = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = './iconnections.js' + (CFG.build ? '?v=' + encodeURIComponent(CFG.build) : '');
+    s.onload = () => window.IconnReader ? resolve(window.IconnReader)
+      : reject(new Error('The file reader loaded but did not start. Reload the page and try again.'));
+    s.onerror = () => { iconnReaderLoad = null; reject(new Error('Could not load the file reader (iconnections.js). Check the connection and try again.')); };
+    document.head.appendChild(s);
+  });
+  return iconnReaderLoad;
+}
+
+function ensureIconnCss() {
+  if (document.getElementById('taranis-iconn-css')) return;
+  const s = document.createElement('style');
+  s.id = 'taranis-iconn-css';
+  s.textContent =
+    ".ic-map{display:grid;grid-template-columns:minmax(120px,180px) minmax(0,1fr);gap:8px 14px;align-items:center;max-width:620px;margin:14px 0}"
+  + ".ic-map label{font-size:13px;color:var(--ink-2)}"
+  + ".ic-map select{width:100%;box-sizing:border-box}"
+  + ".ic-sec{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:26px 0 8px}"
+  + ".ic-row{border-top:1px solid var(--rule);padding:12px 2px}"
+  + ".ic-row:first-of-type{border-top:0}"
+  + ".ic-line{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline}"
+  + ".ic-rn{font-size:11px;color:var(--ink-3);min-width:52px}"
+  + ".ic-nm{color:var(--ink);font-size:14.5px}"
+  + ".ic-arrow{color:var(--ink-3)}"
+  + ".ic-to{color:var(--ink);font-weight:500}"
+  + ".ic-sub{font-size:12.5px;color:var(--ink-2);margin:6px 0 0 62px;line-height:1.6}"
+  + ".ic-sub .k{color:var(--ink-3)}"
+  + ".ic-acts{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 0 62px}"
+  + ".ic-notes{font-size:12.5px;color:var(--ink-2);line-height:1.6;margin:10px 0 0;padding-left:18px}"
+  + ".ic-none{columns:2 260px;column-gap:28px;font-size:13px;color:var(--ink-2);margin:0;padding:0;list-style:none}"
+  + ".ic-none li{break-inside:avoid;padding:3px 0}";
+  document.head.appendChild(s);
+}
+
+function importIconnections() {
+  ICONN.result = null; ICONN.runId = null;
+  go('iconn');
+}
+
+RENDER.iconn = function (body) {
+  clear(body);
+  ensureIconnCss();
+  if (ICONN.result) return iconnResults(body);
+
+  body.appendChild(el('div', { class: 'acts', style: 'margin-bottom:16px' },
+    el('button', { class: 'btn btn-sm btn-quiet', onclick: () => go('opps') }, '← Opportunities')));
+
+  body.appendChild(el('div', { class: 'callout' },
+    el('span', { class: 'callout-k' }, 'Compare only'),
+    el('span', { class: 'callout-v' },
+      'This shows which of your opportunities each allocator in an iConnections export matches. '
+      + 'It does not add or change anything in Opportunities — to add investors, use “Import an investor list”.')));
+
+  const input = el('input', { type: 'file', id: 'iconn-file', class: 'search', style: 'display:none',
+    accept: '.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const stage = el('div');
+  input.addEventListener('change', () => { if (input.files && input.files[0]) iconnRead(input.files[0], stage); });
+  body.appendChild(el('div', { style: 'margin-top:16px;max-width:620px' },
+    upZone('iconn-file', input, 'Choose the iConnections export',
+      'An .xlsx file. It is read here in your browser; only the allocator rows are sent on to be matched.')));
+  body.appendChild(stage);
+  if (ICONN.sheets) iconnMapping(stage);
+
+  const recent = el('div');
+  body.appendChild(recent);
+  if (!DEMO) iconnRecent(recent);
+};
+
+async function iconnRecent(host) {
+  let runs;
+  try {
+    runs = await supaSelect('iconnections_import_runs',
+      'select=id,file_name,sheet_name,row_count,import_no,last_matched_at&order=last_matched_at.desc&limit=5');
+  } catch (_) { return; }   // no Supabase session, or schema-15 not applied yet: nothing to list
+  if (!runs || !runs.length) return;
+  host.appendChild(el('p', { class: 'ic-sec' }, 'Earlier matches'));
+  for (const r of runs) {
+    host.appendChild(el('div', { class: 'ic-row' }, el('div', { class: 'ic-line' },
+      el('span', { class: 'ic-nm' }, r.file_name || 'iConnections export'),
+      el('span', { class: 'ic-rn' }, (r.row_count || 0) + ' rows · ' + fmtDate(r.last_matched_at)),
+      el('button', { class: 'btn btn-sm btn-quiet', onclick: () => iconnOpenRun(r.id) }, 'Show results'))));
+  }
+}
+
+async function iconnOpenRun(id) {
+  try {
+    const res = await supaRpc('console_iconnections_run', { p_run_id: id });
+    if (!res) return toast('That run is no longer stored.', true);
+    ICONN.result = res; ICONN.runId = id; ICONN.built = null; ICONN.filter = 'all'; ICONN.open = {};
+    go('iconn');
+  } catch (e) { toast(e.message, true); }
+}
+
+// Read the file, pick the data sheet and the columns, then show the mapping.
+async function iconnRead(file, stage) {
+  clear(stage);
+  stage.appendChild(el('p', { class: 'ic-notes', style: 'padding:0' }, 'Reading ' + file.name + '…'));
+  try {
+    if (file.size > 25 * 1024 * 1024) throw new Error('This file is over 25 MB, which is far larger than an allocator list. Check it is the right export.');
+    const R = await loadIconnReader();
+    const buf = await file.arrayBuffer();
+    const sheets = await R.readWorkbook(buf);
+    ICONN.file = { name: file.name, size: file.size };
+    ICONN.sha = await R.sha256Hex(buf);
+    ICONN.sheets = sheets;
+    const pick = R.chooseSheet(sheets);
+    if (pick.sheet) {
+      ICONN.sheetIdx = sheets.indexOf(pick.sheet);
+      ICONN.headerIndex = pick.headerIndex;
+      ICONN.cols = pick.cols;
+      ICONN.picked = true;
+    } else {
+      // No sheet names an allocator column: start from the biggest sheet,
+      // first row as headers, and ask.
+      let big = 0;
+      sheets.forEach((s, i) => { if (s.rows.length > sheets[big].rows.length) big = i; });
+      ICONN.sheetIdx = big;
+      ICONN.headerIndex = 0;
+      ICONN.cols = sheets[big].rows[0] ? R.detectColumns(sheets[big].rows[0].cells) : {};
+      ICONN.picked = false;
+    }
+    iconnMapping(stage);
+  } catch (e) {
+    clear(stage);
+    ICONN.sheets = null;
+    stage.appendChild(el('div', { class: 'callout bad', style: 'margin-top:16px' },
+      el('span', { class: 'callout-k' }, 'Not read'),
+      el('span', { class: 'callout-v' }, e.message)));
+  }
+}
+
+// Which sheet, and which column holds each field. Every change re-checks the
+// rows, so a wrong choice shows up here rather than in the results.
+function iconnMapping(stage) {
+  const R = window.IconnReader;
+  clear(stage);
+  const sheet = ICONN.sheets[ICONN.sheetIdx];
+  const headers = (sheet.rows[ICONN.headerIndex] || { cells: [] }).cells;
+
+  stage.appendChild(el('p', { class: 'ic-sec' }, ICONN.file.name));
+  if (!ICONN.picked) {
+    stage.appendChild(el('div', { class: 'callout signal' },
+      el('span', { class: 'callout-k' }, 'Check the columns'),
+      el('span', { class: 'callout-v' },
+        'No sheet has a column that is clearly the allocator name. Choose the sheet and the column below.')));
+  }
+
+  const map = el('div', { class: 'ic-map' });
+  const sheetSel = el('select', { class: 'search', id: 'iconn-sheet' });
+  ICONN.sheets.forEach((s, i) => {
+    const o = el('option', { value: String(i) }, s.name + ' — ' + s.rows.length + ' rows' + (s.state !== 'visible' ? ' (hidden)' : ''));
+    if (i === ICONN.sheetIdx) o.selected = true;
+    if (!s.rows.length) o.disabled = true;
+    sheetSel.appendChild(o);
+  });
+  sheetSel.addEventListener('change', () => {
+    ICONN.sheetIdx = Number(sheetSel.value);
+    const s = ICONN.sheets[ICONN.sheetIdx];
+    const h = R.findHeader(s.rows);
+    ICONN.headerIndex = h ? h.index : 0;
+    ICONN.cols = h ? h.cols : (s.rows[0] ? R.detectColumns(s.rows[0].cells) : {});
+    ICONN.picked = true;
+    iconnMapping(stage);
+  });
+  map.append(el('label', { for: 'iconn-sheet' }, 'Sheet'), sheetSel);
+
+  for (const f of ICONN_FIELDS) {
+    const spec = R.FIELDS[f];
+    const sel = el('select', { class: 'search', id: 'iconn-col-' + f });
+    sel.appendChild(el('option', { value: '-1' }, spec.required ? '— choose a column —' : '— not in this file —'));
+    headers.forEach((h, i) => {
+      const label = (h === null || h === undefined || h === '') ? 'Column ' + R.colName(i) : String(h);
+      const o = el('option', { value: String(i) }, label);
+      if (ICONN.cols[f] === i) o.selected = true;
+      sel.appendChild(o);
+    });
+    sel.addEventListener('change', () => {
+      const v = Number(sel.value);
+      if (v < 0) delete ICONN.cols[f]; else ICONN.cols[f] = v;
+      ICONN.picked = true;
+      iconnMapping(stage);
+    });
+    map.append(el('label', { for: 'iconn-col-' + f }, spec.label + (spec.required ? ' *' : '')), sel);
+  }
+  stage.appendChild(map);
+
+  const notes = [];
+  let built = null, problem = null;
+  try { built = R.buildRows(sheet, ICONN.headerIndex, ICONN.cols); }
+  catch (e) { problem = e.message; }
+  ICONN.built = built;
+  ICONN.errors = sheet.errors || [];
+
+  if (problem) {
+    stage.appendChild(el('div', { class: 'callout bad' },
+      el('span', { class: 'callout-k' }, 'Cannot match yet'),
+      el('span', { class: 'callout-v' }, problem)));
+    return;
+  }
+  const list = (a, f) => a.slice(0, 6).map(f).join(', ') + (a.length > 6 ? ' and ' + (a.length - 6) + ' more' : '');
+  if (built.unnamed.length) notes.push(built.unnamed.length + ' row' + (built.unnamed.length > 1 ? 's have' : ' has')
+    + ' no allocator name and will not be matched: row ' + list(built.unnamed, String) + '.');
+  if (built.aumUnread.length) notes.push(built.aumUnread.length + ' AUM value' + (built.aumUnread.length > 1 ? 's are' : ' is')
+    + ' not an amount, so not compared: ' + list(built.aumUnread, x => 'row ' + x.row + ' “' + x.value + '”') + '.');
+  if (built.countryUnread.length) notes.push(built.countryUnread.length + ' countr' + (built.countryUnread.length > 1 ? 'ies are' : 'y is')
+    + ' not recognised, so not compared: ' + list(built.countryUnread, x => 'row ' + x.row + ' “' + x.value + '”') + '.');
+  if (ICONN.errors.length) notes.push(ICONN.errors.length + ' cell' + (ICONN.errors.length > 1 ? 's hold' : ' holds')
+    + ' an Excel error and ' + (ICONN.errors.length > 1 ? 'are' : 'is') + ' treated as empty: '
+    + list(ICONN.errors, x => x.where + ' ' + x.value) + '.');
+  ICONN.notes = notes;
+
+  stage.appendChild(el('p', { style: 'margin:6px 0 0;font-size:13px;color:var(--ink-2)' },
+    built.rows.length + ' allocator' + (built.rows.length > 1 ? 's' : '') + ' on “' + sheet.name + '”, headers on row '
+    + sheet.rows[ICONN.headerIndex].r + '.'));
+  if (notes.length) stage.appendChild(el('ul', { class: 'ic-notes' }, ...notes.map(n => el('li', null, n))));
+
+  const goBtn = el('button', { class: 'btn btn-sm', style: 'margin-top:14px', onclick: () => iconnMatch(goBtn, stage) },
+    'Match ' + built.rows.length + ' allocator' + (built.rows.length > 1 ? 's' : ''));
+  stage.appendChild(goBtn);
+}
+
+// Send the rows in chunks, then read the whole run back.
+async function iconnMatch(btn, stage) {
+  const built = ICONN.built;
+  if (!built) return;
+  const sheet = ICONN.sheets[ICONN.sheetIdx];
+  const headers = (sheet.rows[ICONN.headerIndex] || { cells: [] }).cells;
+  const columns = {};
+  for (const f of ICONN_FIELDS) if (ICONN.cols[f] !== undefined) columns[f] = String(headers[ICONN.cols[f]] || window.IconnReader.colName(ICONN.cols[f]));
+  btn.disabled = true;
+  try {
+    let res;
+    if (DEMO) {
+      res = demoIconnRun(built.rows);
+    } else {
+      let runId = null;
+      for (let i = 0; i < built.rows.length; i += ICONN_CHUNK) {
+        btn.textContent = 'Matching ' + Math.min(i + ICONN_CHUNK, built.rows.length) + ' of ' + built.rows.length + '…';
+        const out = await supaRpc('console_iconnections_match', {
+          p_file_sha256: ICONN.sha, p_file_name: ICONN.file.name, p_sheet: sheet.name, p_columns: columns,
+          p_first: i === 0, p_rows: built.rows.slice(i, i + ICONN_CHUNK) });
+        runId = out.run_id;
+      }
+      btn.textContent = 'Reading the results…';
+      res = await supaRpc('console_iconnections_run', { p_run_id: runId });
+      ICONN.runId = runId;
+    }
+    ICONN.result = res; ICONN.filter = 'all'; ICONN.open = {};
+    go('iconn');
+  } catch (e) {
+    const msg = e.message === 'NO_SUPABASE'
+      ? 'Matching needs a database sign-in, and this session only has the gateway. Sign out and back in, then try again.'
+      : e.message;
+    stage.appendChild(el('div', { class: 'callout bad', style: 'margin-top:12px' },
+      el('span', { class: 'callout-k' }, 'Not matched'), el('span', { class: 'callout-v' }, msg)));
+    btn.disabled = false;
+    btn.textContent = 'Try again';
+  }
+}
+
+function iconnMoney(v) {
+  const n = Number(v);
+  if (!isFinite(n)) return '';
+  return n >= 1e9 ? '$' + +(n / 1e9).toFixed(n % 1e9 ? 1 : 0) + 'bn'
+       : n >= 1e6 ? '$' + +(n / 1e6).toFixed(n % 1e6 ? 1 : 0) + 'm'
+       : '$' + Math.round(n).toLocaleString('en');
+}
+
+function iconnConflictLine(c) {
+  const what = { type: 'Type', country: 'Country', aum: 'AUM', domain: 'Website' }[c.field] || c.field;
+  let file = c.file;
+  if (c.field === 'aum') {
+    file = c.file_high === null || c.file_high === undefined ? 'over ' + iconnMoney(c.file_low)
+         : Number(c.file_low) === Number(c.file_high) ? iconnMoney(c.file_low)
+         : iconnMoney(c.file_low) + ' – ' + iconnMoney(c.file_high);
+  }
+  if (c.field === 'domain') return el('div', null, el('span', { class: 'k' }, 'Website  '), c.opportunity);
+  return el('div', null, el('span', { class: 'k' }, what + '  '),
+    'file: ' + (file === null || file === undefined ? '—' : file) + '  ·  opportunity: ' + (c.opportunity || '—'));
+}
+
+async function iconnRemember(r, c, btn) {
+  if (DEMO) return toast('Demo mode: nothing is saved.');
+  btn.disabled = true;
+  try {
+    await supaInsert('investor_aliases', { alias: r.name, full_name: c.name,
+      note: 'iConnections match' + (ICONN.result && ICONN.result.run ? ': ' + ICONN.result.run.file_name : '') });
+    btn.textContent = 'Saved as an alias';
+    toast('Saved. Match the file again to apply it.');
+  } catch (e) {
+    btn.disabled = false;
+    toast(/duplicate key|23505|409/.test(e.message) ? '“' + r.name + '” is already an alias.' : e.message, true);
+  }
+}
+
+function iconnRowCard(r) {
+  const tags = [];
+  if (r.match_method) tags.push([r.match_method, r.match_method === 'fuzzy' ? 'signal' : 'good']);
+  if (r.confidence !== null && r.confidence !== undefined) tags.push([Math.round(Number(r.confidence) * 100) + '%', '']);
+  const oppN = (r.opp_ids || []).length;
+  const dupes = r.upload_dupes || [];
+  if (oppN > 1) tags.push(['duplicate · ' + oppN + ' opportunities', 'accent']);
+  if (dupes.length) tags.push(['duplicate · also row ' + dupes.join(', '), 'accent']);
+  if (r.conflicts) tags.push(['conflict', 'bad']);
+  if (r.domain_check === 'confirms') tags.push(['website confirms', 'good']);
+
+  const card = el('div', { class: 'ic-row' });
+  card.appendChild(el('div', { class: 'ic-line' },
+    el('span', { class: 'ic-rn' }, 'row ' + r.row_no),
+    el('span', { class: 'ic-nm' }, r.name),
+    r.matched_name ? el('span', { class: 'ic-arrow' }, '→') : null,
+    r.matched_name ? el('span', { class: 'ic-to' }, r.matched_name) : null,
+    ...tags.map(t => el('span', { class: 'tag ' + t[1] }, t[0]))));
+
+  const sub = el('div', { class: 'ic-sub' });
+  for (const c of (r.conflicts || [])) sub.appendChild(iconnConflictLine(c));
+  if (oppN > 1) sub.appendChild(el('div', null, el('span', { class: 'k' }, 'Opportunities  '),
+    r.opp_ids.map(id => '#' + id).join(', ') + ' — the newest is shown'));
+  if (r.bucket === 'review') {
+    sub.appendChild(el('div', null, el('span', { class: 'k' }, 'Possible  '),
+      r.match_method === 'alias' ? 'the short name points at more than one investor' : 'close, but below the line for a match'));
+  }
+  if (sub.childNodes.length) card.appendChild(sub);
+
+  const acts = el('div', { class: 'ic-acts' });
+  if (r.matched_id) acts.appendChild(el('button', { class: 'btn btn-sm btn-quiet', onclick: () => openMandateById(r.matched_id, 'iconn') }, 'Open'));
+  if (r.bucket === 'review') {
+    for (const c of (r.candidates || [])) {
+      const remember = el('button', { class: 'btn btn-sm btn-quiet', title:
+        'Save “' + r.name + '” as another name for ' + c.name + ' in the alias table, so the next match finds it.' }, 'Same firm — remember');
+      remember.addEventListener('click', () => iconnRemember(r, c, remember));
+      acts.append(
+        el('span', { style: 'font-size:13px;color:var(--ink-2);align-self:center' },
+          c.name + '  ' + Math.round(Number(c.score) * 100) + '%'),
+        el('button', { class: 'btn btn-sm btn-quiet', onclick: () => openMandateById(c.id, 'iconn') }, 'Open'),
+        remember);
+    }
+  }
+  if (acts.childNodes.length) card.appendChild(acts);
+  return card;
+}
+
+function iconnResults(body) {
+  const res = ICONN.result;
+  const rows = res.rows || [];
+  const c = res.counts || {};
+  const run = res.run || {};
+
+  body.appendChild(el('div', { class: 'acts', style: 'margin-bottom:16px' },
+    el('button', { class: 'btn btn-sm btn-quiet', onclick: () => { ICONN.result = null; go('iconn'); } }, '← Match another file'),
+    ICONN.built ? el('button', { class: 'btn btn-sm btn-quiet', onclick: (e) => iconnMatch(e.currentTarget, body) }, 'Match again') : null));
+
+  body.appendChild(el('p', { style: 'margin:0 0 4px;font-size:13px;color:var(--ink-2)' },
+    (run.file_name || 'iConnections export') + (run.sheet_name ? ' · sheet “' + run.sheet_name + '”' : '')
+    + ' · ' + rows.length + ' rows' + (run.import_no > 1 ? ' · import ' + run.import_no + ' of this file' : '')
+    + ' · nothing in Opportunities was changed'));
+  if (ICONN.built && ICONN.notes && ICONN.notes.length) {
+    body.appendChild(el('ul', { class: 'ic-notes' }, ...ICONN.notes.map(n => el('li', null, n))));
+  }
+
+  const FILTERS = [['all', 'Everything', rows.length], ['dup', 'Duplicates', c.duplicates || 0], ['conflict', 'Conflicts', c.conflicts || 0]];
+  body.appendChild(el('div', { class: 'chips', style: 'margin:14px 0 4px' },
+    el('span', { class: 'tag good' }, 'Matched ' + (c.matched || 0)),
+    el('span', { class: 'tag signal' }, 'Needs review ' + (c.review || 0)),
+    el('span', { class: 'tag quiet' }, 'No match ' + (c.none || 0)),
+    ...FILTERS.map(([k, label, n]) => el('button', {
+      class: 'btn btn-sm ' + (ICONN.filter === k ? '' : 'btn-quiet'), 'aria-pressed': String(ICONN.filter === k),
+      onclick: () => { ICONN.filter = k; go('iconn'); } }, label + (k === 'all' ? '' : ' ' + n)))));
+
+  const keep = (r) => ICONN.filter === 'dup' ? ((r.opp_ids || []).length > 1 || (r.upload_dupes || []).length > 0)
+                    : ICONN.filter === 'conflict' ? !!r.conflicts : true;
+  const LIMIT = 150;
+  const section = (bucket, title, blurb) => {
+    const list = rows.filter(r => r.bucket === bucket && keep(r));
+    body.appendChild(el('p', { class: 'ic-sec' }, title + '  ·  ' + list.length));
+    if (!list.length) { body.appendChild(el('p', { class: 'ic-notes', style: 'padding:0;color:var(--ink-3)' }, 'None.')); return; }
+    if (blurb) body.appendChild(el('p', { style: 'margin:0 0 6px;font-size:12.5px;color:var(--ink-3)' }, blurb));
+    const shown = ICONN.open[bucket] ? list : list.slice(0, LIMIT);
+    if (bucket === 'none') {
+      body.appendChild(el('ul', { class: 'ic-none' },
+        ...shown.map(r => el('li', null, el('span', { class: 'ic-rn' }, 'row ' + r.row_no), ' ', r.name))));
+    } else {
+      const host = el('div');
+      shown.forEach(r => host.appendChild(iconnRowCard(r)));
+      body.appendChild(host);
+    }
+    if (shown.length < list.length) {
+      body.appendChild(el('button', { class: 'btn btn-sm btn-quiet', style: 'margin-top:8px',
+        onclick: () => { ICONN.open[bucket] = true; go('iconn'); } }, 'Show all ' + list.length));
+    }
+  };
+  section('matched', 'Matched', 'Exact names, known aliases, and close spellings scoring '
+    + Math.round(((run.thresholds && run.thresholds.auto) || 0.75) * 100) + '% or more.');
+  section('review', 'Needs review', 'Close, but not close enough to call. Nothing is linked until you decide. '
+    + '“Same firm — remember” adds the name to the alias table for next time.');
+  section('none', 'No match', null);
+}
+
+// Demo mode: results shaped like console_iconnections_run, made up from the
+// file's own rows so the page can be tried without a database.
+function demoIconnRun(rows) {
+  const out = rows.map((r, i) => {
+    const k = i % 6;
+    const base = { row_no: r.row_no, name: r.name, domain: r.domain, aum_text: r.aum_text, investor_type: r.investor_type,
+                   country: r.country, upload_dupes: [], conflicts: null, candidates: null, opp_ids: null,
+                   matched_id: null, matched_name: null, match_method: null, confidence: null, domain_check: null };
+    if (k === 0 || k === 3) return Object.assign(base, { bucket: 'matched', match_method: 'exact', confidence: 1, matched_id: 1537,
+                                         matched_name: r.name, opp_ids: k === 3 ? [1537, 1538, 1539] : [1537] });
+    if (k === 1) return Object.assign(base, { bucket: 'matched', match_method: 'alias', confidence: 0.95, matched_id: 1537,
+                                         matched_name: r.name + ' (full name)', opp_ids: [1537],
+                                         conflicts: [{ field: 'aum', file_low: 1e9, file_high: 2.5e9, opportunity: '> $50bn' }] });
+    if (k === 2) return Object.assign(base, { bucket: 'review', match_method: 'fuzzy', confidence: 0.62,
+                                         candidates: [{ id: 1537, name: r.name + ' Partners', score: 0.62, rows: 1 }] });
+    if (k === 4) return Object.assign(base, { bucket: 'matched', match_method: 'fuzzy', confidence: 0.81, matched_id: 1537,
+                                         matched_name: r.name.slice(0, -1) + 's', opp_ids: [1537],
+                                         conflicts: [{ field: 'type', file: r.investor_type || 'Family Office', opportunity: 'Public D.B.' }] });
+    return Object.assign(base, { bucket: 'none' });
+  });
+  const cnt = (f) => out.filter(f).length;
+  return { run: { file_name: ICONN.file ? ICONN.file.name : 'demo.xlsx', sheet_name: ICONN.sheets ? ICONN.sheets[ICONN.sheetIdx].name : '',
+                  import_no: 1, thresholds: { auto: 0.75, review: 0.45 } },
+           counts: { matched: cnt(r => r.bucket === 'matched'), review: cnt(r => r.bucket === 'review'), none: cnt(r => r.bucket === 'none'),
+                     duplicates: cnt(r => (r.opp_ids || []).length > 1), conflicts: cnt(r => !!r.conflicts) },
+           rows: out.sort((a, b) => ['matched', 'review', 'none'].indexOf(a.bucket) - ['matched', 'review', 'none'].indexOf(b.bucket) || a.row_no - b.row_no) };
 }
 
 /* ---- the profiles on the pipeline ---- */
