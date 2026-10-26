@@ -79,3 +79,31 @@ test('schema-15 sets no extension parameter at function level (Supabase roles ca
   assert.doesNotMatch(sql, /^\s*set\s+pg_trgm\./im, 'use perform set_limit() in the body instead');
   assert.match(sql, /perform set_limit\(0\.3\);/);
 });
+
+test('schema.sql section 7 = schema-16 (Taranis fit in the iConnections results)', () => {
+  const m16 = read('schema-16-iconnections-fit.sql');
+  const a = m16.indexOf('-- ---------------------------------------------------------------------\n-- 1. STAGED FIT');
+  const b = m16.indexOf(END);
+  assert.ok(a > 0 && b > a, 'schema-16 sections found');
+  assert.ok(read('schema.sql').includes(m16.slice(a, b).trimEnd()), 'schema.sql section 7 differs from schema-16');
+});
+
+test('schema-16 adds the fit and changes nothing in the matching', () => {
+  const fns = (src) => ['iconn_match_rows(p_rows jsonb)', 'console_iconnections_match(', 'console_iconnections_run(p_run_id bigint)']
+    .map((n) => { const i = src.indexOf('create or replace function public.' + n);
+                  return src.slice(i, src.indexOf('$$;\n', src.indexOf('as $$', i)) + 4); });
+  // Strip every line schema-16 is allowed to add or touch; what is left must be schema-15's text.
+  const strip = (t) => t.split('\n').filter((l) => !/fit|-- each represented by its newest row/.test(l)).join('\n')
+    .replace(/opp_rejected int,\n/g, 'opp_rejected int)\n').replace(/= 'rejected'\),\n/g, "= 'rejected')\n")
+    .replace(/, 'status', c\.verdict,\n/g, ", 'status', c.verdict)\n").replace(/opp_rejected int\)\n\s*\)/g, 'opp_rejected int)');
+  const f15 = fns(read('schema-15-iconnections-import.sql')).map(strip);
+  const f16 = fns(read('schema-16-iconnections-fit.sql')).map(strip);
+  for (const marker of ['t_auto', 't_review', 't_close', 'set_limit(0.3)', "when 'matched' then 5", 'too_close', "then 'review'"]) {
+    assert.equal(f16[0].includes(marker), f15[0].includes(marker), marker);
+  }
+  const sql = read('schema-16-iconnections-fit.sql');
+  assert.match(sql, /coalesce\(m\.new_fit_score, m\.fit_score\) as fit/);
+  assert.match(sql, /rep\.fit,\s*\n\s*rep\.fit_reason/, 'the fit comes from the representative row');
+  assert.doesNotMatch(sql.replace(/--.*$/gm, ''), /^\s*set\s+pg_trgm\./im);
+  assert.doesNotMatch(sql.replace(/--.*$/gm, ''), /\b(insert\s+into|update|delete\s+from|alter\s+table)\s+(public\.)?wi_mandates\b/i);
+});

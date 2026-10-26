@@ -190,7 +190,13 @@ is the one that writes.) Database only, no gateway action:
    method, sortable). A row is red when every opportunity behind the match is
    rejected: `new_qualification = 'rejected'`, or `qualification` where
    `new_qualification` is empty, the same test as the Rejected tab. Amber is
-   Needs review, grey is No match. A **Company profile** box at the top opens
+   Needs review, grey is No match. The last column is the **Taranis fit**
+   (schema-16): `coalesce(new_fit_score, fit_score)` of the same opportunity
+   row the Opportunity column shows, with `fit_reason` (the AI's intake note)
+   on hover. A firm in review shows its top candidate's fit, marked as not
+   confirmed, and sorts below every confirmed match. How the name matched
+   (exact / alias / fuzzy and its score) stays under the opportunity.
+   A **Company profile** box at the top opens
    the same Search view for any company typed, in the file or not, with Back
    returning to the results. Nothing on this page links to With Intelligence.
 

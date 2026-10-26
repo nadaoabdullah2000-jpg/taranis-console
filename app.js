@@ -8431,7 +8431,7 @@ function importSheet() {
    Nothing is added to or changed in wi_mandates. "Import an investor list"
    is the importer that writes; this one only compares. */
 const ICONN = { file: null, sha: null, sheets: null, sheetIdx: 0, headerIndex: 0, cols: {}, built: null,
-                errors: [], result: null, runId: null, filter: 'all', open: {}, sortBy: 'rank', sortDir: 'desc' };
+                errors: [], result: null, runId: null, filter: 'all', open: {}, sortBy: 'fit', sortDir: 'desc' };
 const ICONN_CHUNK = 150;   // firms per call: well inside the 8 s statement limit
 const ICONN_FIELDS = ['name', 'domain', 'aum', 'type', 'country'];
 let iconnReaderLoad = null;
@@ -8473,7 +8473,10 @@ function ensureIconnCss() {
   + ".ic-sort{all:unset;cursor:pointer;font:inherit;letter-spacing:inherit;text-transform:inherit;color:inherit}"
   + ".ic-sort:focus-visible{outline:2px solid var(--accent);outline-offset:2px}"
   + ".ic-firm{width:34%}.ic-prof{width:13%;white-space:nowrap}.ic-opp{width:38%}.ic-rank{width:15%;white-space:nowrap}"
-  + ".ic-ct{color:var(--ink-3)}"
+  + ".ic-how{font-size:11px;letter-spacing:.04em;color:var(--ink-3);margin-top:5px}"
+  + ".ic-how.fuzzy{color:var(--signal)}"
+  + ".ic-score.cand{color:var(--signal);font-weight:500}"
+  + ".ic-why{margin:3px 0 0;cursor:help;text-decoration:underline dotted}"
   + ".ic-sub{font-size:12px;color:var(--ink-2);margin-top:4px;line-height:1.5}"
   + ".ic-flags{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:5px}"
   + ".ic-link{all:unset;cursor:pointer;color:var(--accent);text-decoration:underline;text-underline-offset:2px}"
@@ -8797,8 +8800,21 @@ function iconnProfileSearch() {
 
 const ICONN_DUP = (f) => (f.opp_ids || []).length > 1 || (f.same_opportunity || []).length > 0;
 
-// One table row per firm: Firm (contacts) | Intelligence profile |
-// Opportunity (name, status) | Match rank (score, method).
+// The Taranis criteria fit a row shows, and whose it is. A matched firm
+// shows its opportunity's fit (the same row as the Opportunity column:
+// coalesce(new_fit_score, fit_score), schema-16). A firm in review shows its
+// top candidate's fit, marked as the candidate's; no match shows nothing.
+function iconnFit(f) {
+  const n = (v) => v === null || v === undefined || v === '' || !isFinite(Number(v)) ? null : Number(v);
+  if (f.bucket === 'matched') return { fit: n(f.matched_fit), whose: 'match', reason: f.matched_fit_reason || '' };
+  const c = f.bucket === 'review' && (f.candidates || [])[0];
+  if (c) return { fit: n(c.fit), whose: 'candidate', reason: c.fit_reason || '', name: c.name };
+  return { fit: null, whose: null, reason: '' };
+}
+const ICONN_TIER = { matched: 0, review: 1, none: 2 };
+
+// One table row per firm: Firm | Intelligence profile |
+// Opportunity (name, status, how the name matched) | Taranis fit.
 function iconnFirmRow(f) {
   const tone = f.rejected ? 'ic-rej' : f.bucket === 'review' ? 'ic-rev' : f.bucket === 'none' ? 'ic-none' : '';
   const tr = el('tr', { class: tone });
@@ -8809,10 +8825,7 @@ function iconnFirmRow(f) {
   if ((f.same_opportunity || []).length) flags.push(['duplicate · same opportunity as ' + f.same_opportunity.join(', '), 'accent']);
   if (f.conflicts) flags.push(['conflict', 'bad']);
   if (f.domain_check === 'confirms') flags.push(['website confirms', 'good']);
-  const firm = el('td', { class: 'ic-firm' },
-    el('span', { class: 'ic-nm' }, f.name),
-    el('span', { class: 'ic-ct', title: f.contacts + ' contact' + (f.contacts > 1 ? 's' : '') + ' in the file (rows '
-      + (f.row_nos || []).join(', ') + ')' }, ' (' + f.contacts + ')'));
+  const firm = el('td', { class: 'ic-firm' }, el('span', { class: 'ic-nm' }, f.name));
   if ((f.spellings || []).length > 1) {
     firm.appendChild(el('div', { class: 'ic-sub' }, 'Also written: ' + f.spellings.filter(s => s !== f.name).join(' · ')));
   }
@@ -8836,6 +8849,11 @@ function iconnFirmRow(f) {
                  : el('span', { class: 'tag ' + bandTone(band) }, 'status: ' + (BAND_LABEL[band] || band.replace('_', ' '))),
       !f.rejected && f.opp_rejected > 0
         ? el('span', { class: 'ic-sub', style: 'margin:0' }, f.opp_rejected + ' of ' + f.opp_ids.length + ' rows rejected') : null));
+    // How the file's name was linked to it, kept in view so a loose link
+    // never reads as a sure one just because the fit beside it is high.
+    opp.appendChild(el('div', { class: 'ic-how' + (f.match_method === 'fuzzy' ? ' fuzzy' : '') },
+      'name match: ' + (f.match_method || '?')
+      + (f.confidence !== null && f.confidence !== undefined ? ' ' + Math.round(Number(f.confidence) * 100) + '%' : '')));
   } else if (f.bucket === 'review') {
     opp.appendChild(el('div', { class: 'ic-sub', style: 'margin:0 0 4px' },
       f.match_method === 'alias' ? 'The short name points at more than one investor:' : 'Close, but below the line for a match:'));
@@ -8845,7 +8863,7 @@ function iconnFirmRow(f) {
       remember.addEventListener('click', () => iconnRemember(f, c, remember));
       opp.appendChild(el('div', { class: 'ic-cand' },
         el('button', { class: 'ic-link', onclick: () => openMandateById(c.id, 'iconn') }, c.name),
-        el('span', { class: 'ic-sub', style: 'margin:0' }, Math.round(Number(c.score) * 100) + '%'
+        el('span', { class: 'ic-sub', style: 'margin:0' }, 'name match ' + Math.round(Number(c.score) * 100) + '%'
           + (c.status ? ' · status: ' + (BAND_LABEL[c.status] || c.status) : '')),
         remember));
     }
@@ -8853,12 +8871,21 @@ function iconnFirmRow(f) {
     opp.appendChild(el('span', { class: 'ic-dash' }, '— no match'));
   }
 
-  // 4. Match rank
+  // 4. Taranis fit. fit_reason is the AI's note written at intake and never
+  // re-checked against the verdict, so it is offered on hover as that.
+  const fx = iconnFit(f);
   const rank = el('td', { class: 'ic-rank' });
-  if (f.confidence !== null && f.confidence !== undefined) {
-    rank.append(el('span', { class: 'ic-score' }, Math.round(Number(f.confidence) * 100) + '%'),
-      el('span', { class: 'ic-meth' }, f.match_method || ''));
-  } else rank.appendChild(el('span', { class: 'ic-dash' }, '—'));
+  if (fx.fit !== null) {
+    rank.appendChild(el('span', { class: 'ic-score' + (fx.whose === 'candidate' ? ' cand' : '') }, Math.round(fx.fit * 100) + '%'));
+    if (fx.whose === 'candidate') rank.appendChild(el('div', { class: 'ic-meth' }, 'candidate’s fit, not confirmed'));
+    if (fx.reason) {
+      rank.setAttribute('title', (fx.whose === 'candidate' ? fx.name + ' — ' : '')
+        + 'AI note at intake (not re-checked against the verdict): ' + fx.reason);
+      rank.appendChild(el('div', { class: 'ic-meth ic-why' }, 'why? hover'));
+    }
+  } else if (fx.whose) {
+    rank.appendChild(el('span', { class: 'ic-dash' }, 'no score'));
+  }
 
   tr.append(firm, prof, opp, rank);
   return tr;
@@ -8896,18 +8923,22 @@ function iconnResults(body) {
     all: () => true, matched: (f) => f.bucket === 'matched', rejected: (f) => !!f.rejected,
     review: (f) => f.bucket === 'review', none: (f) => f.bucket === 'none',
     dup: ICONN_DUP, conflict: (f) => !!f.conflicts }[ICONN.filter] || (() => true);
-  const rankOf = (f) => f.confidence === null || f.confidence === undefined ? -1 : Number(f.confidence);
+  // Sorting by fit keeps confirmed matches above review rows above no
+  // match, whichever way it runs, so an unconfirmed candidate's high fit
+  // never tops the list. Within each, best fit first by default.
+  const fitOf = (f) => { const x = iconnFit(f).fit; return x === null ? -1 : x; };
   const dir = ICONN.sortDir === 'asc' ? 1 : -1;
   const list = firms.filter(keep).sort(ICONN.sortBy === 'firm'
     ? (a, b) => dir * -1 * a.name.localeCompare(b.name, 'en', { sensitivity: 'base' })
-    : (a, b) => dir * (rankOf(a) - rankOf(b)) || a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
+    : (a, b) => (ICONN_TIER[a.bucket] - ICONN_TIER[b.bucket]) || dir * (fitOf(a) - fitOf(b))
+                || a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
 
   const sortHead = (key, label) => {
-    const on = (ICONN.sortBy || 'rank') === key;
+    const on = (ICONN.sortBy || 'fit') === key;
     const arrow = on ? (ICONN.sortDir === 'asc' ? ' ▲' : ' ▼') : '';
     return el('th', { scope: 'col', 'aria-sort': on ? (ICONN.sortDir === 'asc' ? 'ascending' : 'descending') : 'none' },
       el('button', { class: 'ic-sort', onclick: () => {
-        if ((ICONN.sortBy || 'rank') === key) ICONN.sortDir = ICONN.sortDir === 'asc' ? 'desc' : 'asc';
+        if ((ICONN.sortBy || 'fit') === key) ICONN.sortDir = ICONN.sortDir === 'asc' ? 'desc' : 'asc';
         else { ICONN.sortBy = key; ICONN.sortDir = key === 'firm' ? 'asc' : 'desc'; }
         go('iconn');
       } }, label + arrow));
@@ -8919,7 +8950,7 @@ function iconnResults(body) {
       sortHead('firm', 'Firm / allocator'),
       el('th', { scope: 'col' }, 'Intelligence profile'),
       el('th', { scope: 'col' }, 'Opportunity'),
-      sortHead('rank', 'Match rank'))),
+      sortHead('fit', 'Taranis fit'))),
     el('tbody', null, ...shown.map(iconnFirmRow)));
   body.appendChild(el('div', { class: 'ic-wrap' }, table));
   if (!list.length) body.appendChild(el('p', { class: 'ic-notes', style: 'padding:0;color:var(--ink-3)' }, 'None.'));
@@ -8928,8 +8959,10 @@ function iconnResults(body) {
       onclick: () => { ICONN.open.all = true; go('iconn'); } }, 'Show all ' + list.length));
   }
   body.appendChild(el('p', { style: 'margin:12px 0 0;font-size:12px;color:var(--ink-3)' },
-    'Match rank: 100% exact name, 95% a known alias, fuzzy spellings scored by similarity. '
-    + Math.round(((run.thresholds && run.thresholds.auto) || 0.75) * 100) + '% and up is a match; '
+    'Taranis fit: the matched opportunity’s criteria score (the re-score where there is one), from the same row as '
+    + 'the Opportunity column; for a firm in review, its top candidate’s, not confirmed. '
+    + 'Name match: 100% exact, 95% a known alias, fuzzy spellings scored by similarity; '
+    + Math.round(((run.thresholds && run.thresholds.auto) || 0.75) * 100) + '% and up is a match, '
     + Math.round(((run.thresholds && run.thresholds.review) || 0.45) * 100) + '–'
     + (Math.round(((run.thresholds && run.thresholds.auto) || 0.75) * 100) - 1) + '% needs review and is never linked on its own. '
     + 'Red rows: every opportunity behind the match is rejected.'));
@@ -8949,14 +8982,16 @@ function demoIconnRun(rows) {
       const st = STATUS[i % STATUS.length];
       Object.assign(f, { bucket: 'matched', match_method: k === 3 ? 'alias' : 'exact', confidence: k === 3 ? 0.95 : 1,
         matched_id: 1537, matched_name: r.name, matched_status: st, opp_ids: k === 1 ? [1537, 1538] : [1537],
-        opp_rejected: st === 'rejected' ? (k === 1 ? 2 : 1) : 0, rejected: st === 'rejected' });
+        opp_rejected: st === 'rejected' ? (k === 1 ? 2 : 1) : 0, rejected: st === 'rejected',
+        matched_fit: st === 'rejected' ? 0.05 : ((i * 37) % 100) / 100, matched_fit_reason: 'Demo: AI note written at intake.' });
     } else if (k === 4) {
       Object.assign(f, { bucket: 'matched', match_method: 'fuzzy', confidence: 0.81, matched_id: 1537,
-        matched_name: r.name + ' Partners', matched_status: 'needs_data', opp_ids: [1537],
+        matched_name: r.name + ' Partners', matched_status: 'needs_data', opp_ids: [1537], matched_fit: 0.6,
         conflicts: r.investor_type ? [{ field: 'type', file: r.investor_type, opportunity: 'Public D.B.' }] : null });
     } else if (k === 2) {
       Object.assign(f, { bucket: 'review', match_method: 'fuzzy', confidence: 0.62,
-        candidates: [{ id: 1537, name: r.name + ' Group', score: 0.62, rows: 1, status: 'low' }] });
+        candidates: [{ id: 1537, name: r.name + ' Group', score: 0.62, rows: 1, status: 'low', fit: 0.9,
+                       fit_reason: 'Demo: AI note written at intake.' }] });
     }
     return f;
   });
