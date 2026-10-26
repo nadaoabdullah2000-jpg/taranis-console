@@ -1,0 +1,74 @@
+entity,crustdata_id_or_url,actor_type,filter,window_start,window_end,total_count,note
+Taranis (company page),7865447,company,all,all,2026-09-17,15,
+Taranis (company page),7865447,company,all,2026-06-17,2026-09-17,2,13 weeks
+Julien Leegenhoek (Taranis CEO),237668409,person,all,all,2026-09-17,15,index coverage likely incomplete
+Julien Leegenhoek (Taranis CEO),237668409,person,all,2026-06-17,2026-09-17,1,13 weeks
+Contour Asset Management,6803658,company,all,all,2026-09-17,0,no indexed company posts
+Jericho Capital Asset Management,1348019,company,all,all,2026-09-17,0,no indexed company posts
+Wavelength Asset Management LLC,68029494,company,all,all,2026-09-17,0,no indexed company posts
+Act II Capital Holdings LLC,12714672,company,all,all,2026-09-17,0,no indexed company posts (entity match uncertain)
+Wellington Management,905379,company,all,all,2026-09-17,916,
+Wellington Management,905379,company,all,2026-06-17,2026-09-17,116,13 weeks
+Wellington Management,905379,company,content_type=document,2026-06-17,2026-09-17,7,
+Wellington Management,905379,company,content_type=video,2026-06-17,2026-09-17,25,
+Wellington Management,905379,company,text AI|technology,2026-06-17,2026-09-17,34,
+Wellington Management,905379,company,text "disruptive"|"long/short",all,2026-09-17,19,all-time
+Schroders,1051043,company,all,all,2026-09-17,2113,
+Schroders,1051043,company,all,2026-06-17,2026-09-17,112,13 weeks
+Schroders,1051043,company,text "Contour"|"GAIA",all,2026-09-17,2,all-time
+Syz Group,1001125,company,all,all,2026-09-17,351,
+Syz Group,1001125,company,all,2026-06-17,2026-09-17,73,13 weeks
+Polar Capital,999976,company,all,2026-06-17,2026-09-17,8,13 weeks
+(any author),-,any,text "Contour Asset Management",all,2026-09-17,15,
+(any author),-,any,text "Taranis Market Sentiment",all,2026-09-17,4,
+Charles-Henry Monchau,28667460,person,all,2026-01-01,2026-03-31,491,Q1
+Charles-Henry Monchau,28667460,person,all,2026-04-01,2026-04-30,226,
+Charles-Henry Monchau,28667460,person,all,2026-05-01,2026-05-31,224,
+Charles-Henry Monchau,28667460,person,all,2026-06-01,2026-06-30,353,
+Charles-Henry Monchau,28667460,person,all,2026-07-01,2026-07-31,573,
+Charles-Henry Monchau,28667460,person,all,2026-08-01,2026-08-31,182,
+Charles-Henry Monchau,28667460,person,all,2026-09-01,2026-09-16,136,
+Charles-Henry Monchau,28667460,person,all,2026-06-17,2026-09-17,1051,13 weeks
+Charles-Henry Monchau,28667460,person,all,2026-06-01,2026-09-17,1244,base for splits below
+Charles-Henry Monchau,28667460,person,text contains "Source",2026-06-01,2026-09-17,1074,curation proxy
+Charles-Henry Monchau,28667460,person,"Source" & reactions>=54,2026-06-01,2026-09-17,634,
+Charles-Henry Monchau,28667460,person,text "my take"|"our view"|"Syz",2026-06-01,2026-09-17,78,own-POV / firm proxy
+Charles-Henry Monchau,28667460,person,own-POV & reactions>=54,2026-06-01,2026-09-17,4,
+Charles-Henry Monchau,28667460,person,humor keywords (lol|funny|joke|fake|meme),2026-06-01,2026-09-17,40,
+Charles-Henry Monchau,28667460,person,topic AI|Nvidia|OpenAI|semiconductor|tech,2026-06-01,2026-09-17,328,keyword-based; overlaps
+Charles-Henry Monchau,28667460,person,topic Fed|inflation|yields|rates|recession,2026-06-01,2026-09-17,180,
+Charles-Henry Monchau,28667460,person,topic oil|energy|gas|uranium,2026-06-01,2026-09-17,150,
+Charles-Henry Monchau,28667460,person,topic bitcoin|crypto,2026-06-01,2026-09-17,61,
+Charles-Henry Monchau,28667460,person,content_type=image,2026-06-01,2026-09-17,1112,
+Charles-Henry Monchau,28667460,person,content_type=video,2026-06-01,2026-09-17,78,
+Charles-Henry Monchau,28667460,person,content_type=document,2026-06-01,2026-09-17,45,
+Charles-Henry Monchau,28667460,person,content_type=article,2026-06-01,2026-09-17,2,
+Charles-Henry Monchau,28667460,person,post_type=original,2026-06-01,2026-09-17,507,index label
+Charles-Henry Monchau,28667460,person,post_type=repost_without_thoughts,2026-06-01,2026-09-17,732,index label = crawl path; not reliable as curation
+Charles-Henry Monchau,28667460,person,reactions>=25,2026-06-01,2026-09-17,901,
+Charles-Henry Monchau,28667460,person,reactions>=40,2026-06-01,2026-09-17,777,
+Charles-Henry Monchau,28667460,person,reactions>=54,2026-06-01,2026-09-17,692,
+Charles-Henry Monchau,28667460,person,reactions>=70,2026-06-01,2026-09-17,601,
+Charles-Henry Monchau,28667460,person,reactions>=100,2026-06-01,2026-09-17,487,
+Charles-Henry Monchau,28667460,person,reactions>=200,2026-06-01,2026-09-17,279,
+Charles-Henry Monchau,28667460,person,original & reactions>=15,2026-06-01,2026-09-17,276,
+Charles-Henry Monchau,28667460,person,original & reactions>=25,2026-06-01,2026-09-17,205,
+Charles-Henry Monchau,28667460,person,original & reactions>=54,2026-06-01,2026-09-17,98,
+Charles-Henry Monchau,28667460,person,original & reactions>=100,2026-06-01,2026-09-17,40,
+Charles-Henry Monchau,28667460,person,original & image,2026-06-01,2026-09-17,465,
+Charles-Henry Monchau,28667460,person,original & image & reactions>=25,2026-06-01,2026-09-17,195,
+Charles-Henry Monchau,28667460,person,original & video,2026-06-01,2026-09-17,23,
+Charles-Henry Monchau,28667460,person,original & video & reactions>=25,2026-06-01,2026-09-17,7,
+Charles-Henry Monchau,28667460,person,original & document,2026-06-01,2026-09-17,17,
+Charles-Henry Monchau,28667460,person,original & document & reactions>=25,2026-06-01,2026-09-17,3,
+Charles-Henry Monchau,28667460,person,document & reactions>=54,2026-06-01,2026-09-17,4,
+Charles-Henry Monchau,28667460,person,original & tech/AI keywords,2026-06-01,2026-09-17,122,
+Charles-Henry Monchau,28667460,person,original & tech/AI & reactions>=25,2026-06-01,2026-09-17,50,
+Allie K. Miller,https://www.linkedin.com/in/alliekmiller,person,all,2026-06-17,2026-09-17,53,13 weeks
+Andrew Ng,https://www.linkedin.com/in/andrewyng,person,all,2026-06-17,2026-09-17,14,13 weeks
+Satya Nadella,https://www.linkedin.com/in/satyanadella,person,all,2026-06-17,2026-09-17,24,13 weeks
+Reid Hoffman,https://www.linkedin.com/in/reidhoffman,person,all,2026-06-17,2026-09-17,31,13 weeks
+Ethan Mollick,https://www.linkedin.com/in/emollick,person,all,2026-06-17,2026-09-17,199,13 weeks
+Aravind Srinivas,https://www.linkedin.com/in/aravind-srinivas-16051987,person,all,2026-06-17,2026-09-17,13,13 weeks
+Bill Gates,https://www.linkedin.com/in/williamhgates,person,all,2026-06-17,2026-09-17,68,13 weeks
+(index freshness),-,any,date_posted>=2026-09-18,2026-09-18,2026-10-26,471,platform-wide; index effectively ends ~2026-09-17

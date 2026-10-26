@@ -1,0 +1,4 @@
+segment,posts,posts_ge54,share_ge54,definition
+Curated (credits a 'Source'),1074,634,0.590,text contains 'Source'
+Not source-credited,170,58,0.341,all posts minus curated
+Own view / Syz-branded,78,4,0.051,text contains 'my take' or 'our view' or 'Syz'
