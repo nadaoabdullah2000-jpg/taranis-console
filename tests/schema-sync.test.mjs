@@ -107,3 +107,15 @@ test('schema-16 adds the fit and changes nothing in the matching', () => {
   assert.doesNotMatch(sql.replace(/--.*$/gm, ''), /^\s*set\s+pg_trgm\./im);
   assert.doesNotMatch(sql.replace(/--.*$/gm, ''), /\b(insert\s+into|update|delete\s+from|alter\s+table)\s+(public\.)?wi_mandates\b/i);
 });
+
+test('schema.sql section 8 = schema-17 (hide a run from Earlier matches)', () => {
+  const m17 = read('schema-17-iconnections-hide-run.sql');
+  const a = m17.indexOf('-- ---------------------------------------------------------------------\n-- 1. HIDDEN RUNS');
+  const b = m17.indexOf('-- ---------------------------------------------------------------------\n-- ROLLBACK');
+  assert.ok(a > 0 && b > a, 'schema-17 sections found');
+  assert.ok(read('schema.sql').includes(m17.slice(a, b).trimEnd()), 'schema.sql section 8 differs from schema-17');
+  // Nothing is deleted and only the staging run table changes.
+  const body = m17.slice(a, b).replace(/--.*$/gm, '');
+  assert.doesNotMatch(body, /\bdelete\b|\bdrop\b|\btruncate\b|wi_mandates|investor_aliases|contacts/i);
+  assert.match(body, /alter table public\.iconnections_import_runs\s+add column if not exists hidden_at timestamptz;/);
+});

@@ -1683,3 +1683,13 @@ revoke all on function public.console_iconnections_run(bigint) from public, anon
 grant execute on function public.iconn_match_rows(jsonb) to authenticated, service_role, taranis_bot;
 grant execute on function public.console_iconnections_match(text, text, text, jsonb, boolean, jsonb) to authenticated, service_role, taranis_bot;
 grant execute on function public.console_iconnections_run(bigint) to authenticated, service_role, taranis_bot;
+
+
+-- =====================================================================
+-- 8. ICONNECTIONS: TAKING A RUN OFF THE EARLIER MATCHES LIST   (schema-17, 26 Oct 2026)
+-- =====================================================================
+-- ---------------------------------------------------------------------
+-- 1. HIDDEN RUNS
+-- ---------------------------------------------------------------------
+alter table public.iconnections_import_runs
+  add column if not exists hidden_at timestamptz;   -- set when taken off the Earlier matches list; null = listed

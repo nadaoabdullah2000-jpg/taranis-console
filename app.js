@@ -8567,21 +8567,63 @@ RENDER.iconn = function (body) {
   if (ICONN.sheets) iconnMapping(stage);
 };
 
+// Earlier matches, one row per file name. Runs are keyed on the file's
+// SHA-256, so a re-saved or re-exported copy of the same file is another
+// run; the list shows the newest run of each name and counts the rest.
+// Remove takes the name off the list: it stamps hidden_at on those runs in
+// iconnections_import_runs, by id (schema-17). Nothing is deleted, and
+// nothing outside that staging table is touched. Before schema-17 there is
+// no hidden_at: the list still collapses, without Remove.
+const ICONN_RECENT = 5;
+const iconnNameKey = (n) => String(n || '').trim().toLowerCase();
+
 async function iconnRecent(host) {
-  let runs;
+  const cols = 'select=id,file_name,sheet_name,row_count,import_no,last_matched_at';
+  let runs, canHide = true;
   try {
-    runs = await supaSelect('iconnections_import_runs',
-      'select=id,file_name,sheet_name,row_count,import_no,last_matched_at&order=last_matched_at.desc&limit=5');
-  } catch (_) { return; }   // no Supabase session, or schema-15 not applied yet: nothing to list
-  if (!runs || !runs.length) return;
+    runs = await supaSelect('iconnections_import_runs', cols + '&hidden_at=is.null&order=last_matched_at.desc&limit=200');
+  } catch (_) {
+    canHide = false;
+    try { runs = await supaSelect('iconnections_import_runs', cols + '&order=last_matched_at.desc&limit=200'); }
+    catch (_) { return; }   // no Supabase session, or schema-15 not applied yet: nothing to list
+  }
+  const groups = new Map();   // newest first, so each name's first run is its latest
+  for (const r of runs || []) {
+    const k = iconnNameKey(r.file_name);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(r);
+  }
+  if (!groups.size) return;
   host.style.marginBottom = '22px';
   host.appendChild(el('p', { class: 'ic-sec', style: 'margin-top:6px' }, 'Earlier matches'));
-  for (const r of runs) {
-    host.appendChild(el('div', { class: 'ic-row' }, el('div', { class: 'ic-line' },
+  for (const list of [...groups.values()].slice(0, ICONN_RECENT)) {
+    const r = list[0];
+    const older = list.length - 1;
+    const row = el('div', { class: 'ic-row' }, el('div', { class: 'ic-line' },
       el('span', { class: 'ic-nm' }, r.file_name || 'iConnections export'),
-      el('span', { class: 'ic-rn' }, (r.row_count || 0) + ' rows · ' + fmtDate(r.last_matched_at)),
-      el('button', { class: 'btn btn-sm btn-quiet', onclick: () => iconnOpenRun(r.id) }, 'Show results'))));
+      el('span', { class: 'ic-rn', title: older ? 'Earlier copies of this file (a different save of it) are not listed.' : null },
+        (r.row_count || 0) + ' rows · ' + fmtDate(r.last_matched_at)
+        + (older ? ' · ' + older + ' earlier ' + (older === 1 ? 'copy' : 'copies') + ' hidden' : '')),
+      el('button', { class: 'btn btn-sm btn-quiet', onclick: () => iconnOpenRun(r.id) }, 'Show results'),
+      canHide ? el('button', { class: 'btn btn-sm btn-quiet', title: 'Take this file off the list. Only the stored match is hidden; Opportunities are not changed.',
+        onclick: (e) => iconnHideRuns(list, e.currentTarget) }, 'Remove') : null));
+    host.appendChild(row);
   }
+}
+
+// Take a file name off Earlier matches: every listed run of that name, by id.
+async function iconnHideRuns(list, btn) {
+  const name = list[0].file_name || 'this file';
+  if (!confirm('Remove “' + name + '” from Earlier matches? The stored match is hidden, not deleted; '
+    + 'Opportunities are not changed. Matching the file again brings it back.')) return;
+  const ids = list.map(r => Number(r.id)).filter(Number.isFinite);
+  if (!ids.length) return;
+  btn.disabled = true;
+  try {
+    await supaPatch('iconnections_import_runs', 'id=in.(' + ids.join(',') + ')', { hidden_at: new Date().toISOString() });
+    if (ICONN.result && ids.includes(Number(ICONN.runId))) { ICONN.result = null; ICONN.runId = null; }
+    go('iconn');
+  } catch (e) { btn.disabled = false; toast(e.message, true); }
 }
 
 async function iconnOpenRun(id) {
@@ -8752,6 +8794,9 @@ async function iconnMatch(btn, stage) {
       btn.textContent = 'Reading the results…';
       res = await supaRpc('console_iconnections_run', { p_run_id: runId });
       ICONN.runId = runId;
+      // A file matched again comes back on Earlier matches (schema-17;
+      // before it there is no hidden_at, and nothing to clear).
+      supaPatch('iconnections_import_runs', 'id=eq.' + Number(runId) + '&hidden_at=not.is.null', { hidden_at: null }).catch(() => {});
     }
     ICONN.result = res; ICONN.people = people; ICONN.filter = 'all'; ICONN.open = {};
     go('iconn');

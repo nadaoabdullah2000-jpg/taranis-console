@@ -225,6 +225,14 @@ is the one that writes.) Database only, no gateway action:
    the same Search view for any company typed, in the file or not, with Back
    returning to the results. Nothing on this page links to With Intelligence.
 
+**Earlier matches** lists one row per file name: runs are keyed on the
+file's SHA-256, so a re-saved copy is another run, and the list shows the
+newest and counts the rest. **Remove** (schema-17) stamps `hidden_at` on
+that name's runs in `iconnections_import_runs`, by id, through the update
+console users already have on it. Nothing is deleted and nothing outside
+that staging table changes; matching the file again clears the stamp on its
+run. Before schema-17 the list still collapses, without Remove.
+
 `investor_aliases` can be edited from the Supabase table editor by console
 users, or from a Needs-review row (**Same firm — remember**).
 `tests/fixtures/iconnections-sample.xlsx` is a sample export with one row for
