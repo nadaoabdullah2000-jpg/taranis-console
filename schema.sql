@@ -749,6 +749,10 @@ create policy rows_edit       on public.iconnections_import_rows for update usin
 create policy automation_full on public.iconnections_import_rows for all to taranis_bot using (true) with check (true);
 
 revoke all on public.iconnections_import_runs, public.iconnections_import_rows from anon;
+-- Stated rather than left to the running role's default privileges, so the
+-- file works whoever runs it. RLS above still decides which rows.
+grant select, insert, update on public.iconnections_import_runs, public.iconnections_import_rows
+  to authenticated, service_role, taranis_bot;
 
 -- ---------------------------------------------------------------------
 -- 4. MATCHING (read-only)
@@ -792,7 +796,6 @@ returns table (
   conflicts jsonb, domain_check text, matched_status text, opp_rejected int)
 language plpgsql volatile
 set search_path = public
-set pg_trgm.similarity_threshold = '0.3'
 -- The query below is large enough to trip JIT compilation, which costs more
 -- than it saves on a few hundred rows (about 1.2 s a call when on).
 set jit = off
@@ -806,8 +809,14 @@ begin
   if jsonb_typeof(p_rows) is distinct from 'array' then
     raise exception 'iConnections rows must be a JSON array' using errcode = '22023';
   end if;
-  -- t_review must stay >= the 0.3 trigram threshold above, or the index
-  -- would hide candidates that score between the two.
+  -- The % filters below use the trigram threshold. It is set here with
+  -- pg_trgm's own set_limit(): a function-level SET of the
+  -- pg_trgm.similarity_threshold parameter needs a privilege the Supabase
+  -- roles do not have (42501). 0.3 is pg_trgm's default, so leaving it set
+  -- for the rest of the session changes nothing for anyone else. t_review
+  -- must stay >= it, or the index would hide candidates that score between
+  -- the two.
+  perform set_limit(0.3);
 
   drop table if exists pg_temp.iconn_opp;
   create temp table iconn_opp on commit drop as

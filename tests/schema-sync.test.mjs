@@ -69,7 +69,13 @@ test('schema-15 reads Opportunities and never writes to them', () => {
   // The review line must stay at or above the trigram prefilter, or the
   // index would hide candidates that score between the two.
   const review = Number(/"review":\s*([0-9.]+)/.exec(sql)[1]);
-  const prefilter = Number(/pg_trgm\.similarity_threshold = '([0-9.]+)'/.exec(sql)[1]);
+  const prefilter = Number(/set_limit\(([0-9.]+)\)/.exec(sql)[1]);
   assert.ok(review >= prefilter, 'review ' + review + ' >= prefilter ' + prefilter);
   assert.ok(Number(/"auto":\s*([0-9.]+)/.exec(sql)[1]) > review);
+});
+
+test('schema-15 sets no extension parameter at function level (Supabase roles cannot: 42501)', () => {
+  const sql = read('schema-15-iconnections-import.sql').replace(/--.*$/gm, '');
+  assert.doesNotMatch(sql, /^\s*set\s+pg_trgm\./im, 'use perform set_limit() in the body instead');
+  assert.match(sql, /perform set_limit\(0\.3\);/);
 });
