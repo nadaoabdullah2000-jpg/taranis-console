@@ -176,10 +176,21 @@ is the one that writes.) Database only, no gateway action:
 3. Matching, in order: exact normalised name → alias (`investor_aliases`, or a
    bracketed acronym) → trigram score. Thresholds are in `iconn_thresholds()`:
    0.75 and up is a match, 0.45 to 0.75 is Needs review, below is No match.
-4. `console_iconnections_run` returns the rows with flags. A duplicate is
-   several opportunity rows behind one allocator, or several file rows landing
-   on one opportunity. A conflict is a disagreement on AUM (more than 2× apart),
-   type group, country, or a website whose contacts work elsewhere.
+4. `console_iconnections_run` returns one entry per firm. A contacts export
+   (Name + Firm, one row per person) is folded to one row per firm with a
+   contact count: in the browser on exact text, then on the normalised name.
+   Only the firm column is read; people's names never leave the browser.
+   A duplicate is several opportunity rows behind one firm, or several firms
+   landing on one opportunity. A conflict is a disagreement on AUM (more than
+   2× apart), type group, country, or a website whose contacts work elsewhere.
+   Columns the file does not have are not compared, so they never create or
+   remove a match or a conflict.
+5. The results are a table: Firm (contacts) · Intelligence profile (the Search
+   view of the firm) · Opportunity (name and status) · Match rank (score and
+   method, sortable). A row is red when every opportunity behind the match is
+   rejected: `new_qualification = 'rejected'`, or `qualification` where
+   `new_qualification` is empty, the same test as the Rejected tab. Amber is
+   Needs review, grey is No match.
 
 `investor_aliases` can be edited from the Supabase table editor by console
 users, or from a Needs-review row (**Same firm — remember**).

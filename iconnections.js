@@ -465,10 +465,16 @@
 
   /* ----------------------------------------------------------- the rows */
 
-  // The rows to send, from a sheet and a column mapping. Throws if the
-  // sheet has more than MAX_ROWS data rows: better to say so than to match
-  // part of a file. Rows with no allocator name are not sent, and each is
-  // reported (`unnamed`) so nothing disappears without a word.
+  // The rows to send, from a sheet and a column mapping: one per firm. A
+  // contacts export lists a firm once per person, so sheet rows with the same
+  // firm (ignoring case and spacing) become one row with `contacts` = how many
+  // and `row_nos` = which; the first non-empty website, AUM, type and country
+  // among them are kept. The database folds spellings that normalise alike
+  // ("Norges Bank" / "Norges Bank, The") the same way. Throws if the sheet has
+  // more than MAX_ROWS data rows: better to say so than to match part of a
+  // file. Rows with no allocator name are not sent, and each is reported
+  // (`unnamed`) so nothing disappears without a word. Only the mapped
+  // columns are read, so a person's name never leaves the browser.
   function buildRows(sheet, headerIndex, cols) {
     if (cols.name === undefined || cols.name === null || cols.name < 0) {
       throw new ReadError('Choose which column holds the allocator name.');
@@ -483,6 +489,8 @@
     const head = (f) => (cols[f] !== undefined && cols[f] !== null && cols[f] >= 0) ? headers[cols[f]] : null;
     const get = (cells, f) => (cols[f] !== undefined && cols[f] !== null && cols[f] >= 0) ? cells[cols[f]] : null;
     const rows = [], unnamed = [], aumUnread = [], countryUnread = [];
+    const byFirm = new Map();
+    let sheetRows = 0;
     for (const row of data) {
       const nameCell = get(row.cells, 'name');
       const name = nameCell === null || nameCell === undefined ? '' : String(nameCell).replace(/\s+/g, ' ').trim();
@@ -500,8 +508,25 @@
           raw[String(headers[cols[f]] || f)] = row.cells[cols[f]];
         }
       }
-      rows.push({
+      sheetRows++;
+      const key = name.toLowerCase().replace(/\s+/g, ' ');
+      const seen = byFirm.get(key);
+      if (seen) {
+        seen.contacts++;
+        seen.row_nos.push(row.r);
+        const domain = parseDomain(get(row.cells, 'domain'));
+        if (!seen.domain && domain) seen.domain = domain;
+        if (seen.aum_low === null && seen.aum_high === null && (aum.low !== null || aum.high !== null)) {
+          seen.aum_low = aum.low; seen.aum_high = aum.high; seen.aum_text = String(aumCell).slice(0, 200);
+        }
+        if (!seen.investor_type && typeCell !== null && typeCell !== undefined) seen.investor_type = String(typeCell).trim().slice(0, 200);
+        if (!seen.country && country) seen.country = country;
+        continue;
+      }
+      const firm = {
         row_no: row.r,
+        contacts: 1,
+        row_nos: [row.r],
         name: name.slice(0, 300),
         domain: parseDomain(get(row.cells, 'domain')),
         aum_text: aumCell === null || aumCell === undefined ? null : String(aumCell).slice(0, 200),
@@ -510,13 +535,15 @@
         investor_type: typeCell === null || typeCell === undefined ? null : String(typeCell).trim().slice(0, 200),
         country: country,
         raw: raw
-      });
+      };
+      byFirm.set(key, firm);
+      rows.push(firm);
     }
     if (!rows.length) {
       throw new ReadError('No row in "' + sheet.name + '" has an allocator name in the column "'
         + (head('name') || colName(cols.name)) + '". Check the column choice.');
     }
-    return { rows, unnamed, aumUnread, countryUnread };
+    return { rows, sheetRows, unnamed, aumUnread, countryUnread };
   }
 
   async function sha256Hex(buf) {

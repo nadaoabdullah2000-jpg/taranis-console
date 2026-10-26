@@ -160,3 +160,34 @@ test('file fingerprint is the SHA-256 of the bytes', async () => {
   assert.equal(await R.sha256Hex(new TextEncoder().encode('abc')),
     'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
 });
+
+test('contacts export: Name + Firm on a later sheet, one row per firm with a contact count', async () => {
+  const notes = { name: 'Summary', rows: [['Exported from iConnections'], ['Contacts', 7]] };
+  const contacts = { name: 'I-connection', rows: [
+    [null, 'Name', 'Firm'],
+    [null, 'Person A', 'Weybourne Holdings'],
+    [null, 'Person B', 'Norges Bank Investment Management'],
+    [null, 'Person C', 'Weybourne Holdings'],
+    [null, 'Person D', 'weybourne  holdings '],
+    [null, 'Person E', 'Topwater Capital'],
+    [null, 'Person F', null],
+    [null, 'Person G', 'Norges Bank Investment Management']] };
+  const sheets = await book([notes, contacts]);
+  const pick = R.chooseSheet(sheets);
+  assert.equal(pick.sheet.name, 'I-connection');
+  assert.deepEqual(pick.cols, { name: 2 }, 'Firm is the allocator; the person\'s Name column is not used');
+  const out = R.buildRows(pick.sheet, pick.headerIndex, pick.cols);
+  assert.equal(out.sheetRows, 6);
+  assert.deepEqual(out.unnamed, [7]);
+  assert.deepEqual(out.rows.map(r => [r.name, r.contacts, r.row_nos]), [
+    ['Weybourne Holdings', 3, [2, 4, 5]],
+    ['Norges Bank Investment Management', 2, [3, 8]],
+    ['Topwater Capital', 1, [6]]]);
+  for (const r of out.rows) {
+    assert.deepEqual(Object.keys(r.raw), ['Firm'], 'no person name leaves the browser');
+    // Columns the file does not have are sent as empty, never guessed.
+    assert.equal(r.domain, null); assert.equal(r.aum_low, null); assert.equal(r.aum_high, null);
+    assert.equal(r.investor_type, null); assert.equal(r.country, null);
+  }
+  assert.deepEqual([out.aumUnread, out.countryUnread], [[], []]);
+});

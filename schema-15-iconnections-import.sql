@@ -73,7 +73,8 @@ insert into public.investor_aliases (alias, full_name, note) values
   ('kia',   'Kuwait Investment Authority',                'seed: schema-15'),
   ('gpif',  'Government Pension Investment Fund',         'seed: schema-15'),
   ('otpp',  'Ontario Teachers Pension Plan',              'seed: schema-15'),
-  ('cdpq',  'Caisse de depot et placement du Quebec',     'seed: schema-15')
+  ('cdpq',  'Caisse de depot et placement du Quebec',     'seed: schema-15'),
+  ('cpp investment board', 'Canada Pension Plan Investment Board', 'seed: schema-15')
 on conflict (alias) do nothing;
 
 alter table public.investor_aliases enable row level security;
@@ -157,6 +158,19 @@ as $$
   select btrim(regexp_replace(regexp_replace(' ' || coalesce(p_norm, '') || ' ',
            ' (?:capital|management|managers?|assets?|investments?|investors?|partners?|advisors?|advisers|advisory|group|holdings?|funds?|family|offices?|wealth|global|international|financial|services|trust|associates|ventures|equity|private|and|of|retirement|systems?|employees|public|plan|board|fo|mfo|sfo)(?= )',
            ' ', 'g'), ' +', ' ', 'g'))
+$$;
+
+-- The numbers in a normalised name, as one string ("phoenix 5" -> "5",
+-- "47 capital" -> "47"). Two names whose numbers differ are never called the
+-- same firm on spelling alone.
+create or replace function public.iconn_digits(p_norm text)
+returns text
+language sql immutable parallel safe
+set search_path = public
+as $$
+  select coalesce(string_agg(t, ' ' order by t), '')
+    from regexp_split_to_table(coalesce(p_norm, ''), ' ') t
+   where t ~ '[0-9]'
 $$;
 
 create or replace function public.iconn_acronym(p text)
@@ -295,8 +309,10 @@ create table if not exists public.iconnections_import_runs (
 
 create table if not exists public.iconnections_import_rows (
   run_id        bigint not null references public.iconnections_import_runs (id) on delete cascade,
-  row_no        int    not null check (row_no > 0),       -- the row number in the sheet
+  row_no        int    not null check (row_no > 0),       -- the first sheet row with this firm
   import_no     int    not null,
+  contacts      int    not null default 1 check (contacts > 0),  -- sheet rows (people) at this firm
+  row_nos       int[],                                    -- every sheet row with this firm
   raw           jsonb  not null default '{}'::jsonb,     -- the mapped cells as they were in the file
   name          text   not null,
   domain        text,
@@ -311,7 +327,9 @@ create table if not exists public.iconnections_import_rows (
   confidence    numeric(4,3),
   matched_id    bigint,          -- wi_mandates.id; no foreign key, a run is a record of its day
   matched_name  text,
+  matched_status text,           -- its verdict: new_qualification, else qualification
   opp_ids       bigint[],        -- every opportunity row behind the match
+  opp_rejected  int,             -- how many of them are rejected
   candidates    jsonb,
   conflicts     jsonb,
   domain_check  text check (domain_check in ('confirms', 'differs')),
@@ -348,6 +366,10 @@ revoke all on public.iconnections_import_runs, public.iconnections_import_rows f
 -- 4. MATCHING (read-only)
 --    p_rows: [{row_no, name, domain, aum_low, aum_high, investor_type,
 --    country}] — country as ISO-2, AUM in USD, as the console parsed them.
+--    Every field but the name may be missing: a file with only a firm column
+--    is matched on the name alone, and nothing is compared that the file
+--    does not hold, so a missing column never creates or removes a match or
+--    a conflict.
 --    For each row, in order:
 --      exact  the normalised name equals an opportunity's normalised
 --             investor or organisation name                (confidence 1)
@@ -358,9 +380,13 @@ revoke all on public.iconnections_import_runs, public.iconnections_import_rows f
 --             acronym points at more than one investor)
 --      fuzzy  trigram score = average of full-name and core-name
 --             similarity (full only, capped at 0.6, when either side has
---             no core). >= auto: matched, unless the runner-up is within
---             too_close of it; >= review: Needs review; else No match.
---             Below "auto" nothing is ever called a match.
+--             no core). Two adjustments, both towards review, never to a
+--             match: names whose numbers differ ("Phoenix-5" / "Phoenix")
+--             are capped at 0.6; a file name of 5+ letters that is the
+--             opening words of a stored one ("Stifel" / "Stifel Nicolaus")
+--             is raised to at least 0.72. >= auto: matched, unless the runner-up is
+--             within too_close of it; >= review: Needs review; else No
+--             match. Below "auto" nothing is ever called a match.
 --    A website domain moves a fuzzy score: +0.05 when a contact at that
 --    domain works for the matched investor, -0.10 when contacts there all
 --    work somewhere else (also reported as a conflict). It never creates a
@@ -375,10 +401,13 @@ create or replace function public.iconn_match_rows(p_rows jsonb)
 returns table (
   row_no int, norm_name text, bucket text, match_method text, confidence numeric,
   matched_id bigint, matched_name text, opp_ids bigint[], candidates jsonb,
-  conflicts jsonb, domain_check text)
+  conflicts jsonb, domain_check text, matched_status text, opp_rejected int)
 language plpgsql volatile
 set search_path = public
 set pg_trgm.similarity_threshold = '0.3'
+-- The query below is large enough to trip JIT compilation, which costs more
+-- than it saves on a few hundred rows (about 1.2 s a call when on).
+set jit = off
 as $$
 #variable_conflict use_column
 declare
@@ -397,6 +426,9 @@ begin
     select m.id,
            coalesce(nullif(btrim(m.investor_name), ''), btrim(m.organization_name)) as label,
            m.investor_type,
+           -- The verdict as the Rejected tab reads it: new_qualification where
+           -- the re-score or a person set one, the old qualification otherwise.
+           lower(coalesce(nullif(btrim(m.new_qualification), ''), nullif(btrim(m.qualification), ''), 'uncertain')) as verdict,
            nullif(upper(btrim(m.investor_country)), '') as country,
            m.aum_usd, m.aum_band,
            coalesce(nullif(btrim(m.aum_band), ''), m.aum_usd::text) as aum_text,
@@ -424,7 +456,7 @@ begin
 
   drop table if exists pg_temp.iconn_fkey;
   create temp table iconn_fkey on commit drop as
-    select k.key, iconn_core_name(k.key) as core, array_agg(k.id order by k.id) as ids
+    select k.key, iconn_core_name(k.key) as core, iconn_digits(k.key) as dg, array_agg(k.id order by k.id) as ids
       from iconn_okey k where k.kind = 'name' group by k.key;
   create index on iconn_fkey using gin (key gin_trgm_ops);
   create index on iconn_fkey using gin (core gin_trgm_ops);
@@ -436,6 +468,7 @@ begin
     select x.row_no, btrim(x.name) as name,
            iconn_norm_name(x.name) as n,
            iconn_core_name(iconn_norm_name(x.name)) as core,
+           iconn_digits(iconn_norm_name(x.name)) as dg,
            iconn_acronym(x.name) as acr,
            nullif(lower(btrim(x.domain)), '') as domain,
            x.aum_low, x.aum_high, x.investor_type,
@@ -475,11 +508,27 @@ begin
       from inp i
       cross join lateral (
         select f.key, f.ids,
-               round((case when i.core <> '' and f.core <> ''
-                           then (similarity(i.n, f.key) + similarity(i.core, f.core)) / 2
-                           else least(similarity(i.n, f.key), 0.6) end)::numeric, 3) as score
-          from iconn_fkey f
-         where f.key % i.n or (i.core <> '' and f.core % i.core)
+               round((case
+                 when f.dg <> i.dg then least(t.sim, 0.6)
+                 when length(i.n) >= 5 and f.key like i.n || ' %' then greatest(t.sim, 0.72)
+                 else t.sim end)::numeric, 3) as score
+          -- Candidates: close on the full name or on the core (both through
+          -- the trigram indexes), or the file's name opening a longer one
+          -- ("stifel" -> "stifel nicolaus"). Not the other way round: a
+          -- stored "yale" (Yale University, normalised) must not pull in
+          -- "Yale New Haven Health". Normalised
+          -- names hold only letters, digits and spaces, so these LIKEs have
+          -- no wildcards but their own.
+          from (select f1.* from iconn_fkey f1 where f1.key % i.n
+                union
+                select f2.* from iconn_fkey f2 where i.core <> '' and f2.core % i.core
+                union
+                select f3.* from iconn_fkey f3
+                 where length(i.n) >= 5 and f3.key like i.n || ' %') f
+          cross join lateral (
+            select case when i.core <> '' and f.core <> ''
+                        then (similarity(i.n, f.key) + similarity(i.core, f.core)) / 2
+                        else least(similarity(i.n, f.key), 0.6) end as sim) t
          order by 3 desc, 1
          limit 3) c
      where i.n <> ''
@@ -549,21 +598,28 @@ begin
          case when b.bucket = 'matched' then b.ids end,
          cand.list,
          conf.list,
-         b.domain_check
+         b.domain_check,
+         rep.verdict,
+         (select count(*)::int from iconn_opp o where b.bucket = 'matched' and o.id = any(b.ids) and o.verdict = 'rejected')
     from bucketed b
-    -- The opportunity shown for a match: the newest row behind it.
+    -- The opportunity shown for a match: the one still most in play behind
+    -- it (matched, then review, low fit, needs data, rejected), newest first.
+    -- So a firm shows as rejected only when every row behind it is.
     left join lateral (
-      select o.id, o.label from iconn_opp o
+      select o.id, o.label, o.verdict from iconn_opp o
        where b.bucket = 'matched' and o.id = any(b.ids)
-       order by o.alert_date desc nulls last, o.id desc limit 1) rep on true
+       order by case o.verdict when 'matched' then 5 when 'uncertain' then 4 when 'low' then 3
+                               when 'needs_data' then 2 when 'rejected' then 1 else 0 end desc,
+                o.alert_date desc nulls last, o.id desc
+       limit 1) rep on true
     -- What a reviewer chooses between: the fuzzy runners-up, or the
     -- investors an ambiguous acronym points at. One entry per investor,
     -- each represented by its newest row.
     left join lateral (
-      select jsonb_agg(jsonb_build_object('id', c.id, 'name', c.label, 'score', c.score, 'rows', c.rows)
+      select jsonb_agg(jsonb_build_object('id', c.id, 'name', c.label, 'score', c.score, 'rows', c.rows, 'status', c.verdict)
                        order by c.score desc, c.label) as list
         from (
-          select distinct on (g.key) g.key, g.score, o.id, o.label, cardinality(g.ids) as rows
+          select distinct on (g.key) g.key, g.score, o.id, o.label, o.verdict, cardinality(g.ids) as rows
             from (select f.key, f.score, f.ids from fz f where f.row_no = b.row_no
                   union all
                   select coalesce(o2.n_inv, o2.n_org), b.score, array_agg(o2.id)
@@ -658,23 +714,26 @@ begin
   returning r.id, r.import_no into v_run, v_import;
 
   insert into iconnections_import_rows as t
-         (run_id, row_no, import_no, raw, name, domain, aum_text, aum_low, aum_high, investor_type, country,
-          norm_name, bucket, match_method, confidence, matched_id, matched_name, opp_ids, candidates,
-          conflicts, domain_check, matched_at)
-  select v_run, x.row_no, v_import, coalesce(x.raw, '{}'::jsonb), btrim(x.name),
+         (run_id, row_no, import_no, contacts, row_nos, raw, name, domain, aum_text, aum_low, aum_high, investor_type, country,
+          norm_name, bucket, match_method, confidence, matched_id, matched_name, matched_status, opp_ids, opp_rejected,
+          candidates, conflicts, domain_check, matched_at)
+  select v_run, x.row_no, v_import, greatest(coalesce(x.contacts, 1), 1), coalesce(x.row_nos, array[x.row_no]),
+         coalesce(x.raw, '{}'::jsonb), btrim(x.name),
          nullif(lower(btrim(x.domain)), ''), left(x.aum_text, 200), x.aum_low, x.aum_high,
          left(x.investor_type, 200), nullif(upper(btrim(x.country)), ''),
-         m.norm_name, m.bucket, m.match_method, m.confidence, m.matched_id, m.matched_name, m.opp_ids,
-         m.candidates, m.conflicts, m.domain_check, now()
-    from jsonb_to_recordset(p_rows) as x(row_no int, raw jsonb, name text, domain text, aum_text text,
-                                         aum_low numeric, aum_high numeric, investor_type text, country text)
+         m.norm_name, m.bucket, m.match_method, m.confidence, m.matched_id, m.matched_name, m.matched_status,
+         m.opp_ids, m.opp_rejected, m.candidates, m.conflicts, m.domain_check, now()
+    from jsonb_to_recordset(p_rows) as x(row_no int, contacts int, row_nos int[], raw jsonb, name text, domain text,
+                                         aum_text text, aum_low numeric, aum_high numeric, investor_type text, country text)
     join iconn_match_rows(p_rows) m on m.row_no = x.row_no
   on conflict (run_id, row_no) do update
-     set import_no = excluded.import_no, raw = excluded.raw, name = excluded.name, domain = excluded.domain,
+     set import_no = excluded.import_no, contacts = excluded.contacts, row_nos = excluded.row_nos,
+         raw = excluded.raw, name = excluded.name, domain = excluded.domain,
          aum_text = excluded.aum_text, aum_low = excluded.aum_low, aum_high = excluded.aum_high,
          investor_type = excluded.investor_type, country = excluded.country, norm_name = excluded.norm_name,
          bucket = excluded.bucket, match_method = excluded.match_method, confidence = excluded.confidence,
-         matched_id = excluded.matched_id, matched_name = excluded.matched_name, opp_ids = excluded.opp_ids,
+         matched_id = excluded.matched_id, matched_name = excluded.matched_name,
+         matched_status = excluded.matched_status, opp_ids = excluded.opp_ids, opp_rejected = excluded.opp_rejected,
          candidates = excluded.candidates, conflicts = excluded.conflicts,
          domain_check = excluded.domain_check, matched_at = excluded.matched_at;
 
@@ -686,9 +745,14 @@ begin
 end
 $$;
 
--- Read a run back: the latest import of it, every row, and the flags that
--- need all rows at once. upload_dupes lists the other sheet rows that
--- landed on the same opportunity.
+-- Read a run back: the latest import of it, one entry per firm. A contacts
+-- export repeats a firm once per person; the console already sends each
+-- spelling once with its contact count, and here spellings that normalise to
+-- the same name are folded together too ("Norges Bank" and "NORGES BANK").
+-- The match depends only on the name, so it is the same for all of them; the
+-- first one in the sheet supplies it, and conflicts from any are kept.
+-- same_opportunity lists the other firms in the file that landed on the same
+-- opportunity. rejected: every opportunity row behind the match is rejected.
 create or replace function public.console_iconnections_run(p_run_id bigint)
 returns jsonb
 language sql stable
@@ -697,11 +761,42 @@ as $$
   with run as (
     select * from iconnections_import_runs where id = p_run_id
   ),
+  t as (
+    select r.*, coalesce(nullif(r.norm_name, ''), lower(r.name)) as firm_key
+      from iconnections_import_rows r join run on run.id = r.run_id and r.import_no = run.import_no
+  ),
+  firm as (
+    select t.firm_key,
+           (array_agg(t.name order by t.contacts desc, t.row_no))[1] as name,
+           array_agg(distinct t.name) as spellings,
+           sum(t.contacts)::int as contacts,
+           (select array_agg(x order by x)
+              from (select distinct unnest(coalesce(t2.row_nos, array[t2.row_no])) as x
+                      from t t2 where t2.firm_key = t.firm_key) z) as row_nos,
+           (array_agg(to_jsonb(t) order by t.row_no))[1] as lead,
+           (select jsonb_agg(distinct c)
+              from t t3 cross join lateral jsonb_array_elements(coalesce(t3.conflicts, '[]'::jsonb)) c
+             where t3.firm_key = t.firm_key) as conflicts
+      from t
+     group by t.firm_key
+  ),
+  f as (
+    select firm.name, firm.spellings, firm.contacts, firm.row_nos, firm.conflicts,
+           lead ->> 'bucket' as bucket, lead ->> 'match_method' as match_method,
+           (lead ->> 'confidence')::numeric as confidence,
+           (lead ->> 'matched_id')::bigint as matched_id, lead ->> 'matched_name' as matched_name,
+           lead ->> 'matched_status' as matched_status, nullif(lead -> 'opp_ids', 'null'::jsonb) as opp_ids,
+           coalesce((lead ->> 'opp_rejected')::int, 0) as opp_rejected,
+           nullif(lead -> 'candidates', 'null'::jsonb) as candidates, lead ->> 'domain_check' as domain_check
+      from firm
+  ),
   r as (
-    select t.*,
-           case when t.matched_id is not null
-                then array_remove(array_agg(t.row_no) over (partition by t.matched_id), t.row_no) end as upload_dupes
-      from iconnections_import_rows t join run on run.id = t.run_id and t.import_no = run.import_no
+    select f.*,
+           f.bucket = 'matched' and f.opp_rejected > 0
+             and f.opp_rejected = jsonb_array_length(coalesce(f.opp_ids, '[]'::jsonb)) as rejected,
+           case when f.matched_id is not null
+                then array_remove(array_agg(f.name) over (partition by f.matched_id), f.name) end as same_opportunity
+      from f
   )
   select case when not exists (select 1 from run) then null else jsonb_build_object(
     'run', (select jsonb_build_object('id', id, 'file_name', file_name, 'sheet_name', sheet_name,
@@ -709,19 +804,23 @@ as $$
                                       'row_count', row_count, 'created_at', created_at,
                                       'last_matched_at', last_matched_at) from run),
     'counts', (select jsonb_build_object(
+                 'firms',      count(*),
+                 'contacts',   coalesce(sum(contacts), 0),
                  'matched',    count(*) filter (where bucket = 'matched'),
+                 'rejected',   count(*) filter (where rejected),
                  'review',     count(*) filter (where bucket = 'review'),
                  'none',       count(*) filter (where bucket = 'none'),
-                 'duplicates', count(*) filter (where cardinality(opp_ids) > 1 or cardinality(upload_dupes) > 0),
+                 'duplicates', count(*) filter (where jsonb_array_length(coalesce(opp_ids, '[]'::jsonb)) > 1
+                                                   or cardinality(same_opportunity) > 0),
                  'conflicts',  count(*) filter (where conflicts is not null)) from r),
-    'rows', coalesce((select jsonb_agg(jsonb_build_object(
-                 'row_no', row_no, 'name', name, 'domain', domain, 'aum_text', aum_text,
-                 'investor_type', investor_type, 'country', country,
+    'firms', coalesce((select jsonb_agg(jsonb_build_object(
+                 'name', name, 'spellings', spellings, 'contacts', contacts, 'row_nos', row_nos,
                  'bucket', bucket, 'match_method', match_method, 'confidence', confidence,
-                 'matched_id', matched_id, 'matched_name', matched_name, 'opp_ids', opp_ids,
-                 'upload_dupes', upload_dupes, 'candidates', candidates, 'conflicts', conflicts,
+                 'matched_id', matched_id, 'matched_name', matched_name, 'matched_status', matched_status,
+                 'rejected', rejected, 'opp_ids', opp_ids, 'opp_rejected', opp_rejected,
+                 'same_opportunity', same_opportunity, 'candidates', candidates, 'conflicts', conflicts,
                  'domain_check', domain_check)
-               order by case bucket when 'matched' then 0 when 'review' then 1 else 2 end, row_no) from r), '[]'::jsonb)
+               order by confidence desc nulls last, name) from r), '[]'::jsonb)
   ) end
 $$;
 
@@ -744,6 +843,7 @@ grant execute on function public.console_iconnections_run(bigint) to authenticat
 --   drop function if exists public.iconn_aum_bounds(text);
 --   drop function if exists public.iconn_unit(text);
 --   drop function if exists public.iconn_acronym(text);
+--   drop function if exists public.iconn_digits(text);
 --   drop function if exists public.iconn_core_name(text);
 --   drop function if exists public.iconn_norm_name(text);
 -- Aliases, only if those changes are withdrawn too:

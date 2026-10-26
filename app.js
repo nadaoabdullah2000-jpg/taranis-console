@@ -6349,6 +6349,7 @@ RENDER.find = function (body) {
 // and LinkedIn network. Both read straight from Supabase like the other tabs
 // and fall back to the gateway's search.suggest / search.company actions.
 // Everything from the database is written with textContent (el()), never HTML.
+let SEARCH_BACK = null;                    // a page to return to, when Search was opened from one
 let searchLast = '';                       // the company on screen, kept across visits
 const SEARCH_MIN = 2, SEARCH_WAIT_MS = 200, SEARCH_LIMIT = 10;
 const SEARCH_KIND = { mandate: 'WI mandate', contact: 'Contact book' };
@@ -6400,6 +6401,13 @@ function ensureSearchCss() {
 RENDER.search = function (body) {
   clear(body);
   ensureSearchCss();
+  // Opened from another page (the iConnections results): offer the way back.
+  if (SEARCH_BACK) {
+    const back = SEARCH_BACK;
+    SEARCH_BACK = null;
+    body.appendChild(el('div', { class: 'acts', style: 'margin-bottom:14px' },
+      el('button', { class: 'btn btn-sm btn-quiet', onclick: () => go(back) }, '\u2190 Back to the iConnections results')));
+  }
 
   const LIST_ID = 'srch-list';
   const input = el('input', {
@@ -8423,8 +8431,8 @@ function importSheet() {
    Nothing is added to or changed in wi_mandates. "Import an investor list"
    is the importer that writes; this one only compares. */
 const ICONN = { file: null, sha: null, sheets: null, sheetIdx: 0, headerIndex: 0, cols: {}, built: null,
-                errors: [], result: null, runId: null, filter: 'all', open: {} };
-const ICONN_CHUNK = 250;
+                errors: [], result: null, runId: null, filter: 'all', open: {}, sortBy: 'rank', sortDir: 'desc' };
+const ICONN_CHUNK = 150;   // firms per call: well inside the 8 s statement limit
 const ICONN_FIELDS = ['name', 'domain', 'aum', 'type', 'country'];
 let iconnReaderLoad = null;
 
@@ -8451,19 +8459,37 @@ function ensureIconnCss() {
   + ".ic-map label{font-size:13px;color:var(--ink-2)}"
   + ".ic-map select{width:100%;box-sizing:border-box}"
   + ".ic-sec{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:26px 0 8px}"
-  + ".ic-row{border-top:1px solid var(--rule);padding:12px 2px}"
-  + ".ic-row:first-of-type{border-top:0}"
-  + ".ic-line{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline}"
-  + ".ic-rn{font-size:11px;color:var(--ink-3);min-width:52px}"
-  + ".ic-nm{color:var(--ink);font-size:14.5px}"
-  + ".ic-arrow{color:var(--ink-3)}"
-  + ".ic-to{color:var(--ink);font-weight:500}"
-  + ".ic-sub{font-size:12.5px;color:var(--ink-2);margin:6px 0 0 62px;line-height:1.6}"
-  + ".ic-sub .k{color:var(--ink-3)}"
-  + ".ic-acts{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 0 62px}"
   + ".ic-notes{font-size:12.5px;color:var(--ink-2);line-height:1.6;margin:10px 0 0;padding-left:18px}"
-  + ".ic-none{columns:2 260px;column-gap:28px;font-size:13px;color:var(--ink-2);margin:0;padding:0;list-style:none}"
-  + ".ic-none li{break-inside:avoid;padding:3px 0}";
+  + ".ic-rn{font-size:11px;color:var(--ink-3);min-width:52px}"
+  + ".ic-row{border-top:1px solid var(--rule);padding:12px 2px}"
+  + ".ic-line{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline}"
+  + ".ic-nm{color:var(--ink)}"
+  + ".ic-wrap{overflow-x:auto;border:1px solid var(--rule);border-radius:8px;background:var(--card)}"
+  + ".ic-table{width:100%;border-collapse:collapse;font-size:13.5px;min-width:720px}"
+  + ".ic-table th{text-align:left;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);font-weight:500;padding:10px 14px;border-bottom:2px solid var(--rule);white-space:nowrap}"
+  + ".ic-table td{padding:10px 14px;border-bottom:1px solid var(--rule);vertical-align:top}"
+  + ".ic-table td+td,.ic-table th+th{border-left:1px solid var(--rule)}"
+  + ".ic-table tbody tr:last-child td{border-bottom:0}"
+  + ".ic-sort{all:unset;cursor:pointer;font:inherit;letter-spacing:inherit;text-transform:inherit;color:inherit}"
+  + ".ic-sort:focus-visible{outline:2px solid var(--accent);outline-offset:2px}"
+  + ".ic-firm{width:34%}.ic-prof{width:13%;white-space:nowrap}.ic-opp{width:38%}.ic-rank{width:15%;white-space:nowrap}"
+  + ".ic-ct{color:var(--ink-3)}"
+  + ".ic-sub{font-size:12px;color:var(--ink-2);margin-top:4px;line-height:1.5}"
+  + ".ic-flags{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:5px}"
+  + ".ic-link{all:unset;cursor:pointer;color:var(--accent);text-decoration:underline;text-underline-offset:2px}"
+  + ".ic-link:focus-visible{outline:2px solid var(--accent);outline-offset:2px}"
+  + ".ic-cand{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;margin:3px 0}"
+  + ".ic-dash{color:var(--ink-3)}"
+  + ".ic-score{font-variant-numeric:tabular-nums;font-weight:600;color:var(--ink)}"
+  + ".ic-meth{margin-left:8px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}"
+  + "tr.ic-rej td{background:var(--bad-soft)}"
+  + "tr.ic-rej td:first-child{box-shadow:inset 4px 0 0 var(--bad)}"
+  + "tr.ic-rej .ic-nm{color:var(--bad);font-weight:600}"
+  + ".ic-rej-tag{font-weight:700}"
+  + "tr.ic-rev td{background:var(--signal-soft)}"
+  + "tr.ic-rev td:first-child{box-shadow:inset 4px 0 0 var(--signal)}"
+  + "tr.ic-none td{color:var(--ink-3)}"
+  + "tr.ic-none .ic-nm{color:var(--ink-3)}";
   document.head.appendChild(s);
 }
 
@@ -8645,12 +8671,13 @@ function iconnMapping(stage) {
   ICONN.notes = notes;
 
   stage.appendChild(el('p', { style: 'margin:6px 0 0;font-size:13px;color:var(--ink-2)' },
-    built.rows.length + ' allocator' + (built.rows.length > 1 ? 's' : '') + ' on “' + sheet.name + '”, headers on row '
+    (built.sheetRows !== built.rows.length ? built.sheetRows + ' rows, ' : '')
+    + built.rows.length + ' firm' + (built.rows.length > 1 ? 's' : '') + ' on “' + sheet.name + '”, headers on row '
     + sheet.rows[ICONN.headerIndex].r + '.'));
   if (notes.length) stage.appendChild(el('ul', { class: 'ic-notes' }, ...notes.map(n => el('li', null, n))));
 
   const goBtn = el('button', { class: 'btn btn-sm', style: 'margin-top:14px', onclick: () => iconnMatch(goBtn, stage) },
-    'Match ' + built.rows.length + ' allocator' + (built.rows.length > 1 ? 's' : ''));
+    'Match ' + built.rows.length + ' firm' + (built.rows.length > 1 ? 's' : ''));
   stage.appendChild(goBtn);
 }
 
@@ -8701,83 +8728,112 @@ function iconnMoney(v) {
        : '$' + Math.round(n).toLocaleString('en');
 }
 
-function iconnConflictLine(c) {
+function iconnConflictText(c) {
   const what = { type: 'Type', country: 'Country', aum: 'AUM', domain: 'Website' }[c.field] || c.field;
+  if (c.field === 'domain') return 'Website: ' + c.opportunity;
   let file = c.file;
   if (c.field === 'aum') {
     file = c.file_high === null || c.file_high === undefined ? 'over ' + iconnMoney(c.file_low)
          : Number(c.file_low) === Number(c.file_high) ? iconnMoney(c.file_low)
          : iconnMoney(c.file_low) + ' – ' + iconnMoney(c.file_high);
   }
-  if (c.field === 'domain') return el('div', null, el('span', { class: 'k' }, 'Website  '), c.opportunity);
-  return el('div', null, el('span', { class: 'k' }, what + '  '),
-    'file: ' + (file === null || file === undefined ? '—' : file) + '  ·  opportunity: ' + (c.opportunity || '—'));
+  return what + ': file ' + (file === null || file === undefined ? '—' : file) + ', opportunity ' + (c.opportunity || '—');
 }
 
-async function iconnRemember(r, c, btn) {
+async function iconnRemember(f, c, btn) {
   if (DEMO) return toast('Demo mode: nothing is saved.');
   btn.disabled = true;
   try {
-    await supaInsert('investor_aliases', { alias: r.name, full_name: c.name,
+    await supaInsert('investor_aliases', { alias: f.name, full_name: c.name,
       note: 'iConnections match' + (ICONN.result && ICONN.result.run ? ': ' + ICONN.result.run.file_name : '') });
     btn.textContent = 'Saved as an alias';
     toast('Saved. Match the file again to apply it.');
   } catch (e) {
     btn.disabled = false;
-    toast(/duplicate key|23505|409/.test(e.message) ? '“' + r.name + '” is already an alias.' : e.message, true);
+    toast(/duplicate key|23505|409/.test(e.message) ? '“' + f.name + '” is already an alias.' : e.message, true);
   }
 }
 
-function iconnRowCard(r) {
-  const tags = [];
-  if (r.match_method) tags.push([r.match_method, r.match_method === 'fuzzy' ? 'signal' : 'good']);
-  if (r.confidence !== null && r.confidence !== undefined) tags.push([Math.round(Number(r.confidence) * 100) + '%', '']);
-  const oppN = (r.opp_ids || []).length;
-  const dupes = r.upload_dupes || [];
-  if (oppN > 1) tags.push(['duplicate · ' + oppN + ' opportunities', 'accent']);
-  if (dupes.length) tags.push(['duplicate · also row ' + dupes.join(', '), 'accent']);
-  if (r.conflicts) tags.push(['conflict', 'bad']);
-  if (r.domain_check === 'confirms') tags.push(['website confirms', 'good']);
+// The firm's intelligence profile: everything the console holds on it
+// (mandates, contacts, documents, LinkedIn), as the Search tab shows it.
+function iconnOpenProfile(name) {
+  searchLast = name;
+  SEARCH_BACK = 'iconn';
+  go('search');
+}
 
-  const card = el('div', { class: 'ic-row' });
-  card.appendChild(el('div', { class: 'ic-line' },
-    el('span', { class: 'ic-rn' }, 'row ' + r.row_no),
-    el('span', { class: 'ic-nm' }, r.name),
-    r.matched_name ? el('span', { class: 'ic-arrow' }, '→') : null,
-    r.matched_name ? el('span', { class: 'ic-to' }, r.matched_name) : null,
-    ...tags.map(t => el('span', { class: 'tag ' + t[1] }, t[0]))));
+const ICONN_DUP = (f) => (f.opp_ids || []).length > 1 || (f.same_opportunity || []).length > 0;
 
-  const sub = el('div', { class: 'ic-sub' });
-  for (const c of (r.conflicts || [])) sub.appendChild(iconnConflictLine(c));
-  if (oppN > 1) sub.appendChild(el('div', null, el('span', { class: 'k' }, 'Opportunities  '),
-    r.opp_ids.map(id => '#' + id).join(', ') + ' — the newest is shown'));
-  if (r.bucket === 'review') {
-    sub.appendChild(el('div', null, el('span', { class: 'k' }, 'Possible  '),
-      r.match_method === 'alias' ? 'the short name points at more than one investor' : 'close, but below the line for a match'));
+// One table row per firm: Firm (contacts) | Intelligence profile |
+// Opportunity (name, status) | Match rank (score, method).
+function iconnFirmRow(f) {
+  const tone = f.rejected ? 'ic-rej' : f.bucket === 'review' ? 'ic-rev' : f.bucket === 'none' ? 'ic-none' : '';
+  const tr = el('tr', { class: tone });
+
+  // 1. Firm / allocator
+  const flags = [];
+  if ((f.opp_ids || []).length > 1) flags.push(['duplicate · ' + f.opp_ids.length + ' opportunity rows', 'accent']);
+  if ((f.same_opportunity || []).length) flags.push(['duplicate · same opportunity as ' + f.same_opportunity.join(', '), 'accent']);
+  if (f.conflicts) flags.push(['conflict', 'bad']);
+  if (f.domain_check === 'confirms') flags.push(['website confirms', 'good']);
+  const firm = el('td', { class: 'ic-firm' },
+    el('span', { class: 'ic-nm' }, f.name),
+    el('span', { class: 'ic-ct', title: f.contacts + ' contact' + (f.contacts > 1 ? 's' : '') + ' in the file (rows '
+      + (f.row_nos || []).join(', ') + ')' }, ' (' + f.contacts + ')'));
+  if ((f.spellings || []).length > 1) {
+    firm.appendChild(el('div', { class: 'ic-sub' }, 'Also written: ' + f.spellings.filter(s => s !== f.name).join(' · ')));
   }
-  if (sub.childNodes.length) card.appendChild(sub);
+  if (flags.length) firm.appendChild(el('div', { class: 'ic-flags' }, ...flags.map(t => el('span', { class: 'tag ' + t[1] }, t[0]))));
+  for (const c of (f.conflicts || [])) firm.appendChild(el('div', { class: 'ic-sub' }, iconnConflictText(c)));
 
-  const acts = el('div', { class: 'ic-acts' });
-  if (r.matched_id) acts.appendChild(el('button', { class: 'btn btn-sm btn-quiet', onclick: () => openMandateById(r.matched_id, 'iconn') }, 'Open'));
-  if (r.bucket === 'review') {
-    for (const c of (r.candidates || [])) {
+  // 2. Intelligence profile: matched firms only
+  const prof = el('td', { class: 'ic-prof' });
+  if (f.bucket === 'matched' && f.matched_name) {
+    prof.appendChild(el('button', { class: 'ic-link', title: 'Everything held on ' + f.matched_name + ': mandates, contacts, documents, LinkedIn',
+      onclick: () => iconnOpenProfile(f.matched_name) }, 'Profile'));
+  } else prof.appendChild(el('span', { class: 'ic-dash' }, '—'));
+
+  // 3. Opportunity
+  const opp = el('td', { class: 'ic-opp' });
+  if (f.bucket === 'matched' && f.matched_id) {
+    const band = String(f.matched_status || 'uncertain').toLowerCase();
+    opp.appendChild(el('button', { class: 'ic-link', onclick: () => openMandateById(f.matched_id, 'iconn') }, f.matched_name || ('#' + f.matched_id)));
+    opp.appendChild(el('div', { class: 'ic-flags' },
+      f.rejected ? el('span', { class: 'tag bad ic-rej-tag' }, 'rejected')
+                 : el('span', { class: 'tag ' + bandTone(band) }, 'status: ' + (BAND_LABEL[band] || band.replace('_', ' '))),
+      !f.rejected && f.opp_rejected > 0
+        ? el('span', { class: 'ic-sub', style: 'margin:0' }, f.opp_rejected + ' of ' + f.opp_ids.length + ' rows rejected') : null));
+  } else if (f.bucket === 'review') {
+    opp.appendChild(el('div', { class: 'ic-sub', style: 'margin:0 0 4px' },
+      f.match_method === 'alias' ? 'The short name points at more than one investor:' : 'Close, but below the line for a match:'));
+    for (const c of (f.candidates || [])) {
       const remember = el('button', { class: 'btn btn-sm btn-quiet', title:
-        'Save “' + r.name + '” as another name for ' + c.name + ' in the alias table, so the next match finds it.' }, 'Same firm — remember');
-      remember.addEventListener('click', () => iconnRemember(r, c, remember));
-      acts.append(
-        el('span', { style: 'font-size:13px;color:var(--ink-2);align-self:center' },
-          c.name + '  ' + Math.round(Number(c.score) * 100) + '%'),
-        el('button', { class: 'btn btn-sm btn-quiet', onclick: () => openMandateById(c.id, 'iconn') }, 'Open'),
-        remember);
+        'Save “' + f.name + '” as another name for ' + c.name + ' in the alias table, so the next match finds it.' }, 'Same firm');
+      remember.addEventListener('click', () => iconnRemember(f, c, remember));
+      opp.appendChild(el('div', { class: 'ic-cand' },
+        el('button', { class: 'ic-link', onclick: () => openMandateById(c.id, 'iconn') }, c.name),
+        el('span', { class: 'ic-sub', style: 'margin:0' }, Math.round(Number(c.score) * 100) + '%'
+          + (c.status ? ' · status: ' + (BAND_LABEL[c.status] || c.status) : '')),
+        remember));
     }
+  } else {
+    opp.appendChild(el('span', { class: 'ic-dash' }, '— no match'));
   }
-  if (acts.childNodes.length) card.appendChild(acts);
-  return card;
+
+  // 4. Match rank
+  const rank = el('td', { class: 'ic-rank' });
+  if (f.confidence !== null && f.confidence !== undefined) {
+    rank.append(el('span', { class: 'ic-score' }, Math.round(Number(f.confidence) * 100) + '%'),
+      el('span', { class: 'ic-meth' }, f.match_method || ''));
+  } else rank.appendChild(el('span', { class: 'ic-dash' }, '—'));
+
+  tr.append(firm, prof, opp, rank);
+  return tr;
 }
 
 function iconnResults(body) {
   const res = ICONN.result;
-  const rows = res.rows || [];
+  const firms = res.firms || [];
   const c = res.counts || {};
   const run = res.run || {};
 
@@ -8787,76 +8843,97 @@ function iconnResults(body) {
 
   body.appendChild(el('p', { style: 'margin:0 0 4px;font-size:13px;color:var(--ink-2)' },
     (run.file_name || 'iConnections export') + (run.sheet_name ? ' · sheet “' + run.sheet_name + '”' : '')
-    + ' · ' + rows.length + ' rows' + (run.import_no > 1 ? ' · import ' + run.import_no + ' of this file' : '')
+    + ' · ' + (c.contacts || 0) + ' contacts at ' + firms.length + ' firms'
+    + (run.import_no > 1 ? ' · import ' + run.import_no + ' of this file' : '')
     + ' · nothing in Opportunities was changed'));
   if (ICONN.built && ICONN.notes && ICONN.notes.length) {
     body.appendChild(el('ul', { class: 'ic-notes' }, ...ICONN.notes.map(n => el('li', null, n))));
   }
 
-  const FILTERS = [['all', 'Everything', rows.length], ['dup', 'Duplicates', c.duplicates || 0], ['conflict', 'Conflicts', c.conflicts || 0]];
-  body.appendChild(el('div', { class: 'chips', style: 'margin:14px 0 4px' },
-    el('span', { class: 'tag good' }, 'Matched ' + (c.matched || 0)),
-    el('span', { class: 'tag signal' }, 'Needs review ' + (c.review || 0)),
-    el('span', { class: 'tag quiet' }, 'No match ' + (c.none || 0)),
+  const FILTERS = [
+    ['all', 'Everything', firms.length], ['matched', 'Matched', c.matched || 0], ['rejected', 'Rejected', c.rejected || 0],
+    ['review', 'Needs review', c.review || 0], ['none', 'No match', c.none || 0],
+    ['dup', 'Duplicates', c.duplicates || 0], ['conflict', 'Conflicts', c.conflicts || 0]];
+  body.appendChild(el('div', { class: 'chips', style: 'margin:14px 0 10px' },
     ...FILTERS.map(([k, label, n]) => el('button', {
       class: 'btn btn-sm ' + (ICONN.filter === k ? '' : 'btn-quiet'), 'aria-pressed': String(ICONN.filter === k),
-      onclick: () => { ICONN.filter = k; go('iconn'); } }, label + (k === 'all' ? '' : ' ' + n)))));
+      onclick: () => { ICONN.filter = k; go('iconn'); } }, label + ' ' + n))));
 
-  const keep = (r) => ICONN.filter === 'dup' ? ((r.opp_ids || []).length > 1 || (r.upload_dupes || []).length > 0)
-                    : ICONN.filter === 'conflict' ? !!r.conflicts : true;
-  const LIMIT = 150;
-  const section = (bucket, title, blurb) => {
-    const list = rows.filter(r => r.bucket === bucket && keep(r));
-    body.appendChild(el('p', { class: 'ic-sec' }, title + '  ·  ' + list.length));
-    if (!list.length) { body.appendChild(el('p', { class: 'ic-notes', style: 'padding:0;color:var(--ink-3)' }, 'None.')); return; }
-    if (blurb) body.appendChild(el('p', { style: 'margin:0 0 6px;font-size:12.5px;color:var(--ink-3)' }, blurb));
-    const shown = ICONN.open[bucket] ? list : list.slice(0, LIMIT);
-    if (bucket === 'none') {
-      body.appendChild(el('ul', { class: 'ic-none' },
-        ...shown.map(r => el('li', null, el('span', { class: 'ic-rn' }, 'row ' + r.row_no), ' ', r.name))));
-    } else {
-      const host = el('div');
-      shown.forEach(r => host.appendChild(iconnRowCard(r)));
-      body.appendChild(host);
-    }
-    if (shown.length < list.length) {
-      body.appendChild(el('button', { class: 'btn btn-sm btn-quiet', style: 'margin-top:8px',
-        onclick: () => { ICONN.open[bucket] = true; go('iconn'); } }, 'Show all ' + list.length));
-    }
+  const keep = {
+    all: () => true, matched: (f) => f.bucket === 'matched', rejected: (f) => !!f.rejected,
+    review: (f) => f.bucket === 'review', none: (f) => f.bucket === 'none',
+    dup: ICONN_DUP, conflict: (f) => !!f.conflicts }[ICONN.filter] || (() => true);
+  const rankOf = (f) => f.confidence === null || f.confidence === undefined ? -1 : Number(f.confidence);
+  const dir = ICONN.sortDir === 'asc' ? 1 : -1;
+  const list = firms.filter(keep).sort(ICONN.sortBy === 'firm'
+    ? (a, b) => dir * -1 * a.name.localeCompare(b.name, 'en', { sensitivity: 'base' })
+    : (a, b) => dir * (rankOf(a) - rankOf(b)) || a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
+
+  const sortHead = (key, label) => {
+    const on = (ICONN.sortBy || 'rank') === key;
+    const arrow = on ? (ICONN.sortDir === 'asc' ? ' ▲' : ' ▼') : '';
+    return el('th', { scope: 'col', 'aria-sort': on ? (ICONN.sortDir === 'asc' ? 'ascending' : 'descending') : 'none' },
+      el('button', { class: 'ic-sort', onclick: () => {
+        if ((ICONN.sortBy || 'rank') === key) ICONN.sortDir = ICONN.sortDir === 'asc' ? 'desc' : 'asc';
+        else { ICONN.sortBy = key; ICONN.sortDir = key === 'firm' ? 'asc' : 'desc'; }
+        go('iconn');
+      } }, label + arrow));
   };
-  section('matched', 'Matched', 'Exact names, known aliases, and close spellings scoring '
-    + Math.round(((run.thresholds && run.thresholds.auto) || 0.75) * 100) + '% or more.');
-  section('review', 'Needs review', 'Close, but not close enough to call. Nothing is linked until you decide. '
-    + '“Same firm — remember” adds the name to the alias table for next time.');
-  section('none', 'No match', null);
+  const LIMIT = 300;
+  const shown = ICONN.open.all ? list : list.slice(0, LIMIT);
+  const table = el('table', { class: 'ic-table' },
+    el('thead', null, el('tr', null,
+      sortHead('firm', 'Firm / allocator'),
+      el('th', { scope: 'col' }, 'Intelligence profile'),
+      el('th', { scope: 'col' }, 'Opportunity'),
+      sortHead('rank', 'Match rank'))),
+    el('tbody', null, ...shown.map(iconnFirmRow)));
+  body.appendChild(el('div', { class: 'ic-wrap' }, table));
+  if (!list.length) body.appendChild(el('p', { class: 'ic-notes', style: 'padding:0;color:var(--ink-3)' }, 'None.'));
+  if (shown.length < list.length) {
+    body.appendChild(el('button', { class: 'btn btn-sm btn-quiet', style: 'margin-top:8px',
+      onclick: () => { ICONN.open.all = true; go('iconn'); } }, 'Show all ' + list.length));
+  }
+  body.appendChild(el('p', { style: 'margin:12px 0 0;font-size:12px;color:var(--ink-3)' },
+    'Match rank: 100% exact name, 95% a known alias, fuzzy spellings scored by similarity. '
+    + Math.round(((run.thresholds && run.thresholds.auto) || 0.75) * 100) + '% and up is a match; '
+    + Math.round(((run.thresholds && run.thresholds.review) || 0.45) * 100) + '–'
+    + (Math.round(((run.thresholds && run.thresholds.auto) || 0.75) * 100) - 1) + '% needs review and is never linked on its own. '
+    + 'Red rows: every opportunity behind the match is rejected.'));
 }
 
 // Demo mode: results shaped like console_iconnections_run, made up from the
-// file's own rows so the page can be tried without a database.
+// file's own firms so the page can be tried without a database.
 function demoIconnRun(rows) {
-  const out = rows.map((r, i) => {
+  const STATUS = ['matched', 'rejected', 'needs_data', 'uncertain', 'low'];
+  const firms = rows.map((r, i) => {
     const k = i % 6;
-    const base = { row_no: r.row_no, name: r.name, domain: r.domain, aum_text: r.aum_text, investor_type: r.investor_type,
-                   country: r.country, upload_dupes: [], conflicts: null, candidates: null, opp_ids: null,
-                   matched_id: null, matched_name: null, match_method: null, confidence: null, domain_check: null };
-    if (k === 0 || k === 3) return Object.assign(base, { bucket: 'matched', match_method: 'exact', confidence: 1, matched_id: 1537,
-                                         matched_name: r.name, opp_ids: k === 3 ? [1537, 1538, 1539] : [1537] });
-    if (k === 1) return Object.assign(base, { bucket: 'matched', match_method: 'alias', confidence: 0.95, matched_id: 1537,
-                                         matched_name: r.name + ' (full name)', opp_ids: [1537],
-                                         conflicts: [{ field: 'aum', file_low: 1e9, file_high: 2.5e9, opportunity: '> $50bn' }] });
-    if (k === 2) return Object.assign(base, { bucket: 'review', match_method: 'fuzzy', confidence: 0.62,
-                                         candidates: [{ id: 1537, name: r.name + ' Partners', score: 0.62, rows: 1 }] });
-    if (k === 4) return Object.assign(base, { bucket: 'matched', match_method: 'fuzzy', confidence: 0.81, matched_id: 1537,
-                                         matched_name: r.name.slice(0, -1) + 's', opp_ids: [1537],
-                                         conflicts: [{ field: 'type', file: r.investor_type || 'Family Office', opportunity: 'Public D.B.' }] });
-    return Object.assign(base, { bucket: 'none' });
+    const f = { name: r.name, spellings: [r.name], contacts: r.contacts || 1, row_nos: r.row_nos || [r.row_no],
+                bucket: 'none', match_method: null, confidence: null, matched_id: null, matched_name: null,
+                matched_status: null, rejected: false, opp_ids: null, opp_rejected: 0, same_opportunity: null,
+                candidates: null, conflicts: null, domain_check: null };
+    if (k === 0 || k === 1 || k === 3) {
+      const st = STATUS[i % STATUS.length];
+      Object.assign(f, { bucket: 'matched', match_method: k === 3 ? 'alias' : 'exact', confidence: k === 3 ? 0.95 : 1,
+        matched_id: 1537, matched_name: r.name, matched_status: st, opp_ids: k === 1 ? [1537, 1538] : [1537],
+        opp_rejected: st === 'rejected' ? (k === 1 ? 2 : 1) : 0, rejected: st === 'rejected' });
+    } else if (k === 4) {
+      Object.assign(f, { bucket: 'matched', match_method: 'fuzzy', confidence: 0.81, matched_id: 1537,
+        matched_name: r.name + ' Partners', matched_status: 'needs_data', opp_ids: [1537],
+        conflicts: r.investor_type ? [{ field: 'type', file: r.investor_type, opportunity: 'Public D.B.' }] : null });
+    } else if (k === 2) {
+      Object.assign(f, { bucket: 'review', match_method: 'fuzzy', confidence: 0.62,
+        candidates: [{ id: 1537, name: r.name + ' Group', score: 0.62, rows: 1, status: 'low' }] });
+    }
+    return f;
   });
-  const cnt = (f) => out.filter(f).length;
+  const cnt = (p) => firms.filter(p).length;
   return { run: { file_name: ICONN.file ? ICONN.file.name : 'demo.xlsx', sheet_name: ICONN.sheets ? ICONN.sheets[ICONN.sheetIdx].name : '',
                   import_no: 1, thresholds: { auto: 0.75, review: 0.45 } },
-           counts: { matched: cnt(r => r.bucket === 'matched'), review: cnt(r => r.bucket === 'review'), none: cnt(r => r.bucket === 'none'),
-                     duplicates: cnt(r => (r.opp_ids || []).length > 1), conflicts: cnt(r => !!r.conflicts) },
-           rows: out.sort((a, b) => ['matched', 'review', 'none'].indexOf(a.bucket) - ['matched', 'review', 'none'].indexOf(b.bucket) || a.row_no - b.row_no) };
+           counts: { firms: firms.length, contacts: firms.reduce((a, f) => a + f.contacts, 0),
+                     matched: cnt(f => f.bucket === 'matched'), rejected: cnt(f => f.rejected), review: cnt(f => f.bucket === 'review'),
+                     none: cnt(f => f.bucket === 'none'), duplicates: cnt(ICONN_DUP), conflicts: cnt(f => !!f.conflicts) },
+           firms: firms };
 }
 
 /* ---- the profiles on the pipeline ---- */
