@@ -8489,7 +8489,11 @@ function ensureIconnCss() {
   + "tr.ic-rev td{background:var(--signal-soft)}"
   + "tr.ic-rev td:first-child{box-shadow:inset 4px 0 0 var(--signal)}"
   + "tr.ic-none td{color:var(--ink-3)}"
-  + "tr.ic-none .ic-nm{color:var(--ink-3)}";
+  + "tr.ic-none .ic-nm{color:var(--ink-3)}"
+  + ".ic-find{max-width:620px;margin:0 0 18px}"
+  + ".ic-find label{display:block;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 6px}"
+  + ".ic-find-row{display:flex;gap:8px}"
+  + ".ic-find-row .search{flex:1;min-width:0;box-sizing:border-box}";
   document.head.appendChild(s);
 }
 
@@ -8501,6 +8505,7 @@ function importIconnections() {
 RENDER.iconn = function (body) {
   clear(body);
   ensureIconnCss();
+  body.appendChild(iconnProfileSearch());
   if (ICONN.result) return iconnResults(body);
 
   body.appendChild(el('div', { class: 'acts', style: 'margin-bottom:16px' },
@@ -8760,6 +8765,34 @@ function iconnOpenProfile(name) {
   searchLast = name;
   SEARCH_BACK = 'iconn';
   go('search');
+}
+
+// Look up any company, in or out of the file: opens the same in-console
+// company view as the Intelligence profile column (the Search tab, with a
+// way back here). Suggestions come from the firms in the current results;
+// any other name typed is looked up just the same.
+function iconnProfileSearch() {
+  const input = el('input', { type: 'search', class: 'search', id: 'iconn-profile-q', list: 'iconn-profile-names',
+    placeholder: 'Any company, e.g. Norges Bank', autocomplete: 'off', spellcheck: 'false',
+    'aria-label': 'Company to open' });
+  const names = new Set();
+  for (const f of ((ICONN.result && ICONN.result.firms) || [])) {
+    if (f.name) names.add(f.name);
+    if (f.matched_name) names.add(f.matched_name);
+  }
+  const list = el('datalist', { id: 'iconn-profile-names' },
+    ...[...names].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' })).map(n => el('option', { value: n })));
+  const form = el('form', { class: 'ic-find', role: 'search' },
+    el('label', { for: 'iconn-profile-q' }, 'Company profile'),
+    el('div', { class: 'ic-find-row' }, input, el('button', { type: 'submit', class: 'btn btn-sm' }, 'Open profile')),
+    list);
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const q = input.value.replace(/\s+/g, ' ').trim();
+    if (q.length < 2) { toast('Type at least two letters of a company name.', true); input.focus(); return; }
+    iconnOpenProfile(q);
+  });
+  return form;
 }
 
 const ICONN_DUP = (f) => (f.opp_ids || []).length > 1 || (f.same_opportunity || []).length > 0;

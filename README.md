@@ -190,7 +190,9 @@ is the one that writes.) Database only, no gateway action:
    method, sortable). A row is red when every opportunity behind the match is
    rejected: `new_qualification = 'rejected'`, or `qualification` where
    `new_qualification` is empty, the same test as the Rejected tab. Amber is
-   Needs review, grey is No match.
+   Needs review, grey is No match. A **Company profile** box at the top opens
+   the same Search view for any company typed, in the file or not, with Back
+   returning to the results. Nothing on this page links to With Intelligence.
 
 `investor_aliases` can be edited from the Supabase table editor by console
 users, or from a Needs-review row (**Same firm — remember**).
