@@ -1,0 +1,55 @@
+entity,crustdata_id_or_url,actor_type,filter,window_start,window_end,total_count,note
+AtonRâ,985778,company,all,all,2026-09-17,172,lifetime
+AtonRâ,985778,company,all,2026-01-01,2026-09-17,15,
+AtonRâ,985778,company,all,2026-04-01,2026-09-17,4,
+AtonRâ,985778,company,all,2026-05-15,2026-09-17,0,last indexed post true date 2026-04-30
+AtonRâ,985778,company,all,2026-06-17,2026-09-17,0,13-week window
+AtonRâ,985778,company,all,2025-06-17,2025-09-17,15,same window prior year
+AtonRâ,985778,company,all,2025-01-01,2026-09-17,60,
+AtonRâ,985778,company,reactions>=10,2026-01-01,2026-09-17,4,
+AtonRâ,985778,company,post_type=original,2026-01-01,2026-09-17,13,
+AtonRâ key people (6),6 profile URLs,person,all,all,2026-09-17,99,
+AtonRâ key people (6),6 profile URLs,person,all,2026-06-17,2026-09-17,1,
+DECALIA,999635,company,all,all,2026-09-17,357,lifetime
+DECALIA,999635,company,all,2026-06-17,2026-09-17,30,13-week window
+DECALIA,999635,company,all,2026-07-01,2026-07-31,10,
+DECALIA,999635,company,all,2026-08-01,2026-08-31,14,
+DECALIA,999635,company,all,2026-09-01,2026-09-17,6,
+DECALIA,999635,company,content_type=image,2026-06-17,2026-09-17,7,
+DECALIA,999635,company,content_type=video,2026-06-17,2026-09-17,6,
+DECALIA,999635,company,content_type=document,2026-06-17,2026-09-17,9,
+DECALIA,999635,company,content_type=article,2026-06-17,2026-09-17,7,
+DECALIA,999635,company,post_type=original,2026-06-17,2026-09-17,22,
+DECALIA,999635,company,text contains Source,2026-06-17,2026-09-17,0,
+DECALIA,999635,company,reactions>=10,2026-06-17,2026-09-17,28,
+DECALIA,999635,company,reactions>=15,2026-06-17,2026-09-17,13,
+DECALIA,999635,company,reactions>=20,2026-06-17,2026-09-17,8,
+DECALIA,999635,company,topic tech/AI,2026-06-17,2026-09-17,4,AI|technology|robotics|digital
+DECALIA,999635,company,topic markets,2026-06-17,2026-09-17,14,outlook|inflation|Fed|equities|markets
+DECALIA,999635,company,topic corporate/HR/events,2026-06-17,2026-09-17,3,welcome|congratulations|award|event|join
+DECALIA,999635,company,topic fund/strategy,2026-06-17,2026-09-17,4,fund|strategy|thematic
+DECALIA key people (4),4 profile URLs,person,all,2026-06-17,2026-09-17,8,
+Pictet Asset Management,6035837,company,all,all,2026-09-17,1012,lifetime
+Pictet Asset Management,6035837,company,all,2026-06-17,2026-09-17,89,13-week window
+Pictet Asset Management,6035837,company,all,2026-07-01,2026-07-31,36,
+Pictet Asset Management,6035837,company,all,2026-08-01,2026-08-31,37,
+Pictet Asset Management,6035837,company,all,2026-09-01,2026-09-17,14,
+Pictet Asset Management,6035837,company,content_type=image,2026-06-17,2026-09-17,47,
+Pictet Asset Management,6035837,company,content_type=video,2026-06-17,2026-09-17,24,
+Pictet Asset Management,6035837,company,content_type=document,2026-06-17,2026-09-17,11,
+Pictet Asset Management,6035837,company,content_type=article,2026-06-17,2026-09-17,5,
+Pictet Asset Management,6035837,company,post_type=original,2026-06-17,2026-09-17,68,
+Pictet Asset Management,6035837,company,text contains Source,2026-06-17,2026-09-17,1,
+Pictet Asset Management,6035837,company,reactions>=25,2026-06-17,2026-09-17,45,
+Pictet Asset Management,6035837,company,reactions>=50,2026-06-17,2026-09-17,19,
+Pictet Asset Management,6035837,company,topic tech/AI,2026-06-17,2026-09-17,23,
+Pictet Asset Management,6035837,company,topic markets,2026-06-17,2026-09-17,26,
+Pictet Asset Management,6035837,company,topic corporate/HR/events,2026-06-17,2026-09-17,8,
+Pictet Asset Management,6035837,company,topic fund/strategy,2026-06-17,2026-09-17,12,
+Pictet AM thematic PMs (4),4 profile URLs,person,all,2026-06-17,2026-09-17,0,
+Vontobel,1183683,company,all,2026-06-17,2026-09-17,55,
+GAM Investments,975252,company,all,2026-06-17,2026-09-17,41,
+Bellevue Asset Management,999653,company,all,2026-06-17,2026-09-17,12,
+Mirabaud Group,1236285,company,all,2026-06-17,2026-09-17,63,
+Taranis,7865447,company,all,2026-06-17,2026-09-17,2,from 26 Oct run
+Charles-Henry Monchau,28667460,person,all,2026-06-17,2026-09-17,1051,from 26 Oct run

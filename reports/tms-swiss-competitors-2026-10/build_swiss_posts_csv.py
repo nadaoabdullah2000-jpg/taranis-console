@@ -5,6 +5,7 @@ import csv, datetime, re, sys
 
 OUT = sys.argv[1]
 SRC = "Crustdata /social_post/search (index through ~2026-09-17)"
+SRC_WEB = "Web search (TinyFish), post metadata"
 # (author, channel, index_date_posted, post_type_index, format, reactions, comments, shares, url, text)
 R = [
 # --- DECALIA company page: top 5 by reactions, 17 Jun - 17 Sep 2026 ---
@@ -25,6 +26,18 @@ R = [
 ("AtonRâ Partners (company page)","company","2026-04-07","original","image",10,0,0,"https://www.linkedin.com/posts/atonra_thematicinvesting-atonra-chinatech-activity-7444624629765214209-6YMx","The instinct when the Middle East escalates: sell risk, sell China. We think that's backwards. Qatar's helium facility offline..."),
 ("AtonRâ Partners (company page)","company","2026-04-07","original","image",6,0,1,"https://www.linkedin.com/posts/atonra_thematicinvesting-atonra-chinatech-activity-7439566265846919169-SjsL","Everyone is watching the Middle East. Nobody is watching Beijing. China's National People's Congress ratified the largest technology spending mandate in history. $2 trillion..."),
 ("AtonRâ Partners (company page)","company","2026-02-06","repost_quote","text",0,0,0,"https://www.linkedin.com/posts/atonra_you-are-not-bullish-enough-on-us-healthcare-activity-7424728667685273602-7UoP","Who said making money and saving lives was incompatible"),
+# --- DECALIA key individuals (CIO Quirighetti): top 4 in window ---
+("Fabrizio Quirighetti (DECALIA CIO)","individual","2026-07-05","original","image",153,4,2,"https://www.linkedin.com/posts/fabrizio-quirighetti_playmobil-g7-suisse-activity-7472977106063486976-Dvvg","Le lendemain du G7 d'Évian. Chacun peut enfin rejouer les événements à la maison... un Black Bloc Playmobil et un policier Playmobil."),
+("Fabrizio Quirighetti (DECALIA CIO)","individual","2026-07-05","original","image",56,2,0,"https://www.linkedin.com/posts/fabrizio-quirighetti_comme-%C3%A0-chaque-mundial-jai-une-pens%C3%A9e-%C3%A9mue-activity-7475478359972651010-FB6E","Comme à chaque Mundial, j'ai une pensée émue pour Pierre Desproges... « À mort le foot »"),
+("Fabrizio Quirighetti (DECALIA CIO)","individual","2026-07-14","original","image",43,2,2,"https://www.linkedin.com/posts/fabrizio-quirighetti_bloomberg-ai-mag7-activity-7480640956753547264-v_r0","Are you token to me? ... inference is becoming cheaper. That's great for users, but potentially devastating for AI economics... Source: #Bloomberg & Christophe Reuter"),
+("Fabrizio Quirighetti (DECALIA CIO)","individual","2026-07-29","repost_without_thoughts","image",24,0,1,"https://www.linkedin.com/posts/fabrizio-quirighetti_from-mag7-to-lag7-the-mag7s-grip-is-fading-activity-7488162321349980160-rD0r","From Mag7 to Lag7... The Mag7's grip is fading as John Authers rightly points out this morning in his daily Bloomberg column"),
+# --- AtonRâ key individuals: 3 most recent indexed ---
+("Tony Guida (AtonRâ Head of Quant)","individual","2026-07-02","repost_quote","text",4,0,0,"https://www.linkedin.com/posts/activity-7472725232349437952-s3Zq","Spot on comment from Stefano Pasquali. Continuity by design, not by hope"),
+("Victor Marchand (AtonRâ BD)","individual","2026-06-06","repost_without_thoughts","text",4,0,1,"https://www.linkedin.com/posts/victor-marchand-1110b310a_excerpts-investor-frustration-is-growing-activity-7457696446172270592-2mW2","The 2020 China trade is over. Passive exposure isn't paying. Our Chinese Technology strategy: +45% YTD, +53% since Feb '25..."),
+("Victor Marchand (AtonRâ BD)","individual","2026-05-07","repost_without_thoughts","image",9,0,1,"https://www.linkedin.com/posts/victor-marchand-1110b310a_chinas-ai-value-migration-why-2026-2027-activity-7452637365266771968-13_q","China's AI Value Migration: Why 2026-2027 Belongs to Mid-Caps... Our China Technology strategy runs a quantitative, ~1,000-stock universe"),
+# --- AtonRâ live post found by web search (after index cutoff; engagement not captured) ---
+("AtonRâ Partners (company page)","company","","not indexed","",'','','',"https://www.linkedin.com/posts/atonra_invest-with-proof-not-faith-activity-7511080011416875008-nFgh","Invest with proof, not faith (Fundy platform) - found via web search; not in Crustdata index; engagement not captured"),
+
 ]
 
 def true_date(url):
@@ -36,5 +49,5 @@ with open(OUT, "w", newline="", encoding="utf-8") as f:
     w = csv.writer(f)
     w.writerow(["author","channel","true_date_utc","index_date_posted","post_type_index","format","reactions","comments","shares","url","text_truncated","source"])
     for a,ch,d,pt,fm,r,c,s,u,t in R:
-        w.writerow([a,ch,true_date(u),d,pt,fm,r,c,s,u,t[:280],SRC])
+        w.writerow([a,ch,true_date(u),d,pt,fm,r,c,s,u,t[:280],SRC_WEB if pt=="not indexed" else SRC])
 print(len(R), "rows")

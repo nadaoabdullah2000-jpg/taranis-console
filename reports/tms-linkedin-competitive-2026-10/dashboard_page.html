@@ -40,13 +40,99 @@
 <div class="tx">
   <header class="tx-head" id="top">
     <h1>TMS LinkedIn Competitive Review</h1>
-    <p id="tx-takeaway">Taranis posts <b data-source="cadence" data-field="posts_per_week" data-where="account=Taranis" class="dash-skeleton">—</b> times a week on its company page. BIT Capital, the most active close competitor, posts <b data-source="cadence" data-field="posts_per_week" data-where="account=BIT%20Capital" class="dash-skeleton">—</b>, and Contour, Jericho and Shannon River post nothing. The channel is open: a founder-led plan of about five posts a week would lead the peer set.</p>
-    <p>LinkedIn window: 13 weeks, 17 Jun – 16 Sep 2026. The Crustdata index ends mid-September, so newer posts are not counted. Every figure links to its source in Sources.</p>
+    <p id="tx-takeaway">Against Swiss peers, Taranis posts <b data-source="swiss_cadence" data-field="posts_per_week" data-where="account=Taranis" class="dash-skeleton">—</b> times a week, against DECALIA's <b data-source="swiss_cadence" data-field="posts_per_week" data-where="account=DECALIA" class="dash-skeleton">—</b> and Pictet's <b data-source="swiss_cadence" data-field="posts_per_week" data-where="account=Pictet%20Asset%20Management" class="dash-skeleton">—</b>. It is also the only fund in the set that shows no performance or fund facts on its page. Internationally, BIT Capital posts <b data-source="cadence" data-field="posts_per_week" data-where="account=BIT%20Capital" class="dash-skeleton">—</b> a week and Contour, Jericho and Shannon River post nothing.</p>
+    <p>LinkedIn window: 13 weeks, 17 Jun – 17 Sep 2026. The Crustdata index ends mid-September and misses some low-follower pages (AtonRâ), so newer posts are not counted. Every figure links to its source in Sources.</p>
   </header>
 
   <nav class="tx-nav" aria-label="Sections">
-    <a href="#competitors">Competitor set</a><a href="#pages">Product pages</a><a href="#cadence">LinkedIn cadence</a><a href="#monchau">Monchau</a><a href="#voices">Tech voices</a><a href="#plan">SWOT &amp; plan</a><a href="#raw">Raw posts</a>
+    <a href="#swiss">Swiss peers</a><a href="#swiss-pages">Swiss product pages</a><a href="#swiss-linkedin">Swiss LinkedIn</a><a href="#swiss-plan">Swiss SWOT &amp; plan</a><a href="#competitors">International set</a><a href="#pages">Intl product pages</a><a href="#cadence">Intl LinkedIn</a><a href="#monchau">Monchau</a><a href="#voices">Tech voices</a><a href="#plan">Intl plan</a><a href="#raw">Raw posts</a>
   </nav>
+
+  <section class="tx-sec" id="swiss">
+    <h2>Swiss peers: AtonRâ, DECALIA, Pictet AM (27 Oct 2026)</h2>
+    <p class="note">AtonRâ shows 0 indexed posts in the window, but live posts exist (30 Sep 2026) and its research hub published 9 notes from Jul to Sep. Its 2025 same-window figure stands in as its real cadence. Pictet and DECALIA counts include corporate posts.</p>
+  </section>
+
+  <section class="tx-sec" id="swiss-pages">
+    <h2>S1. Product-page teardown</h2>
+    <div class="tx-card">
+      <h3>Attribute comparison</h3>
+      <p class="cap">AtonRâ AI &amp; Robotics AMC, DECALIA Future SOCIETY, Pictet Robotics, Taranis TMS. Source links per column at the right.</p>
+      <div class="tx-scroll capped"><table class="tx-table" id="tbl-swpages" data-source="swiss_pages" data-row-key="attribute">
+        <thead><tr><th data-field="attribute">Attribute</th><th data-field="atonra">AtonRâ</th><th data-field="decalia">DECALIA</th><th data-field="pictet">Pictet AM</th><th data-field="taranis">Taranis</th><th data-field="src_atonra">Src AtonRâ</th><th data-field="src_decalia">Src DECALIA</th><th data-field="src_pictet">Src Pictet</th><th data-field="src_taranis">Src Taranis</th></tr></thead>
+        <tbody></tbody></table></div>
+    </div>
+    <div class="tx-grid">
+      <div class="tx-card">
+        <h3>Positioning summaries</h3>
+        <div class="tx-scroll"><table class="tx-table" id="tbl-swpos" data-source="swiss_positioning" data-row-key="firm">
+          <thead><tr><th data-field="firm">Firm</th><th data-field="fund">Fund</th><th data-field="summary">Summary</th><th data-field="page_url">Page</th></tr></thead>
+          <tbody></tbody></table></div>
+      </div>
+      <div class="tx-card">
+        <h3>Wider Swiss scan</h3>
+        <p class="cap">Only AtonRâ and Pictet run dedicated tech/AI products in Switzerland.</p>
+        <div class="tx-scroll"><table class="tx-table" id="tbl-swpeers" data-source="swiss_peers" data-row-key="firm">
+          <thead><tr><th data-field="firm">Firm</th><th data-field="fund">Fund</th><th data-field="strategy">Strategy</th><th data-field="performance_disclosure">Performance</th><th data-field="linkedin_posts_per_week">LinkedIn / week</th><th data-field="url">Page</th></tr></thead>
+          <tbody></tbody></table></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="tx-sec" id="swiss-linkedin">
+    <h2>S2. LinkedIn activity, Swiss set</h2>
+    <div class="tx-grid">
+      <div class="tx-card" style="grid-column: 1 / -1">
+        <h3>Company-page posts per week, 17 Jun – 17 Sep 2026</h3>
+        <p class="cap">Swiss competitors in blue, Taranis in orange, other Swiss firms and people channels muted. Monchau (80.8 a week) is off this scale.</p>
+        <div class="tx-legend" id="leg-swiss"></div>
+        <div class="tx-chart" id="ch-swcadence" data-source="swiss_cadence"></div>
+      </div>
+      <div class="tx-card">
+        <h3>Format mix</h3>
+        <p class="cap">Share of each firm's posts by format.</p>
+        <div class="tx-chart" id="ch-swformats" data-source="swiss_formats"></div>
+      </div>
+      <div class="tx-card">
+        <h3>Topics</h3>
+        <p class="cap">Share of posts matching each keyword group; groups overlap and miss corporate posts.</p>
+        <div class="tx-chart" id="ch-swtopics" data-source="swiss_topics"></div>
+      </div>
+    </div>
+    <div class="tx-card">
+      <h3>Channel, voice and best post</h3>
+      <div class="tx-scroll"><table class="tx-table" id="tbl-swli" data-source="swiss_linkedin" data-row-key="competitor">
+        <thead><tr><th data-field="competitor">Competitor</th><th data-field="channel">Channel</th><th data-field="posts_per_week">Posts / week</th><th data-field="format_detail">Formats</th><th data-field="original_share">Original</th><th data-field="curated_share">"Source" credited</th><th data-field="median_reactions">Median reactions</th><th data-field="best_post_reactions">Best post</th><th data-field="best_post_url">Link</th><th data-field="lesson">What Taranis can learn</th></tr></thead>
+        <tbody></tbody></table></div>
+    </div>
+  </section>
+
+  <section class="tx-sec" id="swiss-plan">
+    <h2>S3. SWOT and recommendations, Swiss lens</h2>
+    <div class="tx-swot">
+      <div class="tx-card"><h3>Strengths</h3><ul><li>The only tech long/short with a behavioural-sentiment overlay in the Swiss set</li><li>CEO with BFM Business airtime; his own posts beat the page</li></ul></div>
+      <div class="tx-card"><h3>Weaknesses</h3><ul><li>Lowest cadence of any Swiss peer</li><li>Product page discloses nothing; French-only recent posts</li></ul></div>
+      <div class="tx-card"><h3>Opportunities</h3><ul><li>No Swiss tech-AI personal voice with reach: Pictet PMs are silent, AtonRâ's theses get little engagement, DECALIA is barely tech</li><li>Swiss audiences reward people and local colour</li></ul></div>
+      <div class="tx-card"><h3>Threats</h3><ul><li>AtonRâ is building a systematic/AI story (Fundy)</li><li>Pictet markets AI-enhanced equity at scale; FinSA limits public performance talk</li></ul></div>
+    </div>
+    <div class="tx-card">
+      <h3>Five recommendations</h3>
+      <div class="tx-scroll"><table class="tx-table" id="tbl-swplan" data-source="swiss_plan" data-row-key="recommendation">
+        <thead><tr><th data-field="recommendation">Recommendation</th><th data-field="action">Action</th><th data-field="target_posts_per_week">Posts / week</th><th data-field="evidence">Evidence</th></tr></thead>
+        <tbody></tbody></table></div>
+    </div>
+    <div class="tx-card">
+      <h3>Raw Swiss posts</h3>
+      <p class="cap">True dates decoded from LinkedIn post IDs. Download the full CSV from Sources.</p>
+      <div class="tx-scroll capped"><table class="tx-table" id="tbl-swraw" data-source="swiss_posts_raw" data-row-key="url">
+        <thead><tr><th data-field="author">Author</th><th data-field="true_date_utc">Date</th><th data-field="format">Format</th><th data-field="reactions">Reactions</th><th data-field="comments">Comments</th><th data-field="shares">Shares</th><th data-field="text_truncated">Text</th><th data-field="url">Link</th></tr></thead>
+        <tbody></tbody></table></div>
+    </div>
+  </section>
+
+  <section class="tx-sec">
+    <h2>International review (26 Oct 2026)</h2>
+  </section>
 
   <div class="tx-tiles" data-fetchpriority="high">
     <div class="tx-tile"><span class="lab">Taranis company page, posts / week</span><span class="num dash-skeleton" data-source="cadence" data-field="posts_per_week" data-where="account=Taranis">—</span><span class="sub"><span data-source="cadence" data-field="posts_13w" data-where="account=Taranis">—</span> posts in 13 weeks</span></div>
@@ -56,7 +142,7 @@
   </div>
 
   <section class="tx-sec" id="competitors">
-    <h2>1. Competitor set</h2>
+    <h2>1. International competitor set</h2>
     <p class="note">Three of the five starting candidates held up. Wellington's long/short tech fund appears closed, and Wavelength and Act II have no current footprint. BIT Capital, Symbit and Shannon River replace them. Ranked by closeness to TMS's hybrid systematic + discretionary tech model.</p>
     <div class="tx-card">
       <div class="tx-scroll"><table class="tx-table" id="tbl-competitors" data-source="competitors" data-row-key="fund">
@@ -181,8 +267,9 @@ dash.calc('curatedShare', {
 
 (function () {
   const fmt = { pct: d3.format('.0%'), pct1: d3.format('.1%'), dec: d3.format(',.2~f'), int: d3.format(',') };
-  const linkCols = new Set(['source', 'product_page', 'best_post_url', 'url']);
-  const numCols = new Set(['rank', 'posts_13w', 'posts_per_week', 'best_post_reactions', 'reactions', 'comments', 'shares', 'target_posts_per_week']);
+  const linkCols = new Set(['source', 'product_page', 'best_post_url', 'url', 'page_url', 'src_atonra', 'src_decalia', 'src_pictet', 'src_taranis']);
+  const pctCols = new Set(['original_share', 'curated_share']);
+  const numCols = new Set(['rank', 'posts_13w', 'posts_per_week', 'best_post_reactions', 'reactions', 'comments', 'shares', 'target_posts_per_week', 'linkedin_posts_per_week', 'original_share', 'curated_share']);
 
   function tip(box) {
     let t = box.querySelector('.tx-tip');
@@ -303,7 +390,7 @@ dash.calc('curatedShare', {
           const a = document.createElement('a'); a.href = v; a.target = '_blank'; a.rel = 'noopener';
           a.textContent = c === 'url' || c === 'best_post_url' ? 'Open post' : (new URL(v)).hostname.replace('www.', '');
           td.appendChild(a);
-        } else td.textContent = v;
+        } else td.textContent = pctCols.has(c) && v !== '' ? fmt.pct(+v) : v;
         tr.appendChild(td);
       });
       tb.appendChild(tr);
@@ -323,7 +410,51 @@ dash.calc('curatedShare', {
   const search = document.getElementById('raw-search');
   search.addEventListener('input', () => table('tbl-raw', 'posts_raw', ['author', 'true_date_utc', 'format', 'reactions', 'comments', 'shares', 'text_truncated', 'url'], search.value));
 
+  const swColor = g => g === 'Taranis' ? dash.colors[1] : g === 'Swiss competitor' ? dash.colors[0] : 'var(--cds-chart-muted)';
+  function swLegend() {
+    const L = document.getElementById('leg-swiss');
+    if (L.childElementCount) return;
+    [['Taranis', dash.colors[1]], ['Swiss competitors (AtonRâ, DECALIA, Pictet)', dash.colors[0]], ['Other Swiss firms', 'var(--cds-chart-muted)']].forEach(([t, c]) => {
+      const s = document.createElement('span'); s.textContent = t; s.style.setProperty('--sw', c); L.appendChild(s);
+    });
+  }
+  const firmColor = f => f.startsWith('DECALIA') ? dash.colors[0] : dash.colors[2];
+
   dash.onData(() => {
+    // Swiss takeaway marks
+    const sc = dash.data('swiss_cadence');
+    document.querySelectorAll('[data-source="swiss_cadence"][data-where]').forEach(el => {
+      el.classList.remove('dash-skeleton');
+      if (sc.status !== 'ok') { el.textContent = '—'; return; }
+      const acct = decodeURIComponent(el.dataset.where.split('=')[1]);
+      const r = sc.data.find(x => x.account === acct);
+      el.textContent = r ? fmt.dec(+r.posts_per_week) : '—';
+    });
+    const scb = document.getElementById('ch-swcadence');
+    if (sc.status === 'ok') {
+      swLegend();
+      const rows = sc.data.filter(r => r.channel === 'Company page').map(r => ({ label: r.account, value: +r.posts_per_week, color: swColor(r.group), text: fmt.dec(+r.posts_per_week), tipText: `${fmt.dec(+r.posts_per_week)} / week · ${fmt.int(+r.posts_13w)} posts in 13 weeks${r.note ? ' · ' + r.note : ''}` }))
+        .sort((a, b) => b.value - a.value);
+      hbar(scb, rows, { max: 8, bar: 16, gap: 8 });
+    } else if (sc.status === 'error') failed(scb); else scb.replaceChildren();
+
+    const sf = dash.data('swiss_formats'), sfb = document.getElementById('ch-swformats');
+    if (sf.status === 'ok') {
+      const tot = d3.rollup(sf.data, v => d3.sum(v, r => +r.posts), r => r.firm);
+      hbar(sfb, sf.data.map(r => ({ label: `${r.firm} · ${r.format}`, value: +r.posts / tot.get(r.firm), color: firmColor(r.firm), text: fmt.pct(+r.posts / tot.get(r.firm)), tipText: `${fmt.int(+r.posts)} of ${fmt.int(tot.get(r.firm))} posts` })), { tick: fmt.pct, max: 1, bar: 14, gap: 6 });
+    } else if (sf.status === 'error') failed(sfb); else sfb.replaceChildren();
+
+    const st = dash.data('swiss_topics'), stb = document.getElementById('ch-swtopics');
+    if (st.status === 'ok') hbar(stb, st.data.map(r => ({ label: `${r.firm} · ${r.topic}`, value: +r.share, color: firmColor(r.firm), text: fmt.pct(+r.share), tipText: `${fmt.int(+r.posts)} posts · ${r.keywords}` })), { tick: fmt.pct, max: 0.6, bar: 14, gap: 6 });
+    else if (st.status === 'error') failed(stb); else stb.replaceChildren();
+
+    table('tbl-swpages', 'swiss_pages', ['attribute', 'atonra', 'decalia', 'pictet', 'taranis', 'src_atonra', 'src_decalia', 'src_pictet', 'src_taranis']);
+    table('tbl-swpos', 'swiss_positioning', ['firm', 'fund', 'summary', 'page_url']);
+    table('tbl-swpeers', 'swiss_peers', ['firm', 'fund', 'strategy', 'performance_disclosure', 'linkedin_posts_per_week', 'url']);
+    table('tbl-swli', 'swiss_linkedin', ['competitor', 'channel', 'posts_per_week', 'format_detail', 'original_share', 'curated_share', 'median_reactions', 'best_post_reactions', 'best_post_url', 'lesson']);
+    table('tbl-swplan', 'swiss_plan', ['recommendation', 'action', 'target_posts_per_week', 'evidence']);
+    table('tbl-swraw', 'swiss_posts_raw', ['author', 'true_date_utc', 'format', 'reactions', 'comments', 'shares', 'text_truncated', 'url']);
+
     // tiles + takeaway
     const c = dash.data('cadence');
     document.querySelectorAll('[data-source="cadence"][data-where]').forEach(el => {
