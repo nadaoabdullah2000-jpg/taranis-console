@@ -5,9 +5,101 @@ Prepared 27 Oct 2026 for Taranis SA (Geneva). "Taranis" here is Taranis SA, the 
 **Deliverables in this folder**
 - `dashboard.html`: self-contained dashboard (d3 and all data inlined; opens offline).
 - `TMS_LinkedIn_Competitive_Review.docx`: detailed Word report with links and charts.
-- `data/posts_raw_all.csv`: 102 posts (author, true_date_utc, format, reactions, comments, shares, text, url).
+- `data/posts_raw_all.csv`: 132 posts (author, true_date_utc, format, reactions, comments, shares, text, url).
 - `data/*.csv`: every table below. `count_queries.csv` and `count_queries_swiss.csv`: every Crustdata count query.
 - Build scripts: `build_data.py`, `build_dashboard.py`, `build_word.js`, `build_report_md.py`.
+
+## Update (27 Oct): institutional tech hedge funds
+
+The competitor set is now five non-retail tech hedge funds. The earlier Swiss/UCITS peer set below is kept for reference.
+
+| Fund | HQ | Founded | AUM (as reported) | Source | Strategy | Founder | Founder LinkedIn | Company LinkedIn | Website | Gate |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Jericho Capital | Los Angeles / New York | 1994 | ~USD 10.1bn (third-party est. from Form ADV) | [quiverquant.com](https://www.quiverquant.com/institutions/Jericho%20Capital%20Asset%20Management%20L.P./) | TMT long/short, concentrated, discretionary | Josh Resnick | [linkedin.com](https://www.linkedin.com/in/josh-resnick-a3027a12) | [page](https://www.linkedin.com/company/jericho-capital-asset-management-l-p) | None (nothing to gate) |  |
+| Light Street Capital | Palo Alto | 2010 | ~USD 1.6bn regulatory AUM (aggregator, Mar 2026) | [aum13f.com](https://aum13f.com/firm/light-street-capital-management-llc) | Tech long/short ('Halogen') plus private investments; Tiger Cub | Glen Kacher | [linkedin.com](https://www.linkedin.com/in/kacher) | [page](https://www.linkedin.com/company/light-street-capital-management-llc) | Investor login |  |
+| Whale Rock Capital | Boston | 2006 | USD 14bn+ for 450+ investors (firm's own LinkedIn post, May 2026) | [post](https://www.linkedin.com/posts/whale-rock-capital-management-llc_may-1-2026-marks-whale-rocks-20th-year-ugcPost-7455981839569104896-hTMt) | TMT long/short, long-only, MegaCap Tech and late-stage private (AI) strategies | Alex Sacerdote | [linkedin.com](https://www.linkedin.com/in/alex-sacerdote-59747814) | [page](https://www.linkedin.com/company/whale-rock-capital-management-llc) | Login required |  |
+| Coatue Management | New York | 1999 | ~USD 92.7bn regulatory AUM (Form ADV aggregators, ~Mar 2026); firm cites ~USD 73bn+ (Dec 2025) | [altss.com](https://altss.com/profile/coatue-management.md) | Tech crossover long/short, public + private ('lifecycle investment platform') | Philippe Laffont | [linkedin.com](https://www.linkedin.com/in/philippe-laffont-8092771) | [page](https://www.linkedin.com/company/coatue) | None for content; investor materials separate |  |
+| Altimeter Capital | Menlo Park / Boston | 2008 | ~USD 9.8bn Q2 2026 13F long book (aggregator); Form ADV figures differ | [thetrading.tools](https://www.thetrading.tools/altimeter-capital-13f) | Tech/AI public + private; long/short | Brad Gerstner | [linkedin.com](https://www.linkedin.com/in/bradgerstner) | [page](https://www.linkedin.com/company/altimeter-capital) | None (nothing to gate) |  |
+
+**LinkedIn, 17 Jun – 17 Sep 2026**
+
+| Fund | Posts all-time | Posts 13w | Per week | Formats | Typical reactions | Best | Link | Channel | Strong points | What Taranis can learn |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Jericho Capital | 0 | 0 | 0.0 | none | n/a |  | [post](https://www.linkedin.com/posts/institutional-investor_jerichos-high-conviction-playbook-shows-activity-7477818522937663489-RhMU) | Press only (Institutional Investor, others reshare) | Reputation built off-platform: top-tier press on performance; zero marketing noise suits a closed, allocator-led fund | Silence works for an established USD 10bn fund marketed through allocators and press; a boutique raising capital cannot copy it |
+| Light Street Capital | 0 | 0 | 0.0 | none (company page empty) | n/a | 147 | [post](https://www.linkedin.com/posts/activity-7475250417921105920-VNLq) | Founder only (Glen Kacher, personal) | Founder posts rarely but personally (147 reactions on a Navy/defence-tech post); website shows a track record of private-investment IPO exits | A rare personal founder post outperforms a corporate page; show track record as outcomes, not adjectives |
+| Whale Rock Capital | 7 | 1 | 0.08 | image 4, article 2, video 1 (all 7 lifetime posts) | ~233 (7 posts) | 709 | [post](https://www.linkedin.com/posts/whale-rock-capital-management-llc_may-1-2026-marks-whale-rocks-20th-year-ugcPost-7455981839569104896-hTMt) | Company page, milestone-driven; founder speaks at conferences/podcasts | Very rare but very high engagement (avg ~243 reactions/post): 20th-anniversary letter disclosing USD 14bn and 450+ investors (709); Sohn conference thesis; Invest Like the Best podcast | Post less often but make each post a milestone with a thesis and a number; reuse conference and podcast appearances |
+| Coatue Management | 280 | 63 | 4.85 | image 22, video 17, document 12, article 4 | ~55 (54% ≥50; 16% ≥100) | 232 | [post](https://www.linkedin.com/posts/coatue_in-february-we-co-led-anthropics-series-activity-7465869305302196224-NJ7K) | Company page + LinkedIn newsletter + insights site | Highest cadence in the set (4.85/week); every post ties to a portfolio company or a founder TV clip; one-line hooks ('Intelligence is becoming a utility you pay for monthly'); newsletter and insights hub | Turn each research view into a one-line hook plus a chart or clip; run a newsletter from the company page |
+| Altimeter Capital | 126 | 29 | 2.23 | article 10, image 6, video 2, text ~11 | ~40 (76% ≥20; 38% ≥50) | 354 | [post](https://www.linkedin.com/posts/altimeter-capital_small-team-big-ambition-every-summer-activity-7483897150100131840-4pLm) | Company page + founder Brad Gerstner (personal) + partners | Founder is the brand: Gerstner TV clips (122), AI policy views, personal posts (181 on Invest America); team-culture post best (354); partners interview portfolio CEOs (118) | Make Julien the public face: TV clips with a quote, a clear policy/market stance, partners interviewing companies |
+
+**Sample posts**
+
+| Author | Date | Format | Reactions | Comments | Shares | Post | Link |
+|---|---|---|---|---|---|---|---|
+| Coatue Management | 2026-05-28 | image | 232 | 2 | 14 | In February we co-led Anthropic's Series G. Today, we're co-leading their Series H... Run-rate revenue crossed $47 billion. Why we are tripling down. | [post](https://www.linkedin.com/posts/coatue_in-february-we-co-led-anthropics-series-activity-7465869305302196224-NJ7K) |
+| Coatue Management | 2026-08-13 | image | 165 | 2 | 6 | Coatue first invested in Databricks in 2019. The pace of Databricks' execution continues to stand out. | [post](https://www.linkedin.com/posts/coatue_coatue-first-invested-in-databricks-in-2019-activity-7493751839570497536-ahvz) |
+| Coatue Management | 2026-06-24 | video | 153 | 2 | 9 | Intelligence is becoming a utility you pay for monthly... Philippe Laffont joined CNBC's Squawk Box. | [post](https://www.linkedin.com/posts/coatue_philippe-laffont-on-cnbcs-squawk-box-activity-7475569597241380864-KbWm) |
+| Coatue Management | 2026-07-23 | image | 136 | 3 | 3 | At the RAISE Summit in Paris, Max Cook shared some takeaways on the shift toward multi-model AI. | [post](https://www.linkedin.com/posts/coatue_at-the-raise-summit-in-paris-max-cook-shared-activity-7486147335702347776-jTrt) |
+| Altimeter Capital | 2026-07-17 | image | 354 | 4 | 7 | Small team. Big ambition. Every summer, we take a brief moment to celebrate the people behind Altimeter... | [post](https://www.linkedin.com/posts/altimeter-capital_small-team-big-ambition-every-summer-activity-7483897150100131840-4pLm) |
+| Altimeter Capital | 2026-07-16 | image | 131 | 3 | 2 | Congratulations to Altimeter Founder & CEO Brad Gerstner on being named to Observer's 2026 A.I. Power Index. | [post](https://www.linkedin.com/posts/altimeter-capital_congratulations-to-altimeter-founder-ceo-activity-7483582762902257664-m16k) |
+| Altimeter Capital | 2026-09-11 | video | 122 | 11 | 5 | Scott Wapner opened by asking Brad Gerstner about the week's AI safety debate... | [post](https://www.linkedin.com/posts/altimeter-capital_scott-wapner-opened-by-asking-brad-gerstner-ugcPost-7504304229507911680-Dn8A) |
+| Altimeter Capital | 2026-07-09 | image | 118 | 2 | 5 | Altimeter Partner Apoorv Agrawal sat down with Glean Founder & CEO Arvind Jain at RAISE Summit... | [post](https://www.linkedin.com/posts/altimeter-capital_altimeter-partner-apoorv-agrawal-sat-down-activity-7481092432130887680-onZn) |
+| Brad Gerstner (Altimeter founder) | 2026-09-07 | image | 181 | 16 | 7 | The Social Security Act of 1935 is to labor what the Invest America Act / Trump Accounts are to capital... | [post](https://www.linkedin.com/posts/bradgerstner_the-social-security-act-of-1935-is-to-labor-activity-7502778602866941952-DbPa) |
+| Brad Gerstner (Altimeter founder) | 2026-09-09 | text | 39 | 0 | 1 | Peace through strength. | [post](https://www.linkedin.com/posts/bradgerstner_the-west-has-a-deep-precision-strike-gap-ugcPost-7503530011795030016-yl33) |
+| Whale Rock Capital | 2026-05-01 | image | 709 | 113 | 24 | May 1, 2026 marks Whale Rock's 20th year... manages over $14 billion for more than 450 investors... | [post](https://www.linkedin.com/posts/whale-rock-capital-management-llc_may-1-2026-marks-whale-rocks-20th-year-ugcPost-7455981839569104896-hTMt) |
+| Whale Rock Capital | 2026-05-18 | image | 252 | 1 | 7 | Alex Sacerdote spoke at the 31st Annual Sohn Investor Conference... 'golden age of hardware'. | [post](https://www.linkedin.com/posts/whale-rock-capital-management-llc_whale-rock-ceo-and-portfolio-manager-alex-activity-7462252798181556224-kuRn) |
+| Whale Rock Capital | 2026-06-02 | video | 244 | 4 | 5 | Alex Sacerdote featured at Sohn: the 'golden age of hardware investing'... | [post](https://www.linkedin.com/posts/whale-rock-capital-management-llc_whale-rocks-founder-and-portfolio-manager-ugcPost-7467704828232826880-hJAg) |
+| Whale Rock Capital | 2026-08-03 | image | 233 | 5 | 1 | Our 2026 summer intern class wrapped up... projects ranging from robotics and power semiconductors to AI. | [post](https://www.linkedin.com/posts/whale-rock-capital-management-llc_this-past-friday-our-2026-summer-intern-activity-7490038602467332096-Aqwx) |
+| Whale Rock Capital | 2026-06-09 | article | 142 | 0 | 2 | Grateful to Patrick O'Shaughnessy and the Invest Like the Best team for having Alex Sacerdote on the podcast. | [post](https://www.linkedin.com/posts/whale-rock-capital-management-llc_alex-sacerdote-how-to-invest-through-technology-activity-7470121869430624257-XZw2) |
+| Glen Kacher (Light Street founder) | 2026-06-23 | text | 147 | 5 | 0 | Congratulations to my brother for his exemplary 36 years of service in the U.S. Navy... The Defense Tech opportunity... | [post](https://www.linkedin.com/posts/activity-7475250417921105920-VNLq) |
+
+## Update (27 Oct): Monchau's tech posts vs his other posts (17 Jun – 17 Sep 2026)
+
+| ≥ reactions | Tech posts | Tech share | Other posts | Other share | Tech lift |
+|---|---|---|---|---|---|
+| 25 | 200 | 0.738 | 543 | 0.696 | 0.06 |
+| 54 | 151 | 0.557 | 407 | 0.522 | 0.068 |
+| 100 | 99 | 0.365 | 281 | 0.36 | 0.014 |
+| 200 | 46 | 0.17 | 166 | 0.213 | -0.202 |
+
+| Period | Tech posts | All posts | Tech share |
+|---|---|---|---|
+| Jun 17-30 | 39 | 160 | 0.244 |
+| Jul | 153 | 573 | 0.267 |
+| Aug | 42 | 182 | 0.231 |
+| Sep 1-16 | 37 | 136 | 0.272 |
+
+| Post | Date | Format | Reactions | Comments | Shares | Note | Link |
+|---|---|---|---|---|---|---|---|
+| Morgan Stanley maps the AI infrastructure supply chain | 2026-07-28 | image | 2452 | 76 | 156 | Curated (Source: Milk Road); picks-and-shovels framing | [post](https://www.linkedin.com/posts/charles-henry-monchau-cfa-cmt-caia-4003096_morgan-stanley-just-mapped-out-the-entire-activity-7487933666971615233-ThPI) |
+| AI-generated 'Champion of the Universe' video | 2026-07-02 | video | 1487 | 56 | 138 | Humour clip, AI as subject (Source: Laurent Lequeu) | [post](https://www.linkedin.com/posts/charles-henry-monchau-cfa-cmt-caia-4003096_these-ai-generated-videos-are-amazing-ugcPost-7478449831934373889-xN9F) |
+| Bloodbath in IT outsourcing (Accenture, Indian IT) | 2026-06-19 | image | 680 | 76 | 46 | AI-disruption narrative with names and moves (Source: Bull Theory) | [post](https://www.linkedin.com/posts/charles-henry-monchau-cfa-cmt-caia-4003096_massive-bloodbath-in-the-it-outsourcing-sector-activity-7473592905933242368-Dg-w) |
+| Ken Griffin: AI does a week of PhD work in hours | 2026-08-04 | video | 628 | 59 | 54 | Hedge-fund relevance: AI quant agents | [post](https://www.linkedin.com/posts/charles-henry-monchau-cfa-cmt-caia-4003096_ken-griffin-says-ai-can-now-do-a-weeks-worth-ugcPost-7490293667644022784-42nW) |
+| AI spending boom consuming hyperscaler cash flows | 2026-06-26 | image | 608 | 52 | 36 | Data chart, capex vs FCF | [post](https://www.linkedin.com/posts/charles-henry-monchau-cfa-cmt-caia-4003096_the-ai-spending-boom-is-consuming-hyperscaler-activity-7476325916621770752-smtp) |
+| Hyperscaler debt is exploding | 2026-09-13 | image | 230 | 15 | 21 | Data chart (Bloomberg, Hedgeye) | [post](https://www.linkedin.com/posts/charles-henry-monchau-cfa-cmt-caia-4003096_hyperscaler-debt-is-exploding-amazon-activity-7504939484937969664-4uAF) |
+| Token demand doubled in a month (AI infra crash: zoom out) | 2026-09-02 | image | 206 | 28 | 19 | Contrarian reassurance after a sell-off | [post](https://www.linkedin.com/posts/charles-henry-monchau-cfa-cmt-caia-4003096_if-todays-crash-in-ai-infrastructure-stocks-activity-7500815918898274304-RTIZ) |
+| Masayoshi Son sold 4% of Nvidia for under $4bn | 2026-09-02 | video | 163 | 5 | 9 | Short stat hook | [post](https://www.linkedin.com/posts/charles-henry-monchau-cfa-cmt-caia-4003096_masayoshi-son-sold-4-of-his-nvidia-stake-ugcPost-7501007438876172288-sasV) |
+| AI agents use 1,400% more tokens than in February | 2026-09-07 | image | 145 | 6 | 13 | Memory-cycle angle ($MU, $SKHY) | [post](https://www.linkedin.com/posts/charles-henry-monchau-cfa-cmt-caia-4003096_ai-agents-are-using-1400-more-tokens-today-activity-7502795340476047360-LkXQ) |
+| Dear Donald (oil + AI capex) | 2026-09-16 | image | 75 | 8 | 1 | His own synthesis; below his tech average | [post](https://www.linkedin.com/posts/charles-henry-monchau-cfa-cmt-caia-4003096_dear-donald-the-no-war-no-peace-with-iran-activity-7505921077903257600--Z_Y) |
+| JPM: the largest AI borrowers are not weak credits | 2026-09-15 | image | 14 | 0 | 1 | Dense credit analysis; low engagement | [post](https://www.linkedin.com/posts/charles-henry-monchau-cfa-cmt-caia-4003096_the-largest-ai-borrowers-are-not-weak-credits-activity-7505634083658489857-lxSe) |
+
+## Update (27 Oct): high-frequency tech voices like Monchau
+
+| Voice | Posts 13w | Per week | Credit a source | Top post | Reactions | Link | Own posts? (signal) |
+|---|---|---|---|---|---|---|---|
+| Charles-Henry Monchau (benchmark) | 1051 | 80.8 | 0.863 | Pierce Brosnan photo (humour) | 17611 | [post](https://www.linkedin.com/posts/charles-henry-monchau-cfa-cmt-caia-4003096_the-camera-man-is-a-genius-for-those-activity-7505271378573594624-jGSn) | Curator: 86% credit a Source/via (907 of 1,051); text largely follows the cited account |
+| Eduardo Ordax (AWS, GenAI GTM) | 250 | 19.2 | 0.108 | Vibe coder at 2AM (humour video) | 6837 | [post](https://www.linkedin.com/posts/eordax_ai-humor-ugcPost-7474863040736350209-PN7h) | Mostly own short commentary; humour clips posted natively without a credit line |
+| Linas Beliūnas (fintech/AI) | 200 | 15.4 | 0.19 | Watch this Stanford lecture instead of Netflix | 16285 | [post](https://www.linkedin.com/posts/linasbeliunas_instead-of-watching-2-hours-of-netflix-tonight-ugcPost-7481787865924956160-4yUE) | Curates others' content but re-frames it in his own voice; 19% carry a credit |
+| Ethan Mollick (Wharton) | 199 | 15.3 | 0.06 | New book: Co-Existence | 3928 | [post](https://www.linkedin.com/posts/emollick_i-have-a-new-book-coming-out-october-20-activity-7468411654381289472-oxlx) | Writes his own: first-hand tests and opinions; 6% credit others |
+| Ruben Hassid (AI writing) | 177 | 13.6 | 0.186 | Don't post obvious AI-written content: 12 tells | 4400 | [post](https://www.linkedin.com/posts/ruben-hassid_dont-post-obvious-ai-written-content-activity-7486374672033316864-tYgN) | Own listicle templates with a lead magnet; repeatable format (production team not verifiable) |
+| Brij Kishore Pandey (AI architect) | 158 | 12.2 | 0.19 | The cloud is not really a cloud (rack diagram) | 3516 | [post](https://www.linkedin.com/posts/brijpandeyji_the-cloud-is-not-really-a-cloud-behind-activity-7498739395370393600-WM3x) | Own explainer text over diagrams; ends with a question |
+| Pascal Bornet (AI/automation author) | 151 | 11.6 | 0.106 | Friday software release (humour video) | 10707 | [post](https://www.linkedin.com/posts/pascalbornet_developerhumor-softwareengineering-releasemanagement-ugcPost-7503316540650360833-eue9) | Viral clips with his own caption; credits rare (11%) |
+| Bernard Marr (futurist) | 121 | 9.3 | 0.066 | Why no one really understands AI | 207 | [post](https://www.linkedin.com/posts/bernardmarr_ai-hallucinate-unpredictably-activity-7483761636822953984-MJV6) | Own articles and newsletter excerpts, hashtag-heavy |
+| Andreas Horn (AI, AIOps) | 117 | 9.0 | 0.12 |  |  |  | Not sampled; 12% credit others |
+| Ronald van Loon (AI influencer) | 99 | 7.6 |  |  |  |  | Not sampled |
+| Evan Kirstel (B2B tech) | 95 | 7.3 |  |  |  |  | Not sampled |
+| Antonio Grasso (digital transformation) | 77 | 5.9 |  |  |  |  | Not sampled |
+
+Attribution is the measurable signal: Monchau credits a source in 86% of posts (a curator); these voices credit others in 6–19% and write in their own voice. Ghostwriting or team support cannot be verified from public data.
 
 ## 1. Executive summary
 
@@ -225,12 +317,12 @@ The TMS gate (country → professional/retail → "I Accept") matches Schroders'
 
 | Lever | Recommendation | Target/week | Evidence |
 |---|---|---|---|
-| 1. Cadence vs DECALIA (Swiss) | Lift the company page from 0.15 to at least 2.3 posts/week: weekly TMS sentiment-gauge chart + one fund, event or BFM post | 2.3 | DECALIA 30 posts in 13 weeks; Taranis 2 |
-| 2. Take the tech-AI thesis lane (Swiss) | One original AI-disruption thesis a week from Julien: chart first, three lines of read-through, link to a short note | 1 | AtonRâ's theses get 0-10 reactions and lapsed in the index after April; Pictet PMs post 0; DECALIA 13% tech |
-| 3. Lead through Leegenhoek | Julien is the primary voice (3 posts/week total incl. the thesis); a partner covers allocators; the page re-shares with a one-line frame | 3 | Symbit page 0 vs founder 108; DECALIA page 63 vs CIO 153; Taranis page 14 vs CEO 64 |
-| 4. POV over curation | About 80/20 original vs curated; curate only to frame a TMS view |  | Monchau own-view posts clear 54 reactions 5% of the time; curation works at his scale, not at ~2,000 followers |
-| 5. Post in English (plus French) | Lead in English for allocators; French for Swiss Romandie and BFM clips |  | Recent Taranis posts are French-only; DECALIA and Pictet post in 4 languages |
-| 6. Fix the product page first | Add vehicle, ISIN, fees, liquidity, the two sleeves and weights, named PMs, a gated factsheet and a 'request factsheet / book a call' CTA; relabel the award |  | Every active peer discloses performance somewhere; Schroders and UBP do so behind the same Swiss gate |
-| 7. Compliant by design | One-line risk warning on fund posts; no performance numbers in posts; pre-approve the weekly chart template |  | Pictet and BIT add risk lines; AtonRâ posts YTD figures publicly |
+| 1. Lead through Julien (Altimeter-style) | Julien is the public face: 60-90s BFM clips with one quoted line, a clear stance on the AI cycle; a partner interviews companies or allocators | 3 | Altimeter's Gerstner clips 120+ reactions; Taranis page 14 vs Julien 64 |
+| 2. One-line thesis + chart (Coatue-style) | Open every post with one claim and one chart or clip; Monday TMS sentiment-gauge chart as the signature | 1 | Coatue's best posts pair a thesis line with a portfolio fact or TV clip (136-232 reactions) |
+| 3. Cadence 3-5 posts/week | ~3 from Julien + ~2 from the company page | 5 | Altimeter 2.23/week, Coatue 4.85/week, DECALIA 2.3/week; Taranis 0.15 |
+| 4. Milestones as events (Whale Rock-style) | Awards, anniversaries, conferences, podcasts posted with a thesis and a number |  | Whale Rock's 7 posts average ~243 reactions; 20th-anniversary letter 709 |
+| 5. Own voice over curation; tech as core lane | ~80/20 original to curated; English first, French second |  | Monchau tech posts only +7% vs his average; own-voice tech creators (Mollick, Pandey) credit others in 6-19% of posts |
+| 6. Fix the product page | Two sleeves and weights, named PMs, vehicle/ISIN/fees/liquidity, gated factsheet, 'request factsheet' CTA, relabel the award |  | TMS page shows three paragraphs; Coatue runs an insights hub beside a gated investor area |
+| 7. Compliant by design | One-line risk warning on fund posts; no performance in posts; pre-approved chart template |  | FinSA limits public performance talk |
 
 **Measure monthly** by re-running the free count queries once the index catches up. Three-month targets: company page ≥2.3 posts/week; Julien ≥1 original thesis/week; median ≥25 reactions on Julien's originals.

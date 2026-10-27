@@ -90,11 +90,76 @@ const peers = D('swiss_peers'), voices = D('voices'), plan = D('plan_all'), mix 
 const topics = D('monchau_topics'), react = D('monchau_reactions'), fmtE = D('monchau_format_engagement'), samples = D('monchau_samples'), raw = D('posts_raw_all');
 const isT = r => /Taranis/.test(r.group || r.firm || r.competitor || r.author || '');
 
+// ---------- 27 Oct update: institutional hedge funds, Monchau tech, high-frequency tech voices
+const hfc = D('hf_competitors'), hfl = D('hf_linkedin'), hfp = D('hf_posts_sample');
+const mtv = D('monchau_tech_vs_other'), mtm = D('monchau_tech_monthly'), mts = D('monchau_tech_samples'), tvf = D('tech_voices_frequency');
+const hfSamples = (fund) => table([{ key: 'author', label: 'Author', w: 16, bold: true }, { key: 'true_date_utc', label: 'Date', w: 9 }, { key: 'format', label: 'Format', w: 7 }, { key: 'reactions', label: 'Reactions', w: 8, num: true }, { key: 'comments', label: 'Comments', w: 8, num: true }, { key: 'shares', label: 'Shares', w: 7, num: true }, { key: 'text', label: 'Post (excerpt)', w: 45 }, { key: 'url', label: 'Link', w: 8, linkLabel: postLabel }],
+  hfp.filter(r => r.author.startsWith(fund.split(' ')[0]) || (fund === 'Altimeter Capital' && /Gerstner/.test(r.author)) || (fund === 'Light Street Capital' && /Kacher/.test(r.author))), { width: LAND_W, size: 15 });
+
+const hfSet = [
+  H1('3. Competitor set: institutional tech hedge funds'),
+  P('At the client\'s request the competitor set is now five institutional (non-retail) technology hedge funds. All are US-based and far larger than Taranis, so they are benchmarks for positioning and communication rather than like-for-like rivals. AUM figures come from regulatory filings or aggregators and are not comparable across firms (regulatory AUM, 13F long book and firm-stated AUM measure different things).'),
+  table([{ key: 'fund', label: 'Fund', w: 12, bold: true }, { key: 'hq', label: 'HQ', w: 9 }, { key: 'founded', label: 'Founded', w: 6 }, { key: 'aum', label: 'AUM (as reported)', w: 20 }, { key: 'aum_source', label: 'AUM source', w: 8 }, { key: 'strategy', label: 'Strategy', w: 20 }, { key: 'founder', label: 'Founder / CIO', w: 10 }, { key: 'founder_linkedin', label: 'Founder LinkedIn', w: 8, linkLabel: () => 'Profile' }, { key: 'linkedin', label: 'Company LinkedIn', w: 8, linkLabel: () => 'Page' }],
+    hfc, { width: LAND_W, size: 15 }),
+  caption('Crustdata company IDs: Jericho 1348019, Light Street 991218, Whale Rock 993750, Coatue 1033880, Altimeter 992773. AUM: aggregator figures (aum13f, altss, thetrading.tools, QuiverQuant) and Whale Rock\'s own LinkedIn post; verify against SEC Form ADV before external use.'),
+  H2('Websites: structure, gate and disclosure'),
+  table([{ key: 'fund', label: 'Fund', w: 12, bold: true }, { key: 'website', label: 'Website', w: 10 }, { key: 'website_type', label: 'What the site shows', w: 48 }, { key: 'gate', label: 'Gate', w: 14 }],
+    hfc.map(r => ({ ...r, website: r.site })), { width: LAND_W, size: 15 }),
+  spacer(),
+  P([t('Contrast with TMS: ', { bold: true }), t('none of the five publishes performance on its public site either, which is normal for private hedge funds marketed to allocators. The gap for Taranis is elsewhere: Coatue, Altimeter and Whale Rock make the investment thesis and the people visible (insights, founder interviews, conference talks), while the TMS page shows three paragraphs, names no one and does not state its two sleeves ('), link('https://taranis.net/investment/tms', 'taranis.net/investment/tms'), t('). Websites read with TinyFish on 27 Oct 2026 (Whale Rock returned a login wall).')]),
+];
+
+const hfLi = [
+  H1('4. LinkedIn activity of the hedge funds (17 Jun – 17 Sep 2026)'),
+  P('Company-page cadence and typical reactions, then a sample of posts and the strong points for each fund. "Last three months" means the last three months in the Crustdata index, which ends around 17 Sep 2026; LinkedIn\'s login wall blocked a live refresh.'),
+  image('k-hf.png', 620),
+  image('k-hfe.png', 620),
+  H2('Channel, cadence, format and engagement'),
+  table([{ key: 'fund', label: 'Fund', w: 11, bold: true }, { key: 'company_posts_lifetime', label: 'Company posts (all-time)', w: 7, num: true }, { key: 'company_posts_13w', label: 'Posts, 13 weeks', w: 6, num: true }, { key: 'posts_per_week', label: 'Per week', w: 6, num: true }, { key: 'formats_13w', label: 'Formats', w: 13 }, { key: 'median_reactions_est', label: 'Typical reactions', w: 10 }, { key: 'best_post_reactions', label: 'Best', w: 5, num: true }, { key: 'best_post_url', label: 'Link', w: 6, linkLabel: postLabel }, { key: 'channel', label: 'Channel', w: 15 }, { key: 'voice', label: 'Voice', w: 14 }],
+    hfl, { width: LAND_W, size: 15 }),
+  caption('Founder accounts: Brad Gerstner 25 indexed posts (3 in the window); Glen Kacher 7 (1 in the window); Philippe Laffont, Alex Sacerdote and Josh Resnick barely post (15 posts combined with Kacher, all-time). Crustdata counts by profile URL.'),
+  ...hfl.flatMap(r => [
+    H2(r.fund),
+    P([t('Strong points: ', { bold: true }), t(r.strong_points)]),
+    P([t('What Taranis can learn: ', { bold: true }), t(r.what_taranis_can_learn)]),
+    ...(hfp.some(x => x.author.startsWith(r.fund.split(' ')[0]) || (r.fund === 'Altimeter Capital' && /Gerstner/.test(x.author)) || (r.fund === 'Light Street Capital' && /Kacher/.test(x.author)))
+      ? [hfSamples(r.fund), spacer()]
+      : [P([t('No posts of its own in the index or in a live web search (27 Oct). Coverage comes from press reshared by others, e.g. '), link(r.best_post_url, 'Institutional Investor post'), t('.')])]),
+  ]),
+];
+
+const monTech = [
+  H2('Tech/AI posts in the last three months, compared with his other posts'),
+  P('Window 17 Jun – 17 Sep 2026 (the last three months in the index). Tech/AI posts are keyword matches (AI, Nvidia, OpenAI, semiconductor, tech). Shares are the percentage of each group at or above a reaction count; "lift" is tech share divided by other share, minus one.'),
+  table([{ key: 'threshold', label: 'Reactions at least', w: 12, num: true }, { key: 'tech_posts_at_or_above', label: 'Tech posts', w: 10, num: true }, { key: 'tech_share', label: 'Tech share', w: 10, num: true }, { key: 'other_posts_at_or_above', label: 'Other posts', w: 10, num: true }, { key: 'other_share', label: 'Other share', w: 10, num: true }, { key: 'tech_relative_lift', label: 'Tech lift', w: 10, num: true }],
+    mtv.map(r => ({ ...r, tech_share: (100 * r.tech_share).toFixed(1) + '%', other_share: (100 * r.other_share).toFixed(1) + '%', tech_relative_lift: (r.tech_relative_lift > 0 ? '+' : '') + (100 * r.tech_relative_lift).toFixed(0) + '%' }))),
+  spacer(),
+  image('k-mt.png', 440),
+  image('k-mtm.png', 440),
+  P([t('Reading: ', { bold: true }), t('271 of 1,051 posts (26%, about 2.9 a day) were tech/AI, steady at 23–27% each month. Tech posts are slightly more reliable than his average (+6% to +7% relative at 25 and 54 reactions) but less likely to go viral (17% vs 21% above 200), because his viral outliers are humour and politics. 230 of the 271 tech posts (85%) credit a source, the same curation rate as the rest of his feed. His top tech posts are visual explainers of the AI build-out (supply-chain maps, capex vs free cash flow) and AI-disruption news with named stocks.')]),
+  H2('Sample tech posts (last three months)'),
+  table([{ key: 'post', label: 'Post', w: 28, bold: true }, { key: 'true_date_utc', label: 'Date', w: 9 }, { key: 'format', label: 'Format', w: 7 }, { key: 'reactions', label: 'Reactions', w: 8, num: true }, { key: 'comments', label: 'Com.', w: 6, num: true }, { key: 'shares', label: 'Shares', w: 6, num: true }, { key: 'note', label: 'Note', w: 26 }, { key: 'url', label: 'Link', w: 8, linkLabel: postLabel }], mts, { size: 15 }),
+  spacer(),
+];
+
+const voiceTech = [
+  H2('Famous tech voices who post like Monchau'),
+  P('High-frequency tech and AI voices on LinkedIn, measured over the same 13 weeks by profile URL. None comes close to Monchau\'s ~81 posts a week; the most prolific post 12–19 times a week (about 2–3 a day).'),
+  image('k-tv.png', 620),
+  image('k-tvc.png', 620),
+  table([{ key: 'name', label: 'Voice', w: 18, bold: true }, { key: 'posts_per_week', label: 'Posts / week', w: 7, num: true }, { key: 'credited_share', label: 'Credit a source', w: 7, num: true }, { key: 'top_post', label: 'Top post', w: 20 }, { key: 'top_format', label: 'Format', w: 6 }, { key: 'top_reactions', label: 'Reactions', w: 7, num: true }, { key: 'top_url', label: 'Link', w: 6, linkLabel: postLabel }, { key: 'authorship_signal', label: 'Do they write their own posts? (signal)', w: 26 }],
+    tvf.map(r => ({ ...r, credited_share: r.credited_share === '' ? 'n/a' : (100 * r.credited_share).toFixed(0) + '%' })), { width: LAND_W, size: 15 }),
+  spacer(),
+  P([t('Do they write their own posts? ', { bold: true }), t('The measurable signal is attribution. Monchau credits a source in 86% of posts and his text largely follows the cited account: he is a curator. The tech voices credit others in 6–19% of posts and write first-person commentary, explainers and listicles: they publish in their own voice. Two caveats: several of their biggest hits are third-party humour videos posted natively without credit (Ordax, Bornet), and whether a team or ghostwriter drafts their posts cannot be verified from public data. Ethan Mollick is the clearest own-voice example (first-hand tests, 6% credited).')]),
+  H2('Famous tech voices (reference)'),
+];
+
+
 // ---------- content blocks
 const title = [
   P([t('Taranis SA · Geneva · 27 October 2026', { size: 20, color: MUTED })], { after: 600, before: 1800 }),
   new Paragraph({ children: [new TextRun({ text: 'TMS LinkedIn Competitive Review', font: 'Georgia', size: 56, color: INK })], spacing: { after: 240 } }),
-  P([t('Taranis Market Sentiment against Swiss and international peers: product pages, LinkedIn activity, the Monchau benchmark and an operating plan', { size: 26, color: MUTED })], { after: 600 }),
+  P([t('Taranis Market Sentiment against institutional tech hedge funds (Jericho, Light Street, Whale Rock, Coatue, Altimeter): LinkedIn activity, websites, the Monchau benchmark, high-frequency tech voices and an operating plan', { size: 26, color: MUTED })], { after: 600 }),
   P([t('Prepared for: ', { bold: true }), t('Taranis SA (Julien Leegenhoek, CEO; marketing and investor relations)')]),
   P([t('Data window: ', { bold: true }), t('LinkedIn 17 Jun – 17 Sep 2026 (13 weeks); product pages read 26–27 Oct 2026')]),
   P([t('Interactive dashboard: ', { bold: true }), t('dashboard.html (self-contained, in the same folder)')]),
@@ -107,17 +172,17 @@ const title = [
 
 const exec = [
   H1('1. Executive summary'),
-  bullet([t('TMS discloses the least of any peer. ', { bold: true }), t('Behind its professional-investor gate the TMS page shows three paragraphs and an award line: no performance, ISIN, fees, AUM, documents or team, and it does not state the two sleeves (2016 systematic sentiment engine, Dec 2025 discretionary tech/AI-disruption sleeve). Schroders (Contour) and UBP (Shannon River) show full performance behind the same kind of Swiss qualified-investor gate; AtonRâ, BIT and DECALIA\'s factsheet show it openly. Source: '), link('https://taranis.net/investment/tms', 'taranis.net/investment/tms'), t('.')]),
-  bullet([t('Taranis posts least among active peers. ', { bold: true }), t('The company page posted 2 times in 13 weeks (0.15/week); DECALIA, the Swiss boutique bar, posted 30 (2.31/week); Pictet AM 89 (6.85/week, corporate-heavy). Contour, Jericho and Shannon River post nothing, confirmed by live web search, so the international TMT long/short channel is empty.')]),
-  bullet([t('People carry reach, not company pages. ', { bold: true }), t('Symbit\'s page got 0 reactions on news its co-founder\'s reshare turned into 108; DECALIA\'s page best is 63 while its CIO\'s own post reached 153; Julien Leegenhoek\'s own posts get 48–64 while the Taranis page\'s reshares of them get 14.')]),
-  bullet([t('Monchau is a curation engine to learn from, not copy. ', { bold: true }), t('About 81 posts a week, 86% credited to an outside "Source". His own-view and Syz-branded posts clear 54 reactions 5% of the time against 59% for curated posts. His most transferable asset is the single-chart post with a short read-through.')]),
-  bullet([t('The Swiss tech-AI thesis lane is open. ', { bold: true }), t('AtonRâ writes the strongest original tech theses but gets 0–10 reactions per post; Pictet\'s Robotics and Digital PMs post nothing; only 13% of DECALIA\'s posts are about tech. A named founder with TV airtime can own the lane.')]),
+  bullet([t('The institutional tech hedge funds barely use LinkedIn, and the ones that do lead with people. ', { bold: true }), t('Of the five, only Coatue (4.85 posts/week) and Altimeter (2.23/week) post regularly; Whale Rock posts a handful of milestones a year; Light Street and Jericho post nothing on their company pages. Coatue ties every post to a portfolio company or a founder TV clip; Altimeter runs on Brad Gerstner as a public figure; Whale Rock\'s rare posts average about 240 reactions. Taranis posts 0.15/week with about 14 reactions per company post.')]),
+  bullet([t('Their websites are minimal or gated, so LinkedIn and press carry the story. ', { bold: true }), t('Jericho and Altimeter run one-paragraph holding pages, Whale Rock and Light Street sit behind investor logins, and only Coatue runs a content site (insights, podcasts, portfolio). None publishes performance publicly. For a non-retail fund this is normal; what differs is that Coatue, Altimeter and Whale Rock make their founders\' views visible.')]),
+  bullet([t('Monchau\'s tech posts are about a quarter of his output and perform slightly better than his other posts. ', { bold: true }), t('In the last three indexed months (17 Jun – 17 Sep 2026), 271 of his 1,051 posts (26%) were tech/AI. 56% of them cleared 54 reactions against 52% of his other posts (+7% relative), but fewer went viral (17% vs 21% above 200 reactions), because his viral outliers are humour. 85% of his tech posts credit a source.')]),
+  bullet([t('No famous tech voice posts as often as Monchau; the closest post 12–19 times a week and mostly in their own voice. ', { bold: true }), t('Eduardo Ordax (19.2/week), Linas Beliūnas (15.4), Ethan Mollick (15.3), Ruben Hassid (13.6), Brij Kishore Pandey (12.2) and Pascal Bornet (11.6) credit an outside source in only 6–19% of posts against Monchau\'s 86%. Whether a team or ghostwriter helps them cannot be verified from public data.')]),
+  bullet([t('TMS still discloses the least and posts the least. ', { bold: true }), t('Its gated page shows three paragraphs, no fund facts, performance or team, and does not state its two sleeves. The recommended model borrows from Altimeter (founder as the public face) and Coatue (one-line thesis plus a chart or clip), at a sustainable 3–5 posts a week.')]),
 ];
 
 const method = [
   H1('2. Scope, sources and method'),
-  bullet([t('Competitor set: verified Swiss peers (AtonRâ Partners, DECALIA, Pictet AM), international structural twins and category peers (Symbit Capital, BIT Capital, Shannon River, Schroder GAIA Contour Tech Equity, Jericho Capital, Wellington Disruptive Technology & Innovation), plus a scan of Vontobel, GAM, Bellevue and Mirabaud.')]),
-  bullet([t('LinkedIn: Crustdata /social_post/search. Cadence from free limit=0 count queries (actor id + actor type + date window 17 Jun – 17 Sep 2026); engagement and text from small paid pulls of top posts (about 47 credits across three rounds). Every query is logged in the companion CSVs.')]),
+  bullet([t('Competitor set (updated 27 Oct at the client\'s request): five institutional, non-retail tech hedge funds: Jericho Capital, Light Street Capital, Whale Rock Capital, Coatue Management and Altimeter Capital. The earlier Swiss and UCITS peer set (AtonRâ, DECALIA, Pictet AM, Symbit, BIT Capital, Shannon River, Contour, Wellington) is kept in Appendices C–E for reference.')]),
+  bullet([t('LinkedIn: Crustdata /social_post/search. Cadence from free limit=0 count queries (actor id + actor type + date window 17 Jun – 17 Sep 2026); engagement and text from small paid pulls of top posts (about 68 credits across four rounds). Every query is logged in the companion CSVs.')]),
   bullet([t('Product pages: read with TinyFish (fetch and browser runs through Swiss qualified/professional-investor gates) and plain fetches on 26–27 Oct 2026; facts not on a page were taken from public factsheets or FT and are labelled as such.')]),
   bullet([t('Dates: every post\'s true date is decoded from its LinkedIn activity ID (id >> 22 = milliseconds since epoch), because the index\'s own dates are imputed for older posts and can drift by up to four weeks even in 2026.')]),
   H2('Caveats'),
@@ -132,7 +197,7 @@ const method = [
 ];
 
 const set = [
-  H1('3. Competitor set'),
+  H1('Appendix C. Earlier peer set: Swiss and UCITS funds'),
   P('Swiss peers lead, then international funds. Wellington\'s disruptive-tech long/short launched in March 2020, last reported USD 10.6m (March 2021) and is no longer listed on wellington.com, so it appears closed and is kept only as a category reference.'),
   table([
     { key: 'group', label: 'Group', w: 9 }, { key: 'fund', label: 'Fund', w: 22, bold: true }, { key: 'manager', label: 'Manager', w: 12 }, { key: 'hq', label: 'HQ', w: 9 },
@@ -150,7 +215,7 @@ const pagesTable = (cols) => table([{ key: 'attribute', label: 'Attribute', w: 1
 const posParas = pos.map(r => P([t(r.firm + '. ', { bold: true }), t(r.summary + ' '), link(r.page_url, host(r.page_url))], { after: 140 }));
 
 const pagesSec = [
-  H1('4. Deliverable A: product-page teardown'),
+  H1('Appendix D. Product-page teardown of the earlier peer set'),
   P([t('The key contrast: ', { bold: true }), t('TMS sits behind a three-step gate (country, professional/retail, "I Accept") that is in line with Schroders and UBP, but behind it the page shows no performance, fund facts or team and does not state its two sleeves. Schroders shows Contour\'s discrete annual returns, a 5-year figure, a monthly factsheet, the KID and prospectus behind its Swiss qualified-investor gate; UBP shows Shannon River\'s NAV and returns from MTD to inception plus the full document library behind its own. The gate is not the problem; what sits behind it is.')]),
   H2('Comparison, part 1: Swiss peers and Taranis'),
   pagesTable(['AtonRâ', 'DECALIA', 'Pictet AM', 'Taranis TMS']),
@@ -163,7 +228,7 @@ const pagesSec = [
 ];
 
 const liSec = [
-  H1('5. Deliverable B: LinkedIn activity'),
+  H1('Appendix E. LinkedIn activity of the earlier peer set'),
   P('Posts per week for every account in the 13-week window. The axis is capped at 16 posts a week; Monchau\'s bar is cut and labelled with his real rate.'),
   image('c-cad.png', 860),
   caption('Source: Crustdata /social_post/search count queries, 17 Jun – 17 Sep 2026 (cadence_all.csv).'),
@@ -184,8 +249,9 @@ const liSec = [
 ];
 
 const monSec = [
-  H1('6. Monchau deep-dive'),
+  H1('5. Monchau deep-dive'),
   P([t('Charles-Henry Monchau, CIO of Syz Group ('), link('https://www.linkedin.com/in/charles-henry-monchau-cfa-cmt-caia-4003096', 'profile'), t('; Crustdata person 28667460). 1,051 posts in the 13-week window, about 81 a week (11.5 a day). Voice: curator first, educational and data-driven; cautious and hawkish on rates, constructive on AI; broadcast style.')]),
+  ...monTech,
   H2('a. Average posts per day by month'),
   image('c-month.png', 440),
   caption('Q1 5.5/day → June 11.8 → July 18.5 → August 5.9 (summer) → Sep 1–16 8.5. The July spike is not verified post by post.'),
@@ -208,7 +274,8 @@ const monSec = [
 ];
 
 const voiceSec = [
-  H1('7. Famous tech voices'),
+  H1('6. Tech voices'),
+  ...voiceTech,
   P('Benchmark their formats, not their reaction counts: their audiences are in the millions. Counts are Crustdata, 17 Jun – 17 Sep 2026, by profile URL.'),
   table([{ key: 'name', label: 'Voice', w: 12, bold: true }, { key: 'posts_per_week', label: 'Posts / week', w: 8, num: true }, { key: 'dominant_format_top3', label: 'Top formats', w: 16 }, { key: 'best_post_reactions', label: 'Best post', w: 9, num: true }, { key: 'best_post_url', label: 'Link', w: 8, linkLabel: postLabel }, { key: 'what_taranis_can_borrow', label: 'What Taranis can borrow', w: 40 }], voices, { width: LAND_W }),
 ];
@@ -219,22 +286,22 @@ const sw = (h, items) => new TableCell({ width: { size: Math.floor(PORTRAIT_W / 
 const swot = new Table({ width: { size: PORTRAIT_W, type: WidthType.DXA }, columnWidths: [Math.floor(PORTRAIT_W / 2), PORTRAIT_W - Math.floor(PORTRAIT_W / 2)], rows: [
   new TableRow({ cantSplit: true, children: [sw('Strengths', ['The only tech long/short with a behavioural-sentiment quant overlay in the set', 'Founder-CEO with BFM Business airtime; his own posts already beat the page (64 vs 14)', 'Award history and a clear AI-disruption thesis']),
                             sw('Weaknesses', ['0.15 posts a week, the lowest among active peers; the page mirrors TV clips', 'Recent posts are French-only; 1,976 followers', 'Product page shows no facts, performance, sleeves or team; award label says "Managed Futures"'])] }),
-  new TableRow({ cantSplit: true, children: [sw('Opportunities', ['Close competitors are silent: Contour, Jericho, Shannon River post nothing; Symbit\'s page gets 0', 'No Swiss tech-AI personal voice with reach (Pictet PMs 0 posts, AtonRâ 0–10 reactions, DECALIA 13% tech)', 'A proprietary weekly sentiment read no peer can copy']),
-                            sw('Threats', ['BIT and AtonRâ already tell the human + AI story with numbers', 'Symbit occupies "Swiss + AI + long/short"; Pictet markets AI-enhanced equity at scale', 'FinSA limits public performance talk'])] }),
+  new TableRow({ cantSplit: true, children: [sw('Opportunities', ['Institutional tech hedge funds are quiet: Jericho and Light Street post nothing, Whale Rock a few milestones a year', 'Coatue and Altimeter show that founder-led, thesis-first posting works for non-retail funds', 'A proprietary weekly sentiment read no peer can copy; no Swiss tech-AI personal voice with reach']),
+                            sw('Threats', ['Coatue and Altimeter own the AI-investor narrative with portfolio access (Anthropic, Databricks) and TV airtime', 'Scale gap: competitors run USD 1.6–90bn; allocators may see Taranis as sub-scale', 'FinSA limits public performance talk'])] }),
 ] });
 
 const recSec = [
-  H1('8. SWOT and recommendations'),
+  H1('7. SWOT and recommendations'),
   swot,
   spacer(),
   H2('Recommendations'),
-  numbered([t('Benchmark cadence against DECALIA, not zero (Swiss). ', { bold: true }), t('Lift the company page from 0.15 to at least 2.3 posts a week: a weekly TMS sentiment-gauge chart plus one fund, event or BFM post. DECALIA posted 30 times in the window; Taranis 2.')]),
-  numbered([t('Take the tech-AI thesis lane AtonRâ has vacated (Swiss). ', { bold: true }), t('One original AI-disruption thesis a week under Julien\'s name: chart first, three lines of read-through, link to a short note. AtonRâ owns the format but not the audience (0–10 reactions; nothing indexed since April); Pictet\'s tech PMs are absent.')]),
-  numbered([t('Lead through Julien Leegenhoek. ', { bold: true }), t('He is the primary voice at about 3 posts a week (including the thesis); a partner such as Antoine Megarbane covers allocators every two weeks; the company page re-shares with a one-line frame. Evidence: Symbit 0 vs 108, DECALIA 63 vs 153, Taranis 14 vs 64.')]),
-  numbered([t('Point of view over curation. ', { bold: true }), t('About 80/20 original to curated, and curate only to frame a TMS view. Monchau\'s curation works at his scale; his own-view posts clear 54 reactions 5% of the time, so Taranis wins on a distinct view, not volume.')]),
-  numbered([t('Post in English first, French second. ', { bold: true }), t('Allocators read English; keep French for Romandie and the BFM clips. Recent Taranis posts are French-only, while DECALIA and Pictet run four languages.')]),
-  numbered([t('Fix the product page before pushing traffic. ', { bold: true }), t('Add vehicle, ISIN, fees, liquidity, the two sleeves and their weights, named PMs, a factsheet behind the existing gate and a "request factsheet / book a call" CTA; relabel the "Managed Futures" award and align the public /investment intro ("alternative data and a systematic overlay") with the gated text.')]),
-  numbered([t('Compliant by design. ', { bold: true }), t('A one-line risk warning on fund posts (as Pictet and BIT do), no performance numbers in posts (unlike AtonRâ), and one Compliance pre-approval of the weekly chart template.')]),
+  numbered([t('Lead through Julien Leegenhoek, Altimeter-style. ', { bold: true }), t('Make the founder the public face: his BFM appearances cut into 60–90s clips with one quoted line (Altimeter\'s Gerstner clips draw 120+), plus a clear stance on the AI cycle. A partner (e.g. Antoine Megarbane) interviews companies or allocators, as Altimeter\'s partners do. Evidence: Taranis page 14 vs Julien 64; Symbit page 0 vs founder 108.')]),
+  numbered([t('One-line thesis plus a chart, Coatue-style. ', { bold: true }), t('Every post opens with a single claim ("Intelligence is becoming a utility you pay for monthly") and carries one chart or clip. The Monday TMS sentiment-gauge chart is the signature format no peer can copy.')]),
+  numbered([t('Cadence: 3–5 posts a week, not Monchau\'s 81. ', { bold: true }), t('About 3 from Julien and 2 from the company page puts Taranis between Altimeter (2.2/week) and Coatue (4.85/week), and above DECALIA (2.3/week), the Swiss boutique bar.')]),
+  numbered([t('Milestones as events, Whale Rock-style. ', { bold: true }), t('Treat awards, anniversaries, conference talks and podcasts as posts with a thesis and a number; Whale Rock\'s rare posts average about 240 reactions and its 20th-anniversary letter drew 709.')]),
+  numbered([t('Own voice over curation, with tech as the core lane. ', { bold: true }), t('About 80/20 original to curated. Monchau\'s tech posts beat his average only slightly and his own-view posts rarely travel; the high-frequency tech voices (Mollick, Pandey) grow on first-person explainers. Post in English first, French second.')]),
+  numbered([t('Fix the product page before pushing traffic. ', { bold: true }), t('State the two sleeves and their weights, name the PMs, add vehicle, ISIN, fees and liquidity, put a factsheet behind the existing gate and add a "request factsheet / book a call" CTA; relabel the "Managed Futures" award. Coatue shows how an insights hub can sit next to a gated investor area.')]),
+  numbered([t('Compliant by design. ', { bold: true }), t('A one-line risk warning on fund posts, no performance numbers in posts, and one Compliance pre-approval of the weekly chart template.')]),
   H2('Operating plan'),
   table([{ key: 'lever', label: 'Lever', w: 18, bold: true }, { key: 'recommendation', label: 'Recommendation', w: 38 }, { key: 'target_posts_per_week', label: 'Target / week', w: 9, num: true }, { key: 'evidence', label: 'Evidence', w: 30 }], plan),
   spacer(),
@@ -262,6 +329,7 @@ const srcSec = [
   ].map(([l, u]) => bullet([t(l + ': '), link(u, host(u) + new URL(u).pathname.slice(0, 60))])),
 ];
 
+
 // ---------- document
 const header = new Header({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [t('TMS LinkedIn Competitive Review · 27 Oct 2026', { size: 16, color: MUTED })] })] });
 const footer = new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ children: ['Page ', PageNumber.CURRENT], font: FONT, size: 16, color: MUTED })] })] });
@@ -285,11 +353,13 @@ const doc = new Document({
   ] },
   sections: [
     sec(portrait, [...title, ...exec, ...method]),
-    sec(landscape, [...set, ...pagesSec]),
-    sec(landscape, liSec),
-    sec(portrait, [...monSec, ...recSec]),
-    sec(landscape, [...voiceSec, ...rawSec]),
+    sec(landscape, [...hfSet, ...hfLi]),
+    sec(portrait, monSec),
+    sec(landscape, voiceSec),
+    sec(portrait, recSec),
+    sec(landscape, rawSec),
     sec(portrait, srcSec),
+    sec(landscape, [...set, ...pagesSec, ...liSec]),
   ],
 });
 

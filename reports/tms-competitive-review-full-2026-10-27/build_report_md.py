@@ -15,6 +15,7 @@ def table(rows, cols):
     out += ["| " + " | ".join(cell(r.get(k, "")) for k, _ in cols) + " |" for r in rows]
     return "\n".join(out)
 
+hfc, hfl, hfp, mtv, mtm, mts, tvf = D("hf_competitors"), D("hf_linkedin"), D("hf_posts_sample"), D("monchau_tech_vs_other"), D("monchau_tech_monthly"), D("monchau_tech_samples"), D("tech_voices_frequency")
 comp, pages, pos, li, cad = D("competitors_all"), D("pages_all"), D("positioning_all"), D("linkedin_all"), D("cadence_all")
 peers, voices, plan, mix, monthly = D("swiss_peers"), D("voices"), D("plan_all"), D("monchau_mix"), D("monchau_monthly")
 topics, react, fmt, samples, raw = D("monchau_topics"), D("monchau_reactions"), D("monchau_format_engagement"), D("monchau_samples"), D("posts_raw_all")
@@ -30,6 +31,34 @@ Prepared 27 Oct 2026 for Taranis SA (Geneva). "Taranis" here is Taranis SA, the 
 - `data/posts_raw_all.csv`: {len(raw)} posts (author, true_date_utc, format, reactions, comments, shares, text, url).
 - `data/*.csv`: every table below. `count_queries.csv` and `count_queries_swiss.csv`: every Crustdata count query.
 - Build scripts: `build_data.py`, `build_dashboard.py`, `build_word.js`, `build_report_md.py`.
+
+## Update (27 Oct): institutional tech hedge funds
+
+The competitor set is now five non-retail tech hedge funds. The earlier Swiss/UCITS peer set below is kept for reference.
+
+{table(hfc, [("fund","Fund"),("hq","HQ"),("founded","Founded"),("aum","AUM (as reported)"),("aum_source","Source"),("strategy","Strategy"),("founder","Founder"),("founder_linkedin","Founder LinkedIn"),("linkedin","Company LinkedIn"),("website_type","Website"),("gate","Gate")])}
+
+**LinkedIn, 17 Jun – 17 Sep 2026**
+
+{table(hfl, [("fund","Fund"),("company_posts_lifetime","Posts all-time"),("company_posts_13w","Posts 13w"),("posts_per_week","Per week"),("formats_13w","Formats"),("median_reactions_est","Typical reactions"),("best_post_reactions","Best"),("best_post_url","Link"),("channel","Channel"),("strong_points","Strong points"),("what_taranis_can_learn","What Taranis can learn")])}
+
+**Sample posts**
+
+{table(hfp, [("author","Author"),("true_date_utc","Date"),("format","Format"),("reactions","Reactions"),("comments","Comments"),("shares","Shares"),("text","Post"),("url","Link")])}
+
+## Update (27 Oct): Monchau's tech posts vs his other posts (17 Jun – 17 Sep 2026)
+
+{table(mtv, [("threshold","≥ reactions"),("tech_posts_at_or_above","Tech posts"),("tech_share","Tech share"),("other_posts_at_or_above","Other posts"),("other_share","Other share"),("tech_relative_lift","Tech lift")])}
+
+{table(mtm, [("period","Period"),("tech_posts","Tech posts"),("all_posts","All posts"),("tech_share","Tech share")])}
+
+{table(mts, [("post","Post"),("true_date_utc","Date"),("format","Format"),("reactions","Reactions"),("comments","Comments"),("shares","Shares"),("note","Note"),("url","Link")])}
+
+## Update (27 Oct): high-frequency tech voices like Monchau
+
+{table(tvf, [("name","Voice"),("posts_13w","Posts 13w"),("posts_per_week","Per week"),("credited_share","Credit a source"),("top_post","Top post"),("top_reactions","Reactions"),("top_url","Link"),("authorship_signal","Own posts? (signal)")])}
+
+Attribution is the measurable signal: Monchau credits a source in 86% of posts (a curator); these voices credit others in 6–19% and write in their own voice. Ghostwriting or team support cannot be verified from public data.
 
 ## 1. Executive summary
 
