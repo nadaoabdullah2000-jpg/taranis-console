@@ -135,7 +135,7 @@ const exec = [
   bullet([t('The keyword rule undercounts the builders. ', { bold: true }), t(`Nadella and Srinivas write about Microsoft, Copilot, Perplexity, agents and compute rather than "AI" or "tech". With a broader keyword set their tech shares rise to ${pct(by('Satya Nadella').tech_broad_share)} and ${pct(by('Aravind Srinivas').tech_broad_share)}. Only Gates stays mostly non-tech (${pct(by('Bill Gates').tech_broad_share)} broad).`)]),
   bullet([t('Do tech posts perform better? Only clearly for Mollick. ', { bold: true }), t('27% of his tech posts clear 500 reactions against 16% of his other posts (+69% relative). For Gates and Srinivas tech and other posts perform about the same; for Nadella, Miller and Hoffman tech posts do slightly worse; Ng posts almost nothing but tech, so there is no comparison. Samples are small for everyone except Mollick and Gates.')]),
   bullet([t('Reach comes from usefulness and authority, not volume. ', { bold: true }), t('Ng (1.1 posts a week) has 9 of 14 posts above 5,000 reactions and Nadella (1.8 a week) half of his; Mollick (15.3 a week) has one post above 2,500 and Hoffman (2.4 a week) two above 500.')]),
-  bullet([t('They write their own posts. ', { bold: true }), t('Source credits appear in 2–11% of their posts against Monchau\'s 86%. These are original voices, not curators.')]),
+  bullet([t('They write their own posts. ', { bold: true }), t('Six of the seven mention a source ("Source", "via", "credit") in 3–11% of posts and Srinivas in 4 of 13, against Monchau\'s 86%. These are original voices, not curators.')]),
   bullet([t('Similar voices: ', { bold: true }), t(SIM.length ? `${SIM.length} active voices with comparable profiles are measured in section 5 (${SIM.slice(0, 6).map(r => r.name).join(', ')}${SIM.length > 6 ? ' and others' : ''}).` : 'see section 5.')]),
 ];
 
@@ -188,6 +188,11 @@ const simSec = [
     table([{ key: 'name', label: 'Voice', w: 13, bold: true }, { key: 'role', label: 'Role', w: 15 }, { key: 'similar_to', label: 'Similar to', w: 10 }, { key: 'why_similar', label: 'Why similar', w: 22 }, { key: 'posts_per_week', label: 'Posts / week', w: 6, num: true }, { key: 'ts', label: 'Tech share', w: 6, num: true },
       { key: 'eng', label: 'Posts ≥1,000 reactions', w: 7, num: true }, { key: 'sample_post_url', label: 'Sample', w: 6, linkLabel: () => 'Open post' }, { key: 'profile_url', label: 'Profile', w: 6, linkLabel: () => 'Profile' }],
       SIM.map(r => ({ ...r, ts: pct(r.tech_share), eng: r.all_ge1000 === '' ? 'n/a' : r.all_ge1000 + ' of ' + r.total_13w, sample_post_url: r.sample_post_url || '–' })), { width: LAND_W, size: 14 }),
+    spacer(),
+    bullet([t('Same pattern as the seven: ', { bold: true }), t('the CEOs post rarely and reach widely (Pichai 10 posts, 6 above 5,000 reactions; Benioff 13, all on AI; Mensch 8, 5 above 2,500), while the creators and commentators post 3–4 times a week with modest reach (Conor Grennan 53 posts, 1 above 500; Gary Marcus 34, 1 above 500).')]),
+    bullet([t('Most active founder voice: ', { bold: true }), t('Clem Delangue (Hugging Face) posts 4.4 times a week and is the only high-frequency voice with steady reach (23 of 57 posts above 500 reactions).')]),
+    bullet([t('Researchers: ', { bold: true }), t('Yann LeCun (3.9 a week) and Sebastian Raschka (1.5 a week) are undercounted by the keyword rule because they write "LLM" and "world models" rather than "AI"; Raschka still has 16 of 20 posts above 1,000 reactions.')]),
+    bullet('Checked but not kept (fewer than 5 posts or unverifiable): Vinod Khosla, Greg Brockman, Arvind Krishna, Rowan Cheung, Zain Kahn, Aidan Gomez, Fei-Fei Li (5 posts each for the last three), Mustafa Suleyman (profile not found). Jensen Huang is active (9 posts) but was not measured further.'),
   ] : [P('No similar voices could be confirmed.')]),
 ];
 
@@ -195,7 +200,7 @@ const takeaways = [
   H1('6. What Taranis can take from them'),
   numbered([t('Pick an archetype, not a frequency. ', { bold: true }), t('The two models that fit a fund are Nadella (CEO, results and milestones with hard numbers, ~2 a week) and Ng (one genuinely useful artifact a week). Mollick\'s daily cadence only works because each post is a first-hand test.')]),
   numbered([t('Make tech the core but not the only lane. ', { bold: true }), t('Tech posts beat other posts clearly only for Mollick; for Gates people stories perform as well. A 70/30 tech-to-other mix (Hoffman-like) keeps the AI-disruption focus while leaving room for team, clients and markets.')]),
-  numbered([t('Write it yourself. ', { bold: true }), t('All seven credit sources in 11% or fewer of posts. Original, first-person posts are the norm among the most followed AI voices; curation is Monchau\'s niche, not theirs.')]),
+  numbered([t('Write it yourself. ', { bold: true }), t('Six of the seven credit a source in 11% or fewer of posts (Srinivas 4 of 13, on a small base). Original, first-person posts are the norm among the most followed AI voices; curation is Monchau\'s niche, not theirs.')]),
   numbered([t('Show the machine. ', { bold: true }), t('Srinivas and Mollick get reach by showing what a tool did, with one number. The TMS equivalent: "what our sentiment model flagged this week" with one chart.')]),
   numbered([t('Use a repeatable slot. ', { bold: true }), t('Miller\'s weekend "AI homework" and numbered model reviews show a recurring format builds comments, which LinkedIn rewards.')]),
 ];
