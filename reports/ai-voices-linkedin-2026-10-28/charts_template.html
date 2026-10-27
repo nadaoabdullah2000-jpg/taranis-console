@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TMS LinkedIn Competitive Review</title>
+<style>
+/* Layout: one reading column of cards; summary first, detail after. Ink-on-paper neutrals with a slate-blue accent. */
+:root {
+  color-scheme: light;
+  --bg: #f7f7f4; --panel: #ffffff; --line: #e3e2dc; --fg: #1c1d1f; --muted: #64656b;
+  --accent: #2a78d6; --taranis: #eb6834; --swiss: #1a8f6a; --muted-bar: #c6c5be;
+  --grid: #ecebe6; --axis: #c9c8c1; --tip: #ffffff; --shadow: 0 6px 18px rgba(0,0,0,.10);
+  --ok: #1e7a3c; --warn: #9a5b00; --bad: #b3261e;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  color-scheme: dark; --bg: #151618; --panel: #1e1f22; --line: #33343a; --fg: #eeeeec; --muted: #a3a4aa;
+  --accent: #3987e5; --taranis: #d95926; --swiss: #1fa47a; --muted-bar: #54555b; --grid: #2b2c31; --axis: #4a4b51; --tip: #26272b; --shadow: 0 6px 18px rgba(0,0,0,.45);
+  --ok: #4cbb6c; --warn: #e0a040; --bad: #ef6b62; } }
+:root[data-theme="dark"] {
+  color-scheme: dark; --bg: #151618; --panel: #1e1f22; --line: #33343a; --fg: #eeeeec; --muted: #a3a4aa;
+  --accent: #3987e5; --taranis: #d95926; --swiss: #1fa47a; --muted-bar: #54555b; --grid: #2b2c31; --axis: #4a4b51; --tip: #26272b; --shadow: 0 6px 18px rgba(0,0,0,.45);
+  --ok: #4cbb6c; --warn: #e0a040; --bad: #ef6b62; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 14px; line-height: 1.45; }
+.wrap { max-width: 1280px; margin-inline: auto; padding-block: 28px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 32px; }
+h1 { font-family: var(--serif); font-weight: 400; font-size: 34px; margin: 0; text-wrap: balance; }
+h2 { font-size: 18px; margin: 0; font-weight: 650; text-wrap: balance; }
+h3 { font-size: 15px; margin: 0; font-weight: 600; }
+.lede { color: var(--muted); max-width: 78ch; margin: 6px 0 0; }
+.eyebrow { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+nav { display: flex; flex-wrap: wrap; gap: 8px; }
+nav a { font-size: 12px; color: var(--muted); text-decoration: none; border: 1px solid var(--line); border-radius: 999px; padding: 3px 11px; background: var(--panel); }
+nav a:hover, nav a:focus-visible { color: var(--fg); outline: none; border-color: var(--accent); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr)); gap: 12px; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px; display: grid; gap: 4px; align-content: start; }
+.tile .lab { font-size: 12px; color: var(--muted); }
+.tile .num { font-family: var(--serif); font-size: 32px; font-variant-numeric: tabular-nums; }
+.tile .sub { font-size: 12px; color: var(--muted); }
+.tile.hl { border-color: var(--taranis); }
+.sec { display: grid; gap: 14px; }
+.sec > p.note { margin: 0; color: var(--muted); font-size: 13px; max-width: 86ch; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 30rem), 1fr)); gap: 14px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; display: grid; gap: 10px; min-width: 0; align-content: start; }
+.card .cap { margin: 0; font-size: 12px; color: var(--muted); }
+.summary ul, .caveats ul, .swot ul { margin: 0; padding-left: 1.15em; display: grid; gap: 6px; }
+.summary li { max-width: 92ch; }
+.caveats { border-left: 3px solid var(--warn); }
+.caveats li { font-size: 13px; }
+.chart { position: relative; min-height: 200px; }
+.tip { position: absolute; pointer-events: none; background: var(--tip); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 5px 9px; font-size: 12px; white-space: nowrap; z-index: 3; }
+.tip .k { color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; background: var(--sw); }
+.scroll { overflow-x: auto; }
+.scroll.cap { max-height: 34rem; overflow: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+th { text-align: left; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); padding: 7px 8px; position: sticky; top: 0; background: var(--panel); vertical-align: bottom; z-index: 1; }
+th button { all: unset; cursor: pointer; }
+th button:focus-visible { outline: 2px solid var(--accent); }
+td { border-bottom: 1px solid var(--line); padding: 7px 8px; vertical-align: top; min-width: 7.5rem; }
+td.n { text-align: right; white-space: nowrap; min-width: 4.5rem; }
+td.key { font-weight: 600; }
+tr.taranis td { background: color-mix(in srgb, var(--taranis) 9%, transparent); }
+a { color: var(--accent); }
+.pill { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+.pill.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, transparent); }
+.pill.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.pill.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+input[type=search] { font: inherit; font-size: 13px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); width: min(100%, 22rem); }
+.swot { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 12px; }
+.swot .card h3 { font-size: 13px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+footer { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body><div class="wrap" style="max-width:1000px">
+<div class="card" id="k-ppw"><h3>Posts per week, 17 Jun – 17 Sep 2026</h3><p class="cap">Crustdata count queries by profile URL. Grey bars = similar voices found in this screen.</p><div class="chart" id="c-ppw"></div></div>
+<div class="card" id="k-tech"><h3>Share of posts about tech/AI</h3><p class="cap">Keyword match on AI, Nvidia, OpenAI, semiconductor, tech: the same rule used for Monchau (26%).</p><div class="chart" id="c-tech"></div></div>
+<div class="card" id="k-lift"><h3>Do tech posts do better? Share of posts at or above each person's median-level threshold</h3><p class="cap">Threshold chosen per person as the reaction level closest to half of all posts. Blue = tech/AI posts, grey = other posts.</p><div class="legend" id="l-lift"></div><div class="chart" id="c-lift"></div></div>
+<div class="card" id="k-month"><h3>Tech/AI share by month</h3><p class="cap">June = 17–30 June; September = 1–17 September.</p><div class="legend" id="l-month"></div><div class="chart" id="c-month"></div></div>
+<div class="card" id="k-fmt"><h3>Format mix</h3><p class="cap">Share of posts by content type; "text/other" = remainder (text-only and documents).</p><div class="legend" id="l-fmt"></div><div class="chart" id="c-fmt"></div></div>
+</div>
+<script>/*__D3__*/</script>
+<script>window.DATA = /*__DATA__*/;</script>
+<script>
+(function () {
+
+  const D = window.DATA;
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const f = { dec: d3.format(',.2~f'), int: d3.format(','), pct: d3.format('.0%'), pct1: d3.format('.1%') };
+
+  function tip(box) {
+    let t = box.querySelector('.tip');
+    if (!t) { t = document.createElement('div'); t.className = 'tip'; t.hidden = true; box.appendChild(t); }
+    return {
+      show(ev, k, v) {
+        t.replaceChildren();
+        const a = document.createElement('div'); a.className = 'k'; a.textContent = k;
+        const b = document.createElement('div'); b.textContent = v;
+        t.append(a, b); t.hidden = false;
+        const r = box.getBoundingClientRect();
+        let x = ev.clientX - r.left + 12;
+        x = Math.max(4, Math.min(x, r.width - t.offsetWidth - 4));
+        t.style.left = x + 'px'; t.style.top = (ev.clientY - r.top + 12) + 'px';
+      },
+      hide() { t.hidden = true; }
+    };
+  }
+  const tickStyle = a => a.attr('font-size', null).attr('font-family', null)
+    .call(g => g.selectAll('text').attr('fill', css('--muted')).style('font-size', '12px'))
+    .call(g => g.selectAll('line,path').attr('stroke', css('--axis')));
+
+  // Horizontal bars: rows [{label, value, color, text, tipText}]; opt {max, bar, gap, tick}
+  function hbar(box, rows, opt) {
+    box.replaceChildren();
+    const W = box.clientWidth || 640, bh = opt.bar || 16, gap = opt.gap || 8;
+    const svg = d3.select(box).append('svg').attr('width', '100%');
+    const probe = svg.append('g').style('font-size', '12px');
+    let lw = 0, vw = 0;
+    rows.forEach(r => { const t = probe.append('text').text(r.label); lw = Math.max(lw, t.node().getComputedTextLength()); t.remove();
+                        const u = probe.append('text').text(r.text); vw = Math.max(vw, u.node().getComputedTextLength()); u.remove(); });
+    probe.remove();
+    lw = Math.min(lw, W * 0.5);
+    const m = { l: lw + 10, r: vw + 12, t: 4, b: 24 };
+    const H = m.t + m.b + rows.length * (bh + gap);
+    svg.attr('viewBox', `0 0 ${W} ${H}`).attr('height', H);
+    const max = opt.max ?? (d3.max(rows, r => r.value) || 1);
+    const x = d3.scaleLinear([0, max], [m.l, W - m.r]);
+    const n = Math.max(2, Math.floor((W - m.l - m.r) / 80));
+    svg.append('g').selectAll('line').data(x.ticks(n)).join('line').attr('x1', d => x(d)).attr('x2', d => x(d)).attr('y1', m.t).attr('y2', H - m.b).attr('stroke', css('--grid'));
+    svg.append('g').attr('transform', `translate(0,${H - m.b})`).call(d3.axisBottom(x).ticks(n).tickFormat(opt.tick || f.dec).tickSizeOuter(0)).call(tickStyle);
+    const T = tip(box);
+    const row = svg.append('g').selectAll('g').data(rows).join('g').attr('transform', (d, i) => `translate(0,${m.t + i * (bh + gap)})`);
+    row.append('text').attr('x', m.l - 8).attr('y', bh / 2).attr('dy', '0.35em').attr('text-anchor', 'end').attr('fill', css('--fg')).style('font-size', '12px')
+      .text(d => d.label).each(function (d) { // trim labels that would cross the left edge
+        let s = d.label; while (this.getComputedTextLength() > lw && s.length > 4) { s = s.slice(0, -2); this.textContent = s + '…'; } });
+    row.append('rect').attr('x', m.l).attr('height', bh).attr('rx', 4).attr('width', d => Math.max(d.value > 0 ? 2 : 0, x(Math.min(d.value, max)) - m.l)).attr('fill', d => d.color);
+    row.filter(d => d.value > max).append('path').attr('d', () => { const e = x(max); return `M${e - 12},-1 l6,${bh + 2} M${e - 6},-1 l6,${bh + 2}`; }).attr('stroke', css('--panel')).attr('stroke-width', 3);
+    row.append('text').attr('x', d => x(Math.min(d.value, max)) + 6).attr('y', bh / 2).attr('dy', '0.35em').attr('fill', css('--muted')).style('font-size', '12px').text(d => d.text);
+    row.append('rect').attr('width', W).attr('y', -gap / 2).attr('height', bh + gap).attr('fill', 'transparent')
+      .on('mousemove', (ev, d) => T.show(ev, d.label, d.tipText || d.text)).on('mouseleave', () => T.hide());
+  }
+
+  // Vertical bars, optionally grouped: rows [{label, values:[{v, color, text, name}]}]
+  function vbar(box, rows, opt) {
+    box.replaceChildren();
+    const W = box.clientWidth || 520, H = 230, m = { l: 40, r: 8, t: 20, b: 36 };
+    const svg = d3.select(box).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).attr('height', H);
+    const x = d3.scaleBand(rows.map(r => r.label), [m.l, W - m.r]).padding(0.28);
+    const ymax = d3.max(rows, r => d3.max(r.values, v => v.v)) || 1;
+    const y = d3.scaleLinear([0, ymax * 1.12], [H - m.b, m.t]).nice();
+    svg.append('g').selectAll('line').data(y.ticks(4)).join('line').attr('x1', m.l).attr('x2', W - m.r).attr('y1', d => y(d)).attr('y2', d => y(d)).attr('stroke', css('--grid'));
+    svg.append('g').attr('transform', `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(4).tickFormat(opt.tick || f.dec).tickSize(0)).call(tickStyle).call(g => g.select('path').remove());
+    svg.append('g').attr('transform', `translate(0,${H - m.b})`).call(d3.axisBottom(x).tickSizeOuter(0)).call(tickStyle);
+    const k = rows[0].values.length, inner = d3.scaleBand(d3.range(k), [0, x.bandwidth()]).padding(0.12), bw = Math.min(32, inner.bandwidth());
+    const T = tip(box);
+    rows.forEach(r => r.values.forEach((v, i) => {
+      const cx = x(r.label) + inner(i) + (inner.bandwidth() - bw) / 2;
+      svg.append('rect').attr('x', cx).attr('width', bw).attr('y', y(v.v)).attr('height', y(0) - y(v.v)).attr('rx', 4).attr('fill', v.color);
+      if (bw >= 22) svg.append('text').attr('x', cx + bw / 2).attr('y', y(v.v) - 5).attr('text-anchor', 'middle').attr('fill', css('--muted')).style('font-size', '11px').text(v.text);
+      svg.append('rect').attr('x', cx - 2).attr('width', bw + 4).attr('y', m.t).attr('height', H - m.t - m.b).attr('fill', 'transparent')
+        .on('mousemove', ev => T.show(ev, r.label + (v.name ? ' · ' + v.name : ''), v.tipText || v.text)).on('mouseleave', () => T.hide());
+    }));
+  }
+
+  // Tables: cols [{key, label, num, link, linkText, pct, cls}]
+  function table(id, rows, cols, opt = {}) {
+    const t = document.getElementById(id); t.replaceChildren();
+    const thead = t.createTHead().insertRow();
+    let sortKey = null, asc = true;
+    cols.forEach(c => {
+      const th = document.createElement('th');
+      if (opt.sortable) { const b = document.createElement('button'); b.textContent = c.label; b.addEventListener('click', () => { asc = sortKey === c.key ? !asc : true; sortKey = c.key; th.parentNode.querySelectorAll('th').forEach(h => h.removeAttribute('aria-sort')); th.setAttribute('aria-sort', asc ? 'ascending' : 'descending'); body(); }); th.appendChild(b); }
+      else th.textContent = c.label;
+      thead.appendChild(th);
+    });
+    const tb = t.createTBody();
+    function body() {
+      let rs = rows.slice();
+      if (opt.filter) { const q = opt.filter().toLowerCase(); if (q) rs = rs.filter(r => cols.some(c => String(r[c.key] ?? '').toLowerCase().includes(q))); }
+      if (sortKey) { const c = cols.find(c => c.key === sortKey); rs.sort((a, b) => { const A = c.num ? +a[sortKey] || 0 : String(a[sortKey]); const B = c.num ? +b[sortKey] || 0 : String(b[sortKey]); return (A > B ? 1 : A < B ? -1 : 0) * (asc ? 1 : -1); }); }
+      tb.replaceChildren();
+      rs.forEach(r => {
+        const tr = tb.insertRow();
+        if (opt.hl && opt.hl(r)) tr.className = 'taranis';
+        cols.forEach(c => {
+          const td = tr.insertCell(); const v = r[c.key] ?? '';
+          if (c.num) td.className = 'n'; if (c.cls) td.classList.add(c.cls);
+          if ((c.link || /^https?:\/\//.test(v)) && /^https?:\/\//.test(v)) {
+            const a = document.createElement('a'); a.href = v; a.target = '_blank'; a.rel = 'noopener';
+            a.textContent = c.linkText ? c.linkText(v) : new URL(v).hostname.replace('www.', ''); td.appendChild(a);
+          } else if (c.pill) { const s = document.createElement('span'); s.className = 'pill ' + c.pill(v); s.textContent = v; td.appendChild(s); }
+          else td.textContent = c.pct && v !== '' ? f.pct(+v) : (c.num && v !== '' && !isNaN(+v) ? f.dec(+v) : v);
+        });
+      });
+    }
+    body();
+    return body;
+  }
+  const postLink = v => /\/company\/[^/]+\/?$/.test(v) ? 'Open page' : 'Open post';
+
+  
+  const ac = css('--accent'), tc = css('--taranis'), mb = css('--muted-bar'), sw = css('--swiss');
+  const S = D.summary, SIM = D.similar;
+  const leg = (id, items) => { const L = document.getElementById(id); items.forEach(([t, c]) => { const s = document.createElement('span'); s.textContent = t; s.style.setProperty('--sw', c); L.appendChild(s); }); };
+  hbar(document.getElementById('c-ppw'), S.map(r => ({ label: r.name, value: +r.posts_per_week, color: ac, text: f.dec(+r.posts_per_week) }))
+    .concat(SIM.map(r => ({ label: r.name, value: +r.posts_per_week, color: mb, text: f.dec(+r.posts_per_week) }))).sort((a, b) => b.value - a.value), { bar: 14, gap: 6 });
+  hbar(document.getElementById('c-tech'), S.map(r => ({ label: r.name, value: +r.tech_share, color: ac, text: f.pct(+r.tech_share) + ' (' + r.tech_13w + ' of ' + r.total_13w + ')' }))
+    .concat(SIM.map(r => ({ label: r.name, value: +r.tech_share, color: mb, text: f.pct(+r.tech_share) + ' (' + r.tech_13w + ' of ' + r.total_13w + ')' })))
+    .concat([{ label: 'Monchau (benchmark)', value: 0.258, color: tc, text: '26% (271 of 1,051)' }]).sort((a, b) => b.value - a.value), { max: 1, tick: f.pct, bar: 14, gap: 6 });
+  leg('l-lift', [['Tech/AI posts', ac], ['Other posts', mb]]);
+  vbar(document.getElementById('c-lift'), S.filter(r => r.other_n > 0).map(r => ({ label: r.name.split(' ').slice(-1)[0] + ' ≥' + d3.format('~s')(+r.lift_threshold), values: [
+    { v: +r.tech_share_at_t, color: ac, text: f.pct(+r.tech_share_at_t), name: 'Tech' }, { v: +r.other_share_at_t, color: mb, text: f.pct(+r.other_share_at_t), name: 'Other' }] })), { tick: f.pct });
+  const M = ['jun', 'jul', 'aug', 'sep'], MC = [css('--muted-bar'), css('--accent'), css('--swiss'), css('--taranis')];
+  leg('l-month', [['Jun (17–30)', MC[0]], ['Jul', MC[1]], ['Aug', MC[2]], ['Sep (1–17)', MC[3]]]);
+  vbar(document.getElementById('c-month'), S.map(r => ({ label: r.name.split(' ').slice(-1)[0], values: M.map((m, i) => ({ v: +r[m + '_share'] || 0, color: MC[i], text: '', name: m, tipText: r[m + '_share'] === '' ? 'n/a' : f.pct(+r[m + '_share']) + ' (' + r[m + '_tech'] + ' of ' + r[m + '_total'] + ')' })) })), { tick: f.pct });
+  const FK = [['video', 'Video', css('--accent')], ['image', 'Image', css('--swiss')], ['article', 'Article/link', css('--taranis')], ['other', 'Text/other', css('--muted-bar')]];
+  leg('l-fmt', FK.map(([, l, c]) => [l, c]));
+  const box = document.getElementById('c-fmt'); const W = box.clientWidth || 900, bh = 18, gap = 8, lw = 130, H = S.length * (bh + gap) + 24;
+  const svg = d3.select(box).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).attr('height', H);
+  const x = d3.scaleLinear([0, 1], [lw, W - 10]);
+  S.forEach((r, i) => { let acc = 0; const y = i * (bh + gap);
+    svg.append('text').attr('x', lw - 8).attr('y', y + bh / 2).attr('dy', '0.35em').attr('text-anchor', 'end').attr('fill', css('--fg')).style('font-size', '12px').text(r.name);
+    FK.forEach(([k, , c]) => { const v = +r['fmt_' + k]; if (v <= 0) return; svg.append('rect').attr('x', x(acc)).attr('y', y).attr('width', x(acc + v) - x(acc) - 1).attr('height', bh).attr('fill', c);
+      if (v >= 0.08) svg.append('text').attr('x', x(acc) + 4).attr('y', y + bh / 2).attr('dy', '0.35em').attr('fill', '#fff').style('font-size', '11px').text(f.pct(v)); acc += v; }); });
+  svg.append('g').attr('transform', `translate(0,${H - 22})`).call(d3.axisBottom(x).ticks(5).tickFormat(f.pct).tickSizeOuter(0)).call(tickStyle);
+})();
+</script>
+</body></html>
