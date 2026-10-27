@@ -157,7 +157,7 @@ const voiceTech = [
 
 // ---------- 28 Oct update: re-screened landscape, Monchau live sample, voices like Monchau
 const land = D('tms_competitor_landscape'), live = D('monchau_live_sep17_oct28'), vlm = D('voices_like_monchau');
-const tierTitle = { A: 'Tier A. Closest hybrids: systematic or sentiment signal plus discretionary picking', B: 'Tier B. Systematic sentiment, alternative-data and machine-learning specialists', C: 'Tier C. Discretionary tech/AI long/short specialists' };
+const tierTitle = { A: 'Tier A. Closest hybrids: systematic or sentiment signal plus discretionary picking', B: 'Tier B. Systematic machine-learning equity hedge funds (sentiment and other data signals)', C: 'Tier C. Discretionary tech/AI long/short specialists' };
 const landCols = [
   { key: 'name', label: 'Fund / manager', w: 15, bold: true }, { key: 'hq', label: 'HQ', w: 7 }, { key: 'aumx', label: 'AUM (as of)', w: 11 },
   { key: 'approach', label: 'Approach', w: 19 }, { key: 'sentiment_or_altdata', label: 'Sentiment / alt-data', w: 12 }, { key: 'tech_ai_focus', label: 'Tech/AI focus', w: 10 },
@@ -173,24 +173,26 @@ const landRows = tier => land.filter(r => r.tier === tier).map(r => ({ ...r,
 const landSec = [
   H1('3. Competitor landscape, re-screened (28 Oct)'),
   P([t('Benchmark used for the screen: ', { bold: true }), t('"Taranis Market Sentiment is a long/short equity fund combining a systematic sentiment-driven strategy established in 2016 with a discretionary fundamental approach focused on technology and AI disruption, introduced in December 2025. With approximately equal allocations, the fund dynamically combines quantitative discipline and fundamental stock selection."')]),
-  P('A fund qualifies if it is long/short or market-neutral equity (or, for one reference case, an AI-run macro fund), sold to professional or institutional investors, and matches at least one TMS sleeve: the systematic sentiment / alternative-data half or the discretionary tech / AI-disruption half. Funds that match both are Tier A. Closeness is our 1–5 judgement of how directly an allocator would compare the fund with TMS (5 = same niche, size and country). LinkedIn activity is the number of company-page posts in the 13 weeks 17 Jun – 17 Sep 2026, from free Crustdata counts. The five hedge funds from the 27 Oct brief are kept in Tier C and covered in depth in sections 4 and 5.'),
+  P('Scope is hedge funds only (client instruction, 28 Oct). A fund qualifies if it is a private long/short or market-neutral equity hedge fund sold to professional, qualified or institutional investors and matches at least one TMS sleeve: the systematic sentiment / alternative-data half or the discretionary tech / AI-disruption half. Funds that match both are Tier A. Diversified alternative-asset and multi-asset platforms, macro funds and UCITS liquid-alternative products are excluded (list below). For managers that also run other vehicles, only the hedge fund is considered. Closeness is our 1–5 judgement of how directly an allocator would compare the fund with TMS (5 = same niche, size and country). LinkedIn activity is the number of company-page posts in the 13 weeks 17 Jun – 17 Sep 2026, from free Crustdata counts. The five hedge funds from the 27 Oct brief are in Tier C and covered in depth in sections 4 and 5.'),
   image('k-ls.png', 700),
   caption('Crustdata company IDs are in data/tms_competitor_landscape.csv. Taranis: 2 posts (0.15 a week). ⚠ in the AUM column = the figure conflicts with another source (see below).'),
   ...['A', 'B', 'C'].flatMap(k => [H2(tierTitle[k]), table(landCols, landRows(k), { width: LAND_W, size: 14 }), spacer()]),
   H2('What the re-screen shows'),
-  bullet([t('Only a handful of funds run TMS\'s exact hybrid. ', { bold: true }), t('Symbit (Zug, launched July 2026: AI models plus discretionary research, sentiment among its inputs, professional investors only) is the closest match in size, country and design. Marshall Wace (TOPS alpha capture is a systematic read of sell-side sentiment, run alongside fundamental books) and Man Group (Numeric/AHL quant plus GLG discretionary) run the same blend at scale.')]),
-  bullet([t('The closest peers are as quiet as Taranis. ', { bold: true }), t('Symbit posted twice and Marshall Wace once in 13 weeks, the same as Taranis (2). Of the 22 funds with a matched page, 7 posted nothing. The space is open: a hybrid fund that explains its two sleeves every week would have little competition on LinkedIn.')]),
-  bullet([t('The active posters are big firms and recruit or market at firm level. ', { bold: true }), t('Man Group (75 posts, 5.8 a week), Coatue (63), Two Sigma (37; its profile says LinkedIn is for recruiting only), Altimeter (29), WorldQuant (22) and Point72 (19) account for most posts. Among sub-USD 3bn boutiques only Numerai (8), RAM AI (6) and Lakefield (5) post at all.')]),
-  bullet([t('Swiss and European boutiques are the natural shortlist for allocators comparing with TMS: ', { bold: true }), t('Symbit (Zug), Lakefield (Zurich), RAM AI (Geneva), Machina (Paris), plus the UCITS tech long/shorts Shannon River (on UBP\'s U Access platform) and Contour (Schroder GAIA). Check share classes before treating the UCITS funds as non-retail peers.')]),
+  bullet([t('Only a handful of hedge funds run TMS\'s exact hybrid. ', { bold: true }), t('Symbit (Zug, launched July 2026: AI models plus discretionary research, sentiment among its inputs, professional investors only) is the closest match in size, country and design. Marshall Wace runs the same blend at scale: TOPS alpha capture is a systematic read of sell-side sentiment, run alongside fundamental long/short books. Duo Reges (quantamental, behavioural-bias signals) is small and its current status is unverified.')]),
+  bullet([t('The closest peers are as quiet as Taranis. ', { bold: true }), t('Symbit posted twice and Marshall Wace once in 13 weeks, the same as Taranis (2). Of the 13 hedge funds with a matched page, 6 posted nothing (Machina, Voleon, Shannon River, Jericho, Light Street, Tiger Global). The space is open: a hybrid fund that explains its two sleeves every week would have little competition on LinkedIn.')]),
+  bullet([t('Only a few hedge funds post regularly, and they lead with people and theses. ', { bold: true }), t('Coatue (63 posts, 4.85 a week), Altimeter (29) and Point72 (19, firm-wide) account for most posts. Among smaller hedge funds only Numerai posts at all (8).')]),
+  bullet([t('European hedge funds most likely to be compared with TMS by allocators: ', { bold: true }), t('Symbit (Zug), Marshall Wace (London) and Machina (Paris); among US tech long/shorts, the boutique-sized Shannon River, Light Street and Jericho.')]),
   H2('Data conflicts and unverified items'),
   bullet('Whale Rock: about USD 19bn in this screen against "USD 14bn+" in Whale Rock\'s own May 2026 post used in section 4.'),
   bullet('Jericho: USD 3.97bn regulatory AUM and founded 2009 in this screen, against about USD 10.1bn (third-party estimate) and 1994 in section 4. Regulatory AUM is gross and can differ from net fund assets; check Form ADV before quoting either figure.'),
-  bullet('Unverified: Duo Reges (latest source 2021, no company page; may be inactive), Cubist AUM and key person, QRT key person, Lakefield fund size, and the date of RAM\'s AUM figure. Situational Awareness\'s LinkedIn page was not matched in Crustdata, and the fund lost about 75% of AUM in July 2026 and faces SEC subpoenas (kept only as an AI-thesis reference).'),
-  bullet('Point72\'s 19 posts and Bridgewater\'s 12 are firm-wide: Turion and AIA Labs have no pages of their own. Man Group\'s 75 include corporate and recruiting posts.'),
-  H2('Considered but excluded'),
-  bullet('BIT Capital (Berlin): "human x AI" tech investing, but the flagship is a long-only retail UCITS plus an active ETF.'),
-  bullet('AtonRâ Partners (Geneva): thematic AI & Robotics funds are long-only with retail share classes (covered in Appendix C).'),
-  bullet('D1 Capital (generalist, no quant), Kepos Capital (no 2026 AUM or hybrid evidence) and Acadian (systematic, no sentiment angle found).'),
+  bullet('Unverified: Duo Reges (latest source 2021, no company page; may be inactive). Situational Awareness\'s LinkedIn page was not matched in Crustdata, and the fund lost about 75% of AUM in July 2026 and faces SEC subpoenas (kept only as an AI-thesis reference).'),
+  bullet('Point72\'s 19 posts are firm-wide: Turion has no page of its own.'),
+  H2('Excluded: not hedge funds in scope (alternative-asset platforms, macro, UCITS)'),
+  table([{ key: 'name', label: 'Excluded', w: 26, bold: true }, { key: 'aum', label: 'AUM', w: 18 }, { key: 'reason_excluded', label: 'Why excluded', w: 40 }, { key: 'posts_13w', label: 'Posts 13 wk', w: 7, num: true }, { key: 'source', label: 'Source', w: 9 }], D('landscape_excluded'), { width: LAND_W, size: 14 }),
+  spacer(),
+  bullet('Also excluded at screening: BIT Capital (long-only retail UCITS and an active ETF), AtonRâ Partners (long-only thematic funds with retail classes), D1 Capital (generalist, no quant), Kepos Capital (no 2026 AUM or hybrid evidence) and Acadian (systematic asset manager, no sentiment angle found).'),
+
+
 ];
 
 const liveTech = live.filter(r => r.topic === 'Tech/AI');
@@ -223,7 +225,7 @@ const voiceLike = [
 const title = [
   P([t('Taranis SA · Geneva · 28 October 2026', { size: 20, color: MUTED })], { after: 600, before: 1800 }),
   new Paragraph({ children: [new TextRun({ text: 'TMS LinkedIn Competitive Review', font: 'Georgia', size: 56, color: INK })], spacing: { after: 240 } }),
-  P([t('Taranis Market Sentiment against a re-screened field of 24 hybrid, systematic and tech long/short funds, with a focus on five institutional tech hedge funds: LinkedIn activity, websites, the Monchau benchmark to 28 Oct, voices like Monchau and an operating plan', { size: 26, color: MUTED })], { after: 600 }),
+  P([t('Taranis Market Sentiment against 15 competitor hedge funds (hybrid, systematic and tech long/short), with a focus on five institutional tech hedge funds: LinkedIn activity, websites, the Monchau benchmark to 28 Oct, voices like Monchau and an operating plan', { size: 26, color: MUTED })], { after: 600 }),
   P([t('Prepared for: ', { bold: true }), t('Taranis SA (Julien Leegenhoek, CEO; marketing and investor relations)')]),
   P([t('Data window: ', { bold: true }), t('LinkedIn 17 Jun – 17 Sep 2026 (13 weeks, Crustdata index); Monchau live sample 17 Sep – 28 Oct 2026; product pages read 26–27 Oct 2026')]),
   P([t('Interactive dashboard: ', { bold: true }), t('dashboard.html (self-contained, in the same folder)')]),
@@ -236,8 +238,8 @@ const title = [
 
 const exec = [
   H1('1. Executive summary'),
-  bullet([t('Re-screened against the full TMS strategy, the competitor field has 24 funds in three tiers. ', { bold: true }), t('Tier A runs TMS\'s hybrid of a systematic or sentiment signal plus discretionary picking (Symbit, Marshall Wace, Man Group, Duo Reges). Tier B holds systematic sentiment, alternative-data and ML specialists (Lakefield, RAM AI, Machina, Numerai, Voleon, Cubist, QRT, Two Sigma, WorldQuant, Bridgewater AIA). Tier C holds discretionary tech/AI long/shorts (Point72 Turion, Situational Awareness, Coatue, Whale Rock, Altimeter, Tiger Global, Jericho, Light Street, Shannon River, Contour). The closest single match is Symbit (Zug, AI plus discretionary, launched July 2026). Section 3.')]),
-  bullet([t('The closest competitors are as silent on LinkedIn as Taranis. ', { bold: true }), t('Symbit posted 2 times in 13 weeks, Marshall Wace once and Taranis twice; 7 of the 22 matched funds posted nothing. Posting volume sits with large firms (Man Group 5.8 a week, Coatue 4.85, Two Sigma 2.85, Altimeter 2.23), much of it recruiting. A hybrid fund that explains both sleeves every week would be nearly alone.')]),
+  bullet([t('Re-screened against the full TMS strategy and limited to hedge funds, the competitor field has 15 funds in three tiers. ', { bold: true }), t('Tier A runs TMS\'s hybrid of a systematic or sentiment signal plus discretionary picking (Symbit, Marshall Wace, Duo Reges). Tier B holds systematic ML equity hedge funds (Machina, Numerai, Voleon). Tier C holds discretionary tech/AI long/shorts (Point72 Turion, Situational Awareness, Coatue, Whale Rock, Altimeter, Tiger Global, Jericho, Light Street, Shannon River). Alternative-asset and multi-asset platforms, macro funds and UCITS products (Man Group, Two Sigma, WorldQuant, QRT, Cubist, Bridgewater, Lakefield, RAM AI, Contour/Schroder GAIA) are excluded. The closest single match is Symbit (Zug, AI plus discretionary, launched July 2026). Section 3.')]),
+  bullet([t('The closest competitors are as silent on LinkedIn as Taranis. ', { bold: true }), t('Symbit posted 2 times in 13 weeks, Marshall Wace once and Taranis twice; 6 of the 13 hedge funds with a matched page posted nothing. Posting sits with a few tech hedge funds (Coatue 4.85 a week, Altimeter 2.23, Point72 1.46 firm-wide). A hybrid fund that explains both sleeves every week would be nearly alone.')]),
   bullet([t('Monchau to today (17 Sep – 28 Oct): same machine, more AI long-form. ', { bold: true }), t('A live sample of 26 posts, including the four sent by the client, shows his tech posts now centre on the Anthropic IPO, OpenAI financing and AI debt, plus three Syz notes and a LinkedIn article on AI. The client\'s four posts drew 15, 228, 58 and 112 comments; the Brazil crash post (not tech) drew the most. Section 6.')]),
   bullet([t('Nobody posts quite like Monchau. ', { bold: true }), t('The closest are tech-news curators Linas Beliūnas (15 a week, 93% tech) and Endrit Restelica (10 a week, 75% tech), and market-chart posters Liz Ann Sonders, Ryan Detrick and Mike Zaccardi (10–15 a week), all mostly in their own words. Section 7.')]),
   bullet([t('The institutional tech hedge funds barely use LinkedIn, and the ones that do lead with people. ', { bold: true }), t('Of the five, only Coatue (4.85 posts/week) and Altimeter (2.23/week) post regularly; Whale Rock posts a handful of milestones a year; Light Street and Jericho post nothing on their company pages. Coatue ties every post to a portfolio company or a founder TV clip; Altimeter runs on Brad Gerstner as a public figure; Whale Rock\'s rare posts average about 240 reactions. Taranis posts 0.15/week with about 14 reactions per company post.')]),
@@ -249,8 +251,8 @@ const exec = [
 
 const method = [
   H1('2. Scope, sources and method'),
-  bullet([t('Competitor landscape (re-screened 28 Oct against the full TMS strategy text): 24 professional or institutional long/short funds found by web research (fund sites, Form ADV aggregators, trade press), tiered by which TMS sleeve they match and scored 1–5 for closeness; LinkedIn cadence from free Crustdata counts. Every row links its source in data/tms_competitor_landscape.csv.')]),
-  bullet([t('Competitor set (updated 27 Oct at the client\'s request): five institutional, non-retail tech hedge funds: Jericho Capital, Light Street Capital, Whale Rock Capital, Coatue Management and Altimeter Capital. The earlier Swiss and UCITS peer set (AtonRâ, DECALIA, Pictet AM, Symbit, BIT Capital, Shannon River, Contour, Wellington) is kept in Appendices C–E for reference.')]),
+  bullet([t('Competitor landscape (re-screened 28 Oct against the full TMS strategy text, hedge funds only): 15 professional or institutional equity hedge funds found by web research (fund sites, Form ADV aggregators, trade press), tiered by which TMS sleeve they match and scored 1–5 for closeness; LinkedIn cadence from free Crustdata counts. Every row links its source in data/tms_competitor_landscape.csv; excluded managers and reasons are in data/landscape_excluded.csv.')]),
+  bullet([t('Focus set (27 Oct, at the client\'s request): five institutional, non-retail tech hedge funds: Jericho Capital, Light Street Capital, Whale Rock Capital, Coatue Management and Altimeter Capital. The earlier Swiss and UCITS peer set (AtonRâ, DECALIA, Pictet AM, BIT Capital, Contour, Wellington) is no longer in this report because those are long-only or UCITS products, not hedge funds; it remains in the earlier reports and CSVs.')]),
   bullet([t('LinkedIn: Crustdata /social_post/search. Cadence from free limit=0 count queries (actor id + actor type + date window 17 Jun – 17 Sep 2026); engagement and text from small paid pulls of top posts (about 68 credits across four rounds). Every query is logged in the companion CSVs.')]),
   bullet([t('Product pages: read with TinyFish (fetch and browser runs through Swiss qualified/professional-investor gates) and plain fetches on 26–27 Oct 2026; facts not on a page were taken from public factsheets or FT and are labelled as such.')]),
   bullet([t('Dates: every post\'s true date is decoded from its LinkedIn activity ID (id >> 22 = milliseconds since epoch), because the index\'s own dates are imputed for older posts and can drift by up to four weeks even in 2026.')]),
@@ -258,9 +260,9 @@ const method = [
   bullet('Live posts after 17 Sep (Monchau sample) come from public post pages, which show comments but not reactions to logged-out readers, so they cannot be compared with indexed reaction counts.'),
   bullet('Crustdata credits: the balance fell from about 2.25 to 1.75 between rounds without a matching paid call in our log; the 28 Oct counts were all free (limit=0). Several calls dropped mid-reply and were repeated once.'),
   bullet('The Crustdata index ends around 17 Sep 2026 (only 471 posts platform-wide are dated after 18 Sep). LinkedIn\'s login wall blocked a live refresh with TinyFish, so posts after mid-September are not counted.'),
-  bullet([t('AtonRâ shows 0 posts in the window, but this is an index gap: Crustdata entity 985778 is the right page, a live company post dated 30 Sep 2026 exists ('), link('https://www.linkedin.com/posts/atonra_invest-with-proof-not-faith-activity-7511080011416875008-nFgh', 'post'), t('), and atonra.ch published nine dated research notes between 2 Jul and 29 Sep 2026 ('), link('https://www.atonra.ch/investment-research', 'research hub'), t('). Its 2025 same-window rate (15 posts, 1.15/week) is used as the estimate.')]),
-  bullet('Contour, Jericho and Shannon River read 0, and live web searches on 27 Oct found no posts of their own (only employee profiles and third-party press posts), so they are genuinely quiet rather than under-indexed.'),
-  bullet('Pictet and DECALIA counts include corporate content (results, hires, interns, events). Topic shares are keyword matches; themes overlap and chart-only posts are missed.'),
+
+  bullet('Jericho, Light Street and Shannon River read 0, and live web searches on 27 Oct found no posts of their own (only employee profiles and third-party press posts), so they are genuinely quiet rather than under-indexed.'),
+  bullet('Topic shares are keyword matches; themes overlap and chart-only posts are missed.'),
   bullet('The index\'s "repost" label reflects how a post was crawled, not curation; curation is measured from "Source" credits in the text.'),
   bullet('Post images are linked, not embedded. Follower counts are mostly unavailable (Taranis 1,976 from the index; Monchau\'s 290,000+ is from a search snippet and unverified).'),
   bullet('Items from the brief that could not be reproduced are labelled where they appear: Monchau\'s Sep 1–16 hand-coded topic counts and format medians are shown as reference values; the "Anthropic conspiracy theories" post was not found (the index match was a Fort Knox post); the JPM "AI borrowers" post shows 1 share in the index, so "most-shared" is not borne out.'),
@@ -370,37 +372,35 @@ const recSec = [
   H2('Recommendations'),
   numbered([t('Lead through Julien Leegenhoek, Altimeter-style. ', { bold: true }), t('Make the founder the public face: his BFM appearances cut into 60–90s clips with one quoted line (Altimeter\'s Gerstner clips draw 120+), plus a clear stance on the AI cycle. A partner (e.g. Antoine Megarbane) interviews companies or allocators, as Altimeter\'s partners do. Evidence: Taranis page 14 vs Julien 64; Symbit page 0 vs founder 108.')]),
   numbered([t('One-line thesis plus a chart, Coatue-style. ', { bold: true }), t('Every post opens with a single claim ("Intelligence is becoming a utility you pay for monthly") and carries one chart or clip. The Monday TMS sentiment-gauge chart is the signature format no peer can copy.')]),
-  numbered([t('Cadence: 3–5 posts a week, not Monchau\'s 81. ', { bold: true }), t('About 3 from Julien and 2 from the company page puts Taranis between Altimeter (2.2/week) and Coatue (4.85/week), and above DECALIA (2.3/week), the Swiss boutique bar.')]),
+  numbered([t('Cadence: 3–5 posts a week, not Monchau\'s 81. ', { bold: true }), t('About 3 from Julien and 2 from the company page puts Taranis between Altimeter (2.2/week) and Coatue (4.85/week).')]),
   numbered([t('Milestones as events, Whale Rock-style. ', { bold: true }), t('Treat awards, anniversaries, conference talks and podcasts as posts with a thesis and a number; Whale Rock\'s rare posts average about 240 reactions and its 20th-anniversary letter drew 709.')]),
   numbered([t('Own voice over curation, with tech as the core lane. ', { bold: true }), t('About 80/20 original to curated. Monchau\'s tech posts beat his average only slightly and his own-view posts rarely travel; the high-frequency tech voices (Mollick, Pandey) grow on first-person explainers. Post in English first, French second.')]),
-  numbered([t('Claim the hybrid niche before Symbit does. ', { bold: true }), t('The funds closest to TMS (Symbit, Marshall Wace, Duo Reges) are nearly invisible on LinkedIn. A recurring post that shows both sleeves, such as "what the sentiment model says this week, and what our AI-disruption analysts think of it", is a format no direct competitor publishes. Man Group (5.8 posts a week) shows a large hybrid manager can explain quant and discretionary side by side.')]),
+  numbered([t('Claim the hybrid niche before Symbit does. ', { bold: true }), t('The funds closest to TMS (Symbit, Marshall Wace, Duo Reges) are nearly invisible on LinkedIn. A recurring post that shows both sleeves, such as "what the sentiment model says this week, and what our AI-disruption analysts think of it", is a format no direct competitor publishes. Coatue (4.85 posts a week) shows that a hedge fund which pairs data science with discretionary picking can explain both in public.')]),
   numbered([t('Fix the product page before pushing traffic. ', { bold: true }), t('State the two sleeves and their weights, name the PMs, add vehicle, ISIN, fees and liquidity, put a factsheet behind the existing gate and add a "request factsheet / book a call" CTA; relabel the "Managed Futures" award. Coatue shows how an insights hub can sit next to a gated investor area.')]),
   numbered([t('Compliant by design. ', { bold: true }), t('A one-line risk warning on fund posts, no performance numbers in posts, and one Compliance pre-approval of the weekly chart template.')]),
   H2('Operating plan'),
   table([{ key: 'lever', label: 'Lever', w: 18, bold: true }, { key: 'recommendation', label: 'Recommendation', w: 38 }, { key: 'target_posts_per_week', label: 'Target / week', w: 9, num: true }, { key: 'evidence', label: 'Evidence', w: 30 }], plan),
   spacer(),
-  P([t('Measure monthly: ', { bold: true }), t('re-run the free count queries (count_queries.csv, count_queries_swiss.csv) once the index catches up. Three-month targets: company page at least 2.3 posts a week; Julien at least 1 original thesis a week; median at least 25 reactions on Julien\'s originals (Pictet\'s company-page median).')]),
+  P([t('Measure monthly: ', { bold: true }), t('re-run the free count queries (count_queries.csv, count_queries_swiss.csv) once the index catches up. Three-month targets: company page at least 2 posts a week; Julien at least 1 original thesis a week; median at least 25 reactions on Julien\'s originals (Altimeter\'s company page runs at about 40).')]),
 ];
 
+const nonHF = /AtonR|Wellington|Pictet|DECALIA|Schroders|BIT Capital|Quirighetti|Beckers|Victor Marchand|Tony Guida/;
+const rawHF = raw.filter(r => !nonHF.test(r.author));
 const rawSec = [
   H1('Appendix A. Raw posts'),
-  P(`All ${raw.length} posts pulled for this review, sorted by author. True dates are decoded from LinkedIn activity IDs. Text is truncated; the full CSV is data/posts_raw_all.csv.`),
+  P(`${rawHF.length} posts used in this report (Taranis, the hedge funds, Monchau and the comparison voices). True dates are decoded from LinkedIn activity IDs. Text is truncated. data/posts_raw_all.csv also keeps the ${raw.length - rawHF.length} posts of the earlier long-only and UCITS peer set, which this report no longer covers.`),
   table([{ key: 'author', label: 'Author', w: 18, bold: true }, { key: 'true_date_utc', label: 'Date', w: 9 }, { key: 'format', label: 'Format', w: 7 }, { key: 'reactions', label: 'React.', w: 6, num: true }, { key: 'comments', label: 'Com.', w: 5, num: true }, { key: 'shares', label: 'Shr.', w: 5, num: true }, { key: 'text', label: 'Text (truncated)', w: 42 }, { key: 'url', label: 'Link', w: 8, linkLabel: postLabel }],
-    raw.map(r => ({ ...r, text: r.text.length > 160 ? r.text.slice(0, 157) + '…' : r.text })), { width: LAND_W, size: 14, hl: r => /Taranis|Leegenhoek/.test(r.author) }),
+    rawHF.map(r => ({ ...r, text: r.text.length > 160 ? r.text.slice(0, 157) + '…' : r.text })), { width: LAND_W, size: 14, hl: r => /Taranis|Leegenhoek/.test(r.author) }),
 ];
 
 const srcSec = [
   H1('Appendix B. Key sources'),
   ...[
     ['Taranis TMS page (gated)', 'https://taranis.net/investment/tms'], ['Taranis investment overview', 'https://taranis.net/investment'],
-    ['AtonRâ AI & Robotics', 'https://www.atonra.ch/investment-funds/ai-robotics'], ['AtonRâ research hub', 'https://www.atonra.ch/investment-research'],
-    ['DECALIA Future SOCIETY factsheet', 'https://funds-static.pictet.com/funds/decalia/factsheet/MR_ES_en_LU2407358063_YES_2026-05-31.pdf'], ['DECALIA PM interview (finews)', 'https://www.finews.com/news/english-news/74003-decalia-future-society-fund-interview-quirien-lemey-iana-perova'],
-    ['Pictet Robotics', 'https://am.pictet.com/ch/en/intermediaries/funds/pictet-robotics/LU1279334210'], ['Pictet TR-Atlas Titan', 'https://am.pictet.com/ch/en/institutions/funds/pictet-tr-atlas-titan/LU2206555984'],
-    ['Symbit launch (Hedgeweek)', 'https://hedgeweek.com/news/new-york-investment-veterans-launch-ai-native-hedge-fund-in-switzerland'], ['BIT Global Technology Opportunities', 'https://bitcap.com/en/fonds/bit-global-technology-opportunities'],
-    ['U Access (IRL) Shannon River UCITS (UBP)', 'https://www.ubp.com/en/asset-management/funds/ie00bkdrxc08'], ['Contour Asset Management', 'https://www.contourasset.com/index'],
-    ['Schroder GAIA Contour Tech Equity (finanzen.ch)', 'https://www.finanzen.ch/fonds/schroder-gaia-contour-tech-equity-a1-lu1725199464'], ['Jericho Capital', 'https://www.jerichocap.com'],
-    ['Wellington DTI launch (Investment Week)', 'https://www.investmentweek.co.uk/news/4014116/wellington-launches-long-short-disruptive-tech-fund'], ['Crustdata pricing / API', 'https://docs.crustdata.com/general/pricing'],
-  ].map(([l, u]) => bullet([t(l + ': '), link(u, host(u) + new URL(u).pathname.slice(0, 60))])),
+    ...hfc.map(r => [r.fund + ' (website)', r.site]),
+    ...land.flatMap(r => String(r.source).split(' ; ').filter(isUrl).slice(0, 1).map(u => [r.name.replace(/ \(.*$/, '') + ' (screen source)', u.trim()])),
+    ['Crustdata pricing / API', 'https://docs.crustdata.com/general/pricing'],
+  ].filter(([, u]) => isUrl(u)).map(([l, u]) => bullet([t(l + ': '), link(u, host(u) + new URL(u).pathname.slice(0, 60))])),
 ];
 
 
@@ -433,7 +433,6 @@ const doc = new Document({
     sec(portrait, recSec),
     sec(landscape, rawSec),
     sec(portrait, srcSec),
-    sec(landscape, [...set, ...pagesSec, ...liSec]),
   ],
 });
 

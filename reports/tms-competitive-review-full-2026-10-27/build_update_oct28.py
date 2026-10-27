@@ -1,9 +1,9 @@
-"""28 Oct update: re-screened TMS competitor landscape with LinkedIn cadence.
+"""28 Oct update: re-screened TMS competitor landscape (hedge funds only) with LinkedIn cadence.
 
 Inputs: the landscape screen (scratchpad landscape.csv, copied to data/landscape_screen_raw.csv)
 plus free Crustdata limit=0 counts of company-page posts dated 17 Jun 2026 onwards
 (the index ends ~17 Sep 2026, so the window is 13 weeks).
-Writes data/tms_competitor_landscape.csv and renders the update chart page.
+Writes data/tms_competitor_landscape.csv, data/landscape_excluded.csv and renders the update chart page.
 usage: python3 build_update_oct28.py
 """
 import csv, json, os
@@ -47,6 +47,35 @@ CONFLICTS = {
     "Coatue Management": "AUM vs RAUM differ (gross vs net)",
 }
 
+# Hedge funds only (client, 28 Oct): drop diversified alternative-asset / multi-asset platforms,
+# macro funds and UCITS liquid-alternative products. Kept firms are shown by their hedge fund only.
+EXCLUDED = {
+    "Man Group": "Listed diversified alternative-asset manager (public and private markets, all asset classes)",
+    "Bridgewater AIA Labs": "Global macro, not an equity hedge fund; Bridgewater is a multi-asset manager",
+    "Qube Research & Technologies": "Multi-strategy, multi-asset quant platform",
+    "Two Sigma": "Multi-asset quantitative investment manager",
+    "WorldQuant": "Multi-asset quantitative platform",
+    "Cubist Systematic Strategies": "Multi-asset systematic unit inside Point72's multi-manager",
+    "Lakefield Swiss Equity Long/Short": "UCITS liquid-alternative product, possibly retail-accessible",
+    "RAM (Lux) Systematic": "UCITS liquid-alternative product",
+    "Schroder GAIA Contour Tech Equity": "UCITS liquid-alternative product with retail share classes",
+}
+RENAME = {
+    "Marshall Wace": "Marshall Wace (MW TOPS / Eureka hedge funds)",
+    "Machina Capital": "Machina Capital (flagship equity market-neutral hedge fund)",
+    "Shannon River": "Shannon River (hedge fund)",
+}
+# vehicle as hedge fund only (UCITS / interval / private-market wrappers removed)
+VEHICLE = {
+    "Marshall Wace": "Hedge fund LPs",
+    "Machina Capital": "Hedge fund",
+    "Shannon River": "Hedge fund LP",
+    "Coatue Management": "Hedge fund LPs",
+    "Light Street Capital": "Hedge fund LP",
+    "Altimeter Capital": "Hedge fund LP",
+    "Tiger Global Management": "Hedge fund LP",
+}
+
 
 def key_for(name):
     for k in LINKEDIN:
@@ -57,9 +86,15 @@ def key_for(name):
 
 def main():
     rows = list(csv.DictReader(open(os.path.join(DATA, "landscape_screen_raw.csv"), encoding="utf-8")))
-    out = []
+    out, dropped = [], []
     for r in rows:
-        cid, n, note = LINKEDIN[key_for(r["name"])]
+        k = key_for(r["name"])
+        if k in EXCLUDED:
+            dropped.append({"tier": r["tier"], "name": r["name"], "manager": r["manager"], "aum": r["aum"], "reason_excluded": EXCLUDED[k],
+                            "company_linkedin": r["company_linkedin"], "posts_13w": LINKEDIN[k][1], "source": r["source"]})
+            continue
+        r["name"] = RENAME.get(k, r["name"])
+        cid, n, note = LINKEDIN[k]
         out.append({
             "tier": r["tier"],
             "tier_label": {"A": "Hybrid systematic + discretionary", "B": "Systematic sentiment / alt-data / ML", "C": "Discretionary tech/AI L/S"}[r["tier"]],
@@ -67,7 +102,7 @@ def main():
             "aum": r["aum"], "aum_date": r["aum_date"], "aum_source": r["aum_source"],
             "aum_conflict": CONFLICTS.get(key_for(r["name"]), ""),
             "approach": r["approach"], "sentiment_or_altdata": r["sentiment_or_altdata"], "tech_ai_focus": r["tech_ai_focus"],
-            "vehicle": r["vehicle"], "investor_type": r["investor_type"], "why_comparable": r["why_comparable"],
+            "vehicle": VEHICLE.get(key_for(r["name"]), r["vehicle"]), "investor_type": r["investor_type"], "why_comparable": r["why_comparable"],
             "closeness_1to5": r["closeness_1to5"],
             "company_linkedin": r["company_linkedin"], "crustdata_id": cid or "",
             "posts_13w": "" if n is None else n,
@@ -79,7 +114,10 @@ def main():
     with open(os.path.join(DATA, "tms_competitor_landscape.csv"), "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=list(out[0]))
         w.writeheader(); w.writerows(out)
-    print("landscape rows", len(out))
+    with open(os.path.join(DATA, "landscape_excluded.csv"), "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=list(dropped[0]))
+        w.writeheader(); w.writerows(dropped)
+    print("hedge funds kept", len(out), "excluded", len(dropped))
 
     # merge the live Monchau sample and the voices' sample posts into the raw post file (dedupe by URL)
     raw_path = os.path.join(DATA, "posts_raw_all.csv")
