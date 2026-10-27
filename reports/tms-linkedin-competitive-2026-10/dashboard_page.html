@@ -13,7 +13,7 @@
 .tx-sec { display: grid; gap: var(--cds-gap-md); }
 .tx-sec > h2 { font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); margin: 0; }
 .tx-sec > p.note { margin: 0; color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); max-width: 80ch; }
-.tx-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: var(--cds-gap-md); }
+.tx-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr)); gap: var(--cds-gap-md); }
 .tx-card { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-lg); display: grid; gap: var(--cds-gap-sm); min-width: 0; align-content: start; }
 .tx-card h3 { margin: 0; font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); }
 .tx-card .cap { margin: 0; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
@@ -90,7 +90,7 @@
       </div>
       <div class="tx-card">
         <h3>Format mix</h3>
-        <p class="cap">Share of each firm's posts by format.</p>
+        <p class="cap">Share of each firm's posts by format. DECALIA in blue, Pictet in green.</p>
         <div class="tx-chart" id="ch-swformats" data-source="swiss_formats"></div>
       </div>
       <div class="tx-card">
@@ -388,7 +388,7 @@ dash.calc('curatedShare', {
         if (numCols.has(c)) td.className = 'n';
         if (linkCols.has(c) && /^https?:\/\//.test(v)) {
           const a = document.createElement('a'); a.href = v; a.target = '_blank'; a.rel = 'noopener';
-          a.textContent = c === 'url' || c === 'best_post_url' ? 'Open post' : (new URL(v)).hostname.replace('www.', '');
+          a.textContent = c === 'url' || c === 'best_post_url' ? (/\/company\/[^/]+\/?$/.test(v) ? 'Open page' : 'Open post') : (new URL(v)).hostname.replace('www.', '');
           td.appendChild(a);
         } else td.textContent = pctCols.has(c) && v !== '' ? fmt.pct(+v) : v;
         tr.appendChild(td);
@@ -441,11 +441,11 @@ dash.calc('curatedShare', {
     const sf = dash.data('swiss_formats'), sfb = document.getElementById('ch-swformats');
     if (sf.status === 'ok') {
       const tot = d3.rollup(sf.data, v => d3.sum(v, r => +r.posts), r => r.firm);
-      hbar(sfb, sf.data.map(r => ({ label: `${r.firm} · ${r.format}`, value: +r.posts / tot.get(r.firm), color: firmColor(r.firm), text: fmt.pct(+r.posts / tot.get(r.firm)), tipText: `${fmt.int(+r.posts)} of ${fmt.int(tot.get(r.firm))} posts` })), { tick: fmt.pct, max: 1, bar: 14, gap: 6 });
+      hbar(sfb, sf.data.map(r => ({ label: `${r.firm.replace(' AM', '')} · ${r.format}`, value: +r.posts / tot.get(r.firm), color: firmColor(r.firm), text: fmt.pct(+r.posts / tot.get(r.firm)), tipText: `${fmt.int(+r.posts)} of ${fmt.int(tot.get(r.firm))} posts` })), { tick: fmt.pct, max: 1, bar: 14, gap: 6 });
     } else if (sf.status === 'error') failed(sfb); else sfb.replaceChildren();
 
     const st = dash.data('swiss_topics'), stb = document.getElementById('ch-swtopics');
-    if (st.status === 'ok') hbar(stb, st.data.map(r => ({ label: `${r.firm} · ${r.topic}`, value: +r.share, color: firmColor(r.firm), text: fmt.pct(+r.share), tipText: `${fmt.int(+r.posts)} posts · ${r.keywords}` })), { tick: fmt.pct, max: 0.6, bar: 14, gap: 6 });
+    if (st.status === 'ok') hbar(stb, st.data.map(r => ({ label: `${r.firm.replace(' AM', '')} · ${r.topic.replace(' / HR / events', ' / events')}`, value: +r.share, color: firmColor(r.firm), text: fmt.pct(+r.share), tipText: `${fmt.int(+r.posts)} posts · ${r.keywords}` })), { tick: fmt.pct, max: 0.6, bar: 14, gap: 6 });
     else if (st.status === 'error') failed(stb); else stb.replaceChildren();
 
     table('tbl-swpages', 'swiss_pages', ['attribute', 'atonra', 'decalia', 'pictet', 'taranis', 'src_atonra', 'src_decalia', 'src_pictet', 'src_taranis']);
@@ -481,7 +481,7 @@ dash.calc('curatedShare', {
     const f = dash.data('monchau_format');
     const fb = document.getElementById('ch-format'), fm = document.getElementById('ch-formatmix');
     if (f.status === 'ok') {
-      vbar(fb, f.data.map(r => ({ label: r.format, value: +r.share_ge25, text: fmt.pct(+r.share_ge25), tipText: `${fmt.pct1(+r.share_ge25)} · ${fmt.int(+r.original_posts_ge25)} of ${fmt.int(+r.original_posts)} posts` })), { tick: fmt.pct, color: dash.colors[0] });
+      vbar(fb, f.data.map(r => ({ label: r.format.replace(' (carousel/PDF)', ''), value: +r.share_ge25, text: fmt.pct(+r.share_ge25), tipText: `${fmt.pct1(+r.share_ge25)} · ${fmt.int(+r.original_posts_ge25)} of ${fmt.int(+r.original_posts)} posts` })), { tick: fmt.pct, color: dash.colors[0] });
       const tot = d3.sum(f.data, r => +r.original_posts);
       hbar(fm, f.data.map(r => ({ label: r.format, value: +r.original_posts / tot, color: dash.colors[2], text: fmt.pct(+r.original_posts / tot), tipText: `${fmt.int(+r.original_posts)} posts` })), { tick: fmt.pct, max: 1, bar: 22, gap: 12 });
     } else if (f.status === 'error') { failed(fb); failed(fm); } else { fb.replaceChildren(); fm.replaceChildren(); }
