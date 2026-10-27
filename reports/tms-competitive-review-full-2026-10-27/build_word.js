@@ -97,7 +97,7 @@ const hfSamples = (fund) => table([{ key: 'author', label: 'Author', w: 16, bold
   hfp.filter(r => r.author.startsWith(fund.split(' ')[0]) || (fund === 'Altimeter Capital' && /Gerstner/.test(r.author)) || (fund === 'Light Street Capital' && /Kacher/.test(r.author))), { width: LAND_W, size: 15 });
 
 const hfSet = [
-  H1('3. Competitor set: institutional tech hedge funds'),
+  H1('4. Focus set: five institutional tech hedge funds'),
   P('At the client\'s request the competitor set is now five institutional (non-retail) technology hedge funds. All are US-based and far larger than Taranis, so they are benchmarks for positioning and communication rather than like-for-like rivals. AUM figures come from regulatory filings or aggregators and are not comparable across firms (regulatory AUM, 13F long book and firm-stated AUM measure different things).'),
   table([{ key: 'fund', label: 'Fund', w: 12, bold: true }, { key: 'hq', label: 'HQ', w: 9 }, { key: 'founded', label: 'Founded', w: 6 }, { key: 'aum', label: 'AUM (as reported)', w: 20 }, { key: 'aum_source', label: 'AUM source', w: 8 }, { key: 'strategy', label: 'Strategy', w: 20 }, { key: 'founder', label: 'Founder / CIO', w: 10 }, { key: 'founder_linkedin', label: 'Founder LinkedIn', w: 8, linkLabel: () => 'Profile' }, { key: 'linkedin', label: 'Company LinkedIn', w: 8, linkLabel: () => 'Page' }],
     hfc, { width: LAND_W, size: 15 }),
@@ -110,7 +110,7 @@ const hfSet = [
 ];
 
 const hfLi = [
-  H1('4. LinkedIn activity of the hedge funds (17 Jun – 17 Sep 2026)'),
+  H1('5. LinkedIn activity of the hedge funds (17 Jun – 17 Sep 2026)'),
   P('Company-page cadence and typical reactions, then a sample of posts and the strong points for each fund. "Last three months" means the last three months in the Crustdata index, which ends around 17 Sep 2026; LinkedIn\'s login wall blocked a live refresh.'),
   image('k-hf.png', 620),
   image('k-hfe.png', 620),
@@ -155,13 +155,77 @@ const voiceTech = [
 ];
 
 
+// ---------- 28 Oct update: re-screened landscape, Monchau live sample, voices like Monchau
+const land = D('tms_competitor_landscape'), live = D('monchau_live_sep17_oct28'), vlm = D('voices_like_monchau');
+const tierTitle = { A: 'Tier A. Closest hybrids: systematic or sentiment signal plus discretionary picking', B: 'Tier B. Systematic sentiment, alternative-data and machine-learning specialists', C: 'Tier C. Discretionary tech/AI long/short specialists' };
+const landCols = [
+  { key: 'name', label: 'Fund / manager', w: 15, bold: true }, { key: 'hq', label: 'HQ', w: 7 }, { key: 'aumx', label: 'AUM (as of)', w: 11 },
+  { key: 'approach', label: 'Approach', w: 19 }, { key: 'sentiment_or_altdata', label: 'Sentiment / alt-data', w: 12 }, { key: 'tech_ai_focus', label: 'Tech/AI focus', w: 10 },
+  { key: 'investor_type', label: 'Investors', w: 8 }, { key: 'closeness_1to5', label: 'Close-ness (1–5)', w: 5, num: true },
+  { key: 'li', label: 'Posts 13 wk (per wk)', w: 7, num: true }, { key: 'company_linkedin', label: 'LinkedIn', w: 6, linkLabel: () => 'Page' }, { key: 'aum_source', label: 'Source', w: 8 },
+];
+const landRows = tier => land.filter(r => r.tier === tier).map(r => ({ ...r,
+  name: r.name + (r.manager && !r.name.startsWith(r.manager.split(' ')[0]) ? ' (' + r.manager + ')' : ''),
+  aumx: r.aum + ' (' + r.aum_date + ')' + (r.aum_conflict ? ' ⚠' : ''),
+  li: r.posts_13w === '' ? 'n/a' : r.posts_13w + ' (' + (+r.posts_per_week).toFixed(2) + ')',
+  company_linkedin: isUrl(r.company_linkedin) ? r.company_linkedin : 'none found' }));
+
+const landSec = [
+  H1('3. Competitor landscape, re-screened (28 Oct)'),
+  P([t('Benchmark used for the screen: ', { bold: true }), t('"Taranis Market Sentiment is a long/short equity fund combining a systematic sentiment-driven strategy established in 2016 with a discretionary fundamental approach focused on technology and AI disruption, introduced in December 2025. With approximately equal allocations, the fund dynamically combines quantitative discipline and fundamental stock selection."')]),
+  P('A fund qualifies if it is long/short or market-neutral equity (or, for one reference case, an AI-run macro fund), sold to professional or institutional investors, and matches at least one TMS sleeve: the systematic sentiment / alternative-data half or the discretionary tech / AI-disruption half. Funds that match both are Tier A. Closeness is our 1–5 judgement of how directly an allocator would compare the fund with TMS (5 = same niche, size and country). LinkedIn activity is the number of company-page posts in the 13 weeks 17 Jun – 17 Sep 2026, from free Crustdata counts. The five hedge funds from the 27 Oct brief are kept in Tier C and covered in depth in sections 4 and 5.'),
+  image('k-ls.png', 700),
+  caption('Crustdata company IDs are in data/tms_competitor_landscape.csv. Taranis: 2 posts (0.15 a week). ⚠ in the AUM column = the figure conflicts with another source (see below).'),
+  ...['A', 'B', 'C'].flatMap(k => [H2(tierTitle[k]), table(landCols, landRows(k), { width: LAND_W, size: 14 }), spacer()]),
+  H2('What the re-screen shows'),
+  bullet([t('Only a handful of funds run TMS\'s exact hybrid. ', { bold: true }), t('Symbit (Zug, launched July 2026: AI models plus discretionary research, sentiment among its inputs, professional investors only) is the closest match in size, country and design. Marshall Wace (TOPS alpha capture is a systematic read of sell-side sentiment, run alongside fundamental books) and Man Group (Numeric/AHL quant plus GLG discretionary) run the same blend at scale.')]),
+  bullet([t('The closest peers are as quiet as Taranis. ', { bold: true }), t('Symbit posted twice and Marshall Wace once in 13 weeks, the same as Taranis (2). Of the 22 funds with a matched page, 7 posted nothing. The space is open: a hybrid fund that explains its two sleeves every week would have little competition on LinkedIn.')]),
+  bullet([t('The active posters are big firms and recruit or market at firm level. ', { bold: true }), t('Man Group (75 posts, 5.8 a week), Coatue (63), Two Sigma (37; its profile says LinkedIn is for recruiting only), Altimeter (29), WorldQuant (22) and Point72 (19) account for most posts. Among sub-USD 3bn boutiques only Numerai (8), RAM AI (6) and Lakefield (5) post at all.')]),
+  bullet([t('Swiss and European boutiques are the natural shortlist for allocators comparing with TMS: ', { bold: true }), t('Symbit (Zug), Lakefield (Zurich), RAM AI (Geneva), Machina (Paris), plus the UCITS tech long/shorts Shannon River (on UBP\'s U Access platform) and Contour (Schroder GAIA). Check share classes before treating the UCITS funds as non-retail peers.')]),
+  H2('Data conflicts and unverified items'),
+  bullet('Whale Rock: about USD 19bn in this screen against "USD 14bn+" in Whale Rock\'s own May 2026 post used in section 4.'),
+  bullet('Jericho: USD 3.97bn regulatory AUM and founded 2009 in this screen, against about USD 10.1bn (third-party estimate) and 1994 in section 4. Regulatory AUM is gross and can differ from net fund assets; check Form ADV before quoting either figure.'),
+  bullet('Unverified: Duo Reges (latest source 2021, no company page; may be inactive), Cubist AUM and key person, QRT key person, Lakefield fund size, and the date of RAM\'s AUM figure. Situational Awareness\'s LinkedIn page was not matched in Crustdata, and the fund lost about 75% of AUM in July 2026 and faces SEC subpoenas (kept only as an AI-thesis reference).'),
+  bullet('Point72\'s 19 posts and Bridgewater\'s 12 are firm-wide: Turion and AIA Labs have no pages of their own. Man Group\'s 75 include corporate and recruiting posts.'),
+  H2('Considered but excluded'),
+  bullet('BIT Capital (Berlin): "human x AI" tech investing, but the flagship is a long-only retail UCITS plus an active ETF.'),
+  bullet('AtonRâ Partners (Geneva): thematic AI & Robotics funds are long-only with retail share classes (covered in Appendix C).'),
+  bullet('D1 Capital (generalist, no quant), Kepos Capital (no 2026 AUM or hybrid evidence) and Acadian (systematic, no sentiment angle found).'),
+];
+
+const liveTech = live.filter(r => r.topic === 'Tech/AI');
+const monLive = [
+  H2('Update to today: live posts 17 Sep – 28 Oct 2026'),
+  P('The Crustdata index stops around 17 Sep, so posts from 17 Sep to 28 Oct were collected from public LinkedIn post pages found by web search, plus the four links sent by the client. True dates are decoded from each post\'s activity ID. Logged-out pages show the comment count but not reactions, so engagement here is comments only.'),
+  P([t('This is a sample, not a census. ', { bold: true }), t(`At about 11 posts a day he likely published 450 or more posts in these six weeks; the ${live.length} found here (${liveTech.length} tech/AI) were located with tech-oriented searches, so they show what his tech posts look like now, not his topic mix. The window share of tech posts (26%) is still the best estimate of the mix.`)]),
+  table([{ key: 'true_date_utc', label: 'Date', w: 9 }, { key: 'topic', label: 'Topic', w: 8 }, { key: 'format', label: 'Format', w: 11 }, { key: 'source_credited', label: 'Credits a source', w: 7 }, { key: 'comments', label: 'Com.', w: 6, num: true }, { key: 'text', label: 'Post (opening)', w: 45 }, { key: 'url', label: 'Link', w: 8, linkLabel: () => 'Open post' }],
+    live.map(r => ({ ...r, comments: r.comments || '–', text: (/Client/.test(r.how_found) ? '★ ' : '') + (r.text.length > 150 ? r.text.slice(0, 147) + '…' : r.text) })), { size: 14, hl: r => /Client/.test(r.how_found) }),
+  caption('★ and shading = the four posts sent by the client (lnkd.in/p/euC99Vsd, eJRUivkH, ewj6HKDZ, eg9U9XrY). "–" = comment count not shown on the public page.'),
+  P([t('Reading: ', { bold: true }), t('The four client posts drew 15 (Anthropic S-1 cash), 228 (Brazil market crash), 58 (gold) and 112 (Musk on neocloud debt) comments. Two of the four are not tech, and the non-tech Brazil post drew the most comments of anything in the sample. Among tech posts, the ones that drew comments combine a famous name and a market consequence: Musk on debt markets (112), Altman and Amodei (35), Michael Burry covering shorts (26), Jensen Huang (26).')]),
+  P([t('What changed since September: ', { bold: true }), t('his tech posting now centres on the Anthropic IPO and results, OpenAI financing, AI debt and credit risk, and Nvidia and Micron cash flows. He also publishes more of his own long-form work on AI: three Syz notes ("Anthropic Q3: Spectacular Numbers…", "AI: bubble, super-cycle, or both?", the 17 Oct weekly wrap on AI debt fears) and a LinkedIn article on investing in AI without over-concentration. That is the format TMS could match most directly: an own view on AI disruption, backed by a chart.')]),
+  P([t('Credits: ', { bold: true }), t(`${liveTech.filter(r => r.source_credited === 'yes').length} of the ${liveTech.length} tech posts in the sample credit a source, below his 85% in the window, because the search surfaced more of his own commentary and Syz notes. Treat this as a sampling effect, not a change in style.`)]),
+];
+
+const voiceLike = [
+  H2('Who posts most like Monchau? (re-screened)'),
+  P('The 27 Oct list was chosen for fame in tech; none of those voices curates markets the way Monchau does. The re-screen looks for his three traits together: a very high post rate, chart- or news-led market posts, and credited sources. Nobody combines all three. The closest fall into two groups.'),
+  image('k-vl.png', 620),
+  table([{ key: 'name', label: 'Voice', w: 13, bold: true }, { key: 'ppw', label: 'Posts / week', w: 6, num: true }, { key: 'tech', label: 'Tech share', w: 6, num: true }, { key: 'cred', label: 'Credits a source', w: 6, num: true }, { key: 'style', label: 'Style', w: 20 }, { key: 'similar_on', label: 'Like Monchau in', w: 16 }, { key: 'different_on', label: 'Unlike Monchau in', w: 14 }, { key: 'sample_reactions', label: 'Sample post reactions', w: 7, num: true }, { key: 'sample_url', label: 'Sample', w: 6, linkLabel: () => 'Open post' }, { key: 'profile_url', label: 'Profile', w: 6, linkLabel: () => 'Profile' }],
+    vlm.map(r => ({ ...r, ppw: r.posts_per_week, tech: r.tech_share === '' ? 'n/a' : Math.round(100 * r.tech_share) + '%', cred: r.credit_share === '' ? 'n/a' : Math.round(100 * r.credit_share) + '%', sample_url: r.sample_url || '–' })),
+    { width: LAND_W, size: 14, hl: r => /Monchau/.test(r.name) }),
+  caption('Counts: Crustdata, 17 Jun – 17 Sep 2026, by profile URL (free). Tech and credit shares: keyword and "Source/via/credit" matches on each voice\'s posts in the window. Lacalle and Feroldi post too rarely for the share measures. Sample reactions are from the index.'),
+  bullet([t('Tech-news curators (closest in topic): ', { bold: true }), t('Linas Beliūnas (15 a week, 93% tech) and Endrit Restelica (10 a week, 75% tech) post "BREAKING"-style news hooks with a short explainer, Monchau\'s format, but credit sources in only 19% and 5% of posts. Eduardo Ordax, Brij Kishore Pandey and Pascal Bornet are tech-heavy but write explainers or share clips.')]),
+  bullet([t('Market-chart posters (closest in audience): ', { bold: true }), t('Liz Ann Sonders (14.5 a week), Ryan Detrick (10.8), Mike Zaccardi (10.1) and Ian Bremmer (12) post one chart or one view at a time to investors, but in their own words, with almost no tech and almost no credits.')]),
+  bullet([t('Conclusion: ', { bold: true }), t('Monchau is unusual. His mix of very high volume, 85% credited sources and a market audience has no famous peer on LinkedIn. For TMS, the useful model is the market-chart group (own chart, own one-line read, 1–2 a day at most), with Beliūnas and Restelica as the template for tech news hooks.')]),
+];
+
 // ---------- content blocks
 const title = [
-  P([t('Taranis SA · Geneva · 27 October 2026', { size: 20, color: MUTED })], { after: 600, before: 1800 }),
+  P([t('Taranis SA · Geneva · 28 October 2026', { size: 20, color: MUTED })], { after: 600, before: 1800 }),
   new Paragraph({ children: [new TextRun({ text: 'TMS LinkedIn Competitive Review', font: 'Georgia', size: 56, color: INK })], spacing: { after: 240 } }),
-  P([t('Taranis Market Sentiment against institutional tech hedge funds (Jericho, Light Street, Whale Rock, Coatue, Altimeter): LinkedIn activity, websites, the Monchau benchmark, high-frequency tech voices and an operating plan', { size: 26, color: MUTED })], { after: 600 }),
+  P([t('Taranis Market Sentiment against a re-screened field of 24 hybrid, systematic and tech long/short funds, with a focus on five institutional tech hedge funds: LinkedIn activity, websites, the Monchau benchmark to 28 Oct, voices like Monchau and an operating plan', { size: 26, color: MUTED })], { after: 600 }),
   P([t('Prepared for: ', { bold: true }), t('Taranis SA (Julien Leegenhoek, CEO; marketing and investor relations)')]),
-  P([t('Data window: ', { bold: true }), t('LinkedIn 17 Jun – 17 Sep 2026 (13 weeks); product pages read 26–27 Oct 2026')]),
+  P([t('Data window: ', { bold: true }), t('LinkedIn 17 Jun – 17 Sep 2026 (13 weeks, Crustdata index); Monchau live sample 17 Sep – 28 Oct 2026; product pages read 26–27 Oct 2026')]),
   P([t('Interactive dashboard: ', { bold: true }), t('dashboard.html (self-contained, in the same folder)')]),
   P([t('Raw data: ', { bold: true }), t('data/posts_raw_all.csv and the other CSVs in data/')]),
   P([t('Disambiguation: ', { bold: true }), t('"Taranis" here is Taranis SA, Geneva (FINMA-authorised asset manager, '), link('https://www.linkedin.com/company/taranis-sa', 'linkedin.com/company/taranis-sa'), t('). Not Perenco\'s Taranis energy assets and not the DFSA-registered Taranis Capital.')], { after: 200 }),
@@ -172,6 +236,10 @@ const title = [
 
 const exec = [
   H1('1. Executive summary'),
+  bullet([t('Re-screened against the full TMS strategy, the competitor field has 24 funds in three tiers. ', { bold: true }), t('Tier A runs TMS\'s hybrid of a systematic or sentiment signal plus discretionary picking (Symbit, Marshall Wace, Man Group, Duo Reges). Tier B holds systematic sentiment, alternative-data and ML specialists (Lakefield, RAM AI, Machina, Numerai, Voleon, Cubist, QRT, Two Sigma, WorldQuant, Bridgewater AIA). Tier C holds discretionary tech/AI long/shorts (Point72 Turion, Situational Awareness, Coatue, Whale Rock, Altimeter, Tiger Global, Jericho, Light Street, Shannon River, Contour). The closest single match is Symbit (Zug, AI plus discretionary, launched July 2026). Section 3.')]),
+  bullet([t('The closest competitors are as silent on LinkedIn as Taranis. ', { bold: true }), t('Symbit posted 2 times in 13 weeks, Marshall Wace once and Taranis twice; 7 of the 22 matched funds posted nothing. Posting volume sits with large firms (Man Group 5.8 a week, Coatue 4.85, Two Sigma 2.85, Altimeter 2.23), much of it recruiting. A hybrid fund that explains both sleeves every week would be nearly alone.')]),
+  bullet([t('Monchau to today (17 Sep – 28 Oct): same machine, more AI long-form. ', { bold: true }), t('A live sample of 26 posts, including the four sent by the client, shows his tech posts now centre on the Anthropic IPO, OpenAI financing and AI debt, plus three Syz notes and a LinkedIn article on AI. The client\'s four posts drew 15, 228, 58 and 112 comments; the Brazil crash post (not tech) drew the most. Section 6.')]),
+  bullet([t('Nobody posts quite like Monchau. ', { bold: true }), t('The closest are tech-news curators Linas Beliūnas (15 a week, 93% tech) and Endrit Restelica (10 a week, 75% tech), and market-chart posters Liz Ann Sonders, Ryan Detrick and Mike Zaccardi (10–15 a week), all mostly in their own words. Section 7.')]),
   bullet([t('The institutional tech hedge funds barely use LinkedIn, and the ones that do lead with people. ', { bold: true }), t('Of the five, only Coatue (4.85 posts/week) and Altimeter (2.23/week) post regularly; Whale Rock posts a handful of milestones a year; Light Street and Jericho post nothing on their company pages. Coatue ties every post to a portfolio company or a founder TV clip; Altimeter runs on Brad Gerstner as a public figure; Whale Rock\'s rare posts average about 240 reactions. Taranis posts 0.15/week with about 14 reactions per company post.')]),
   bullet([t('Their websites are minimal or gated, so LinkedIn and press carry the story. ', { bold: true }), t('Jericho and Altimeter run one-paragraph holding pages, Whale Rock and Light Street sit behind investor logins, and only Coatue runs a content site (insights, podcasts, portfolio). None publishes performance publicly. For a non-retail fund this is normal; what differs is that Coatue, Altimeter and Whale Rock make their founders\' views visible.')]),
   bullet([t('Monchau\'s tech posts are about a quarter of his output and perform slightly better than his other posts. ', { bold: true }), t('In the last three indexed months (17 Jun – 17 Sep 2026), 271 of his 1,051 posts (26%) were tech/AI. 56% of them cleared 54 reactions against 52% of his other posts (+7% relative), but fewer went viral (17% vs 21% above 200 reactions), because his viral outliers are humour. 85% of his tech posts credit a source.')]),
@@ -181,11 +249,14 @@ const exec = [
 
 const method = [
   H1('2. Scope, sources and method'),
+  bullet([t('Competitor landscape (re-screened 28 Oct against the full TMS strategy text): 24 professional or institutional long/short funds found by web research (fund sites, Form ADV aggregators, trade press), tiered by which TMS sleeve they match and scored 1–5 for closeness; LinkedIn cadence from free Crustdata counts. Every row links its source in data/tms_competitor_landscape.csv.')]),
   bullet([t('Competitor set (updated 27 Oct at the client\'s request): five institutional, non-retail tech hedge funds: Jericho Capital, Light Street Capital, Whale Rock Capital, Coatue Management and Altimeter Capital. The earlier Swiss and UCITS peer set (AtonRâ, DECALIA, Pictet AM, Symbit, BIT Capital, Shannon River, Contour, Wellington) is kept in Appendices C–E for reference.')]),
   bullet([t('LinkedIn: Crustdata /social_post/search. Cadence from free limit=0 count queries (actor id + actor type + date window 17 Jun – 17 Sep 2026); engagement and text from small paid pulls of top posts (about 68 credits across four rounds). Every query is logged in the companion CSVs.')]),
   bullet([t('Product pages: read with TinyFish (fetch and browser runs through Swiss qualified/professional-investor gates) and plain fetches on 26–27 Oct 2026; facts not on a page were taken from public factsheets or FT and are labelled as such.')]),
   bullet([t('Dates: every post\'s true date is decoded from its LinkedIn activity ID (id >> 22 = milliseconds since epoch), because the index\'s own dates are imputed for older posts and can drift by up to four weeks even in 2026.')]),
   H2('Caveats'),
+  bullet('Live posts after 17 Sep (Monchau sample) come from public post pages, which show comments but not reactions to logged-out readers, so they cannot be compared with indexed reaction counts.'),
+  bullet('Crustdata credits: the balance fell from about 2.25 to 1.75 between rounds without a matching paid call in our log; the 28 Oct counts were all free (limit=0). Several calls dropped mid-reply and were repeated once.'),
   bullet('The Crustdata index ends around 17 Sep 2026 (only 471 posts platform-wide are dated after 18 Sep). LinkedIn\'s login wall blocked a live refresh with TinyFish, so posts after mid-September are not counted.'),
   bullet([t('AtonRâ shows 0 posts in the window, but this is an index gap: Crustdata entity 985778 is the right page, a live company post dated 30 Sep 2026 exists ('), link('https://www.linkedin.com/posts/atonra_invest-with-proof-not-faith-activity-7511080011416875008-nFgh', 'post'), t('), and atonra.ch published nine dated research notes between 2 Jul and 29 Sep 2026 ('), link('https://www.atonra.ch/investment-research', 'research hub'), t('). Its 2025 same-window rate (15 posts, 1.15/week) is used as the estimate.')]),
   bullet('Contour, Jericho and Shannon River read 0, and live web searches on 27 Oct found no posts of their own (only employee profiles and third-party press posts), so they are genuinely quiet rather than under-indexed.'),
@@ -249,9 +320,10 @@ const liSec = [
 ];
 
 const monSec = [
-  H1('5. Monchau deep-dive'),
+  H1('6. Monchau deep-dive'),
   P([t('Charles-Henry Monchau, CIO of Syz Group ('), link('https://www.linkedin.com/in/charles-henry-monchau-cfa-cmt-caia-4003096', 'profile'), t('; Crustdata person 28667460). 1,051 posts in the 13-week window, about 81 a week (11.5 a day). Voice: curator first, educational and data-driven; cautious and hawkish on rates, constructive on AI; broadcast style.')]),
   ...monTech,
+  ...monLive,
   H2('a. Average posts per day by month'),
   image('c-month.png', 440),
   caption('Q1 5.5/day → June 11.8 → July 18.5 → August 5.9 (summer) → Sep 1–16 8.5. The July spike is not verified post by post.'),
@@ -274,10 +346,11 @@ const monSec = [
 ];
 
 const voiceSec = [
-  H1('6. Tech voices'),
+  H1('7. Tech voices'),
   ...voiceTech,
   P('Benchmark their formats, not their reaction counts: their audiences are in the millions. Counts are Crustdata, 17 Jun – 17 Sep 2026, by profile URL.'),
   table([{ key: 'name', label: 'Voice', w: 12, bold: true }, { key: 'posts_per_week', label: 'Posts / week', w: 8, num: true }, { key: 'dominant_format_top3', label: 'Top formats', w: 16 }, { key: 'best_post_reactions', label: 'Best post', w: 9, num: true }, { key: 'best_post_url', label: 'Link', w: 8, linkLabel: postLabel }, { key: 'what_taranis_can_borrow', label: 'What Taranis can borrow', w: 40 }], voices, { width: LAND_W }),
+  ...voiceLike,
 ];
 
 const sw = (h, items) => new TableCell({ width: { size: Math.floor(PORTRAIT_W / 2), type: WidthType.DXA }, margins: { top: 100, bottom: 100, left: 120, right: 120 },
@@ -291,7 +364,7 @@ const swot = new Table({ width: { size: PORTRAIT_W, type: WidthType.DXA }, colum
 ] });
 
 const recSec = [
-  H1('7. SWOT and recommendations'),
+  H1('8. SWOT and recommendations'),
   swot,
   spacer(),
   H2('Recommendations'),
@@ -300,6 +373,7 @@ const recSec = [
   numbered([t('Cadence: 3–5 posts a week, not Monchau\'s 81. ', { bold: true }), t('About 3 from Julien and 2 from the company page puts Taranis between Altimeter (2.2/week) and Coatue (4.85/week), and above DECALIA (2.3/week), the Swiss boutique bar.')]),
   numbered([t('Milestones as events, Whale Rock-style. ', { bold: true }), t('Treat awards, anniversaries, conference talks and podcasts as posts with a thesis and a number; Whale Rock\'s rare posts average about 240 reactions and its 20th-anniversary letter drew 709.')]),
   numbered([t('Own voice over curation, with tech as the core lane. ', { bold: true }), t('About 80/20 original to curated. Monchau\'s tech posts beat his average only slightly and his own-view posts rarely travel; the high-frequency tech voices (Mollick, Pandey) grow on first-person explainers. Post in English first, French second.')]),
+  numbered([t('Claim the hybrid niche before Symbit does. ', { bold: true }), t('The funds closest to TMS (Symbit, Marshall Wace, Duo Reges) are nearly invisible on LinkedIn. A recurring post that shows both sleeves, such as "what the sentiment model says this week, and what our AI-disruption analysts think of it", is a format no direct competitor publishes. Man Group (5.8 posts a week) shows a large hybrid manager can explain quant and discretionary side by side.')]),
   numbered([t('Fix the product page before pushing traffic. ', { bold: true }), t('State the two sleeves and their weights, name the PMs, add vehicle, ISIN, fees and liquidity, put a factsheet behind the existing gate and add a "request factsheet / book a call" CTA; relabel the "Managed Futures" award. Coatue shows how an insights hub can sit next to a gated investor area.')]),
   numbered([t('Compliant by design. ', { bold: true }), t('A one-line risk warning on fund posts, no performance numbers in posts, and one Compliance pre-approval of the weekly chart template.')]),
   H2('Operating plan'),
@@ -331,7 +405,7 @@ const srcSec = [
 
 
 // ---------- document
-const header = new Header({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [t('TMS LinkedIn Competitive Review · 27 Oct 2026', { size: 16, color: MUTED })] })] });
+const header = new Header({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [t('TMS LinkedIn Competitive Review · 28 Oct 2026', { size: 16, color: MUTED })] })] });
 const footer = new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ children: ['Page ', PageNumber.CURRENT], font: FONT, size: 16, color: MUTED })] })] });
 const portrait = { page: { size: { width: A4.width, height: A4.height }, margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN } } };
 const landscape = { page: { size: { width: A4.width, height: A4.height, orientation: PageOrientation.LANDSCAPE }, margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN } } };
@@ -353,7 +427,7 @@ const doc = new Document({
   ] },
   sections: [
     sec(portrait, [...title, ...exec, ...method]),
-    sec(landscape, [...hfSet, ...hfLi]),
+    sec(landscape, [...landSec, ...hfSet, ...hfLi]),
     sec(portrait, monSec),
     sec(landscape, voiceSec),
     sec(portrait, recSec),

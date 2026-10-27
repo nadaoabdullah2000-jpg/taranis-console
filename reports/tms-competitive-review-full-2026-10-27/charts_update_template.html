@@ -83,6 +83,8 @@ footer { font-size: 12px; color: var(--muted); }
 <div class="card" id="k-mtm"><h3>Monchau: tech/AI share of his posts by month</h3><p class="cap">Keyword matches (AI, Nvidia, OpenAI, semiconductor, tech).</p><div class="chart" id="c-mtm"></div></div>
 <div class="card" id="k-tv"><h3>High-frequency tech voices: posts per week</h3><p class="cap">17 Jun – 17 Sep 2026. Axis capped at 25; Monchau's bar is cut and labelled with his real rate.</p><div class="chart" id="c-tv"></div></div>
 <div class="card" id="k-tvc"><h3>Share of posts crediting a source ("Source", "via", "credit")</h3><p class="cap">A curation signal: high = re-posting others' material, low = writing in their own voice.</p><div class="chart" id="c-tvc"></div></div>
+<div class="card" id="k-ls"><h3>Re-screened competitors: company-page posts per week</h3><p class="cap">17 Jun – 17 Sep 2026, free Crustdata counts. Grouped by tier: A hybrid, B systematic/ML, C discretionary tech. Duo Reges and Situational Awareness have no matched page.</p><div class="legend" id="l-ls"></div><div class="chart" id="c-ls"></div></div>
+<div class="card" id="k-vl"><h3>Voices closest to Monchau: posts per week and tech share</h3><p class="cap">13 weeks to 17 Sep 2026. Bar = posts per week (axis capped at 25; Monchau 80.8); label = share of posts on tech/AI · share crediting a source.</p><div class="chart" id="c-vl"></div></div>
 </div>
 <script>/*__D3__*/</script>
 <script>window.DATA = /*__DATA__*/;</script>
@@ -219,5 +221,12 @@ footer { font-size: 12px; color: var(--muted); }
   const tv = D.tech_voices_frequency;
   hbar(document.getElementById('c-tv'), tv.map(r => ({ label: r.name.replace(' (benchmark)', ''), value: +r.posts_per_week, color: /Monchau/.test(r.name) ? tc : ac, text: f.dec(+r.posts_per_week) })), { max: 25, bar: 16, gap: 8 });
   hbar(document.getElementById('c-tvc'), tv.filter(r => r.credited_share !== '').map(r => ({ label: r.name.replace(' (benchmark)', ''), value: +r.credited_share, color: /Monchau/.test(r.name) ? tc : ac, text: f.pct(+r.credited_share) })), { max: 1, tick: f.pct, bar: 16, gap: 8 });
+  const tierC = { A: tc, B: ac, C: css('--swiss') };
+  const LL = document.getElementById('l-ls');
+  [['A · hybrid', tierC.A], ['B · systematic / ML', tierC.B], ['C · discretionary tech', tierC.C]].forEach(([t, c]) => { const s = document.createElement('span'); s.textContent = t; s.style.setProperty('--sw', c); LL.appendChild(s); });
+  const short = n => n.replace(/ \(.*$/, '').replace(' Global Equity L/S Fund', '').replace('Lakefield Swiss Equity Long/Short', 'Lakefield').replace(/ - .*$/, '').replace('Schroder GAIA Contour Tech Equity', 'Contour (Schroder GAIA)');
+  hbar(document.getElementById('c-ls'), D.tms_competitor_landscape.filter(r => r.posts_per_week !== '').map(r => ({ label: r.tier + ' · ' + short(r.name), value: +r.posts_per_week, color: tierC[r.tier], text: f.dec(+r.posts_per_week) + ' (' + r.posts_13w + ')' }))
+    .concat([{ label: 'TMS · Taranis', value: 0.15, color: mb, text: '0.15 (2)' }]), { bar: 14, gap: 6 });
+  hbar(document.getElementById('c-vl'), D.voices_like_monchau.filter(r => r.tech_share !== '').map(r => ({ label: r.name.replace(' (benchmark)', ''), value: +r.posts_per_week, color: /Monchau/.test(r.name) ? tc : ac, text: f.dec(+r.posts_per_week) + ' · ' + f.pct(+r.tech_share) + ' tech · ' + f.pct(+r.credit_share) + ' credited' })), { max: 25, bar: 16, gap: 8 });
 })();
 </script></body></html>
