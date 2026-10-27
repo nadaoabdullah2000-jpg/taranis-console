@@ -1,0 +1,5 @@
+threshold,tech_posts_at_or_above,tech_share,other_posts_at_or_above,other_share,tech_relative_lift
+25,200,0.738,543,0.696,0.06
+54,151,0.557,407,0.522,0.068
+100,99,0.365,281,0.36,0.014
+200,46,0.17,166,0.213,-0.202

@@ -1,0 +1,5 @@
+format,posts,median_reactions_est,share_ge54,share_ge200,brief_ref_median_sep,note
+Video,78,~300,0.756,0.615,~130,Only 4 of 23 own-original videos reach 54; the high median comes from viral reshared clips
+Image,1112,~66,0.565,0.0,54,92% of originals; most reliable format
+Document,45,~25,0.089,0.0,25,PDF carousels underperform
+Article,2,n/a (n=2),0.0,0.0,24,Too few to measure

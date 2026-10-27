@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TMS vs Tech Hedge Funds</title>
+<style>
+/* Layout: one reading column of cards; summary first, detail after. Ink-on-paper neutrals with a slate-blue accent. */
+:root {
+  color-scheme: light;
+  --bg: #f7f7f4; --panel: #ffffff; --line: #e3e2dc; --fg: #1c1d1f; --muted: #64656b;
+  --accent: #2a78d6; --taranis: #eb6834; --swiss: #1a8f6a; --muted-bar: #c6c5be;
+  --grid: #ecebe6; --axis: #c9c8c1; --tip: #ffffff; --shadow: 0 6px 18px rgba(0,0,0,.10);
+  --ok: #1e7a3c; --warn: #9a5b00; --bad: #b3261e;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  color-scheme: dark; --bg: #151618; --panel: #1e1f22; --line: #33343a; --fg: #eeeeec; --muted: #a3a4aa;
+  --accent: #3987e5; --taranis: #d95926; --swiss: #1fa47a; --muted-bar: #54555b; --grid: #2b2c31; --axis: #4a4b51; --tip: #26272b; --shadow: 0 6px 18px rgba(0,0,0,.45);
+  --ok: #4cbb6c; --warn: #e0a040; --bad: #ef6b62; } }
+:root[data-theme="dark"] {
+  color-scheme: dark; --bg: #151618; --panel: #1e1f22; --line: #33343a; --fg: #eeeeec; --muted: #a3a4aa;
+  --accent: #3987e5; --taranis: #d95926; --swiss: #1fa47a; --muted-bar: #54555b; --grid: #2b2c31; --axis: #4a4b51; --tip: #26272b; --shadow: 0 6px 18px rgba(0,0,0,.45);
+  --ok: #4cbb6c; --warn: #e0a040; --bad: #ef6b62; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 14px; line-height: 1.45; }
+.wrap { max-width: 1280px; margin-inline: auto; padding-block: 28px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 32px; }
+h1 { font-family: var(--serif); font-weight: 400; font-size: 34px; margin: 0; text-wrap: balance; }
+h2 { font-size: 18px; margin: 0; font-weight: 650; text-wrap: balance; }
+h3 { font-size: 15px; margin: 0; font-weight: 600; }
+.lede { color: var(--muted); max-width: 78ch; margin: 6px 0 0; }
+.eyebrow { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+nav { display: flex; flex-wrap: wrap; gap: 8px; }
+nav a { font-size: 12px; color: var(--muted); text-decoration: none; border: 1px solid var(--line); border-radius: 999px; padding: 3px 11px; background: var(--panel); }
+nav a:hover, nav a:focus-visible { color: var(--fg); outline: none; border-color: var(--accent); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr)); gap: 12px; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px; display: grid; gap: 4px; align-content: start; }
+.tile .lab { font-size: 12px; color: var(--muted); }
+.tile .num { font-family: var(--serif); font-size: 32px; font-variant-numeric: tabular-nums; }
+.tile .sub { font-size: 12px; color: var(--muted); }
+.tile.hl { border-color: var(--taranis); }
+.sec { display: grid; gap: 14px; }
+.sec > p.note { margin: 0; color: var(--muted); font-size: 13px; max-width: 86ch; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 30rem), 1fr)); gap: 14px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; display: grid; gap: 10px; min-width: 0; align-content: start; }
+.card .cap { margin: 0; font-size: 12px; color: var(--muted); }
+.summary ul, .caveats ul, .swot ul { margin: 0; padding-left: 1.15em; display: grid; gap: 6px; }
+.summary li { max-width: 92ch; }
+.caveats { border-left: 3px solid var(--warn); }
+.caveats li { font-size: 13px; }
+.chart { position: relative; min-height: 200px; }
+.tip { position: absolute; pointer-events: none; background: var(--tip); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 5px 9px; font-size: 12px; white-space: nowrap; z-index: 3; }
+.tip .k { color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; background: var(--sw); }
+.scroll { overflow-x: auto; }
+.scroll.cap { max-height: 34rem; overflow: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+th { text-align: left; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); padding: 7px 8px; position: sticky; top: 0; background: var(--panel); vertical-align: bottom; z-index: 1; }
+th button { all: unset; cursor: pointer; }
+th button:focus-visible { outline: 2px solid var(--accent); }
+td { border-bottom: 1px solid var(--line); padding: 7px 8px; vertical-align: top; min-width: 7.5rem; }
+td.n { text-align: right; white-space: nowrap; min-width: 4.5rem; }
+td.key { font-weight: 600; }
+tr.taranis td { background: color-mix(in srgb, var(--taranis) 9%, transparent); }
+a { color: var(--accent); }
+.pill { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+.pill.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, transparent); }
+.pill.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.pill.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+input[type=search] { font: inherit; font-size: 13px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); width: min(100%, 22rem); }
+.swot { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 12px; }
+.swot .card h3 { font-size: 13px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+footer { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header id="top">
+  <div class="eyebrow">Taranis SA · Geneva · Competitive review · 28 Oct 2026</div>
+  <h1>TMS vs Tech Long/Short Hedge Funds</h1>
+  <p class="lede">Taranis Market Sentiment (TMS) against five institutional tech long/short equity hedge funds: Cadian, Atreides, Alkeon, Sylebra and Whale Rock. Coatue, Altimeter and Charles-Henry Monchau are shown as context benchmarks, not peers. LinkedIn window: 13 weeks, 17 Jun – 17 Sep 2026, plus a live check to 28 Oct.</p>
+</header>
+
+<nav aria-label="Sections">
+  <a href="#kpis">1. Summary</a><a href="#set">2. Focus set</a><a href="#pages">3. Product pages</a><a href="#cadence">4. LinkedIn</a><a href="#monchau">5. Monchau</a><a href="#voices">6. Tech voices</a><a href="#plan">7. SWOT &amp; plan</a><a href="#raw">8. Raw posts</a>
+</nav>
+
+<section class="sec" id="kpis">
+  <h2>1. Summary</h2>
+  <div class="tiles" id="tiles"></div>
+  <div class="card summary">
+    <h3>Executive summary</h3>
+    <ul>
+      <li><b>The tech long/short hedge-fund peer set is silent on LinkedIn.</b> In 13 weeks the five company pages published one post between them (Whale Rock's intern class, 233 reactions). Cadian, Atreides and Alkeon have never posted on their pages; Sylebra last posted in 2023. Founders are silent too: Gavin Baker 1 post, Bannasch, Gibson and Sacerdote 0.</li>
+      <li><b>Atreides is not the active exception the brief expected.</b> Its page has 0 indexed posts ever and a live search found none; Gavin Baker's reach comes from other people's channels (podcasts, NVIDIA GTC, Sohn), not his own posts. Only Coatue (4.85 a week) and Altimeter (2.23) post regularly, and they are benchmarks, not peers.</li>
+      <li><b>The lane is open, and Taranis already posts more than the peers.</b> Taranis's page (2 posts) and Julien Leegenhoek (posting again since 23 Sep on BFM and RTS) beat every focus fund. Nobody publishes an AI-disruption or market-sentiment thesis; no direct Swiss peer exists in this set.</li>
+      <li><b>Peer sites are minimal but honest about what they are; TMS's page undersells.</b> Cadian and Whale Rock run one-paragraph holding pages, Atreides shows its full team, Alkeon a VC portfolio wall. The TMS page sits behind a 3-step gate, then shows no fund facts, team or the two sleeves, and its award still reads "Managed Futures".</li>
+      <li><b>Four of five pass the hard filter, Sylebra is at risk.</b> Sylebra's site now presents "Sylebra Growth Partners", a growth-equity firm; its hedge fund appears only in Form ADV data as of 31 Dec 2025. Alkeon (UCITS fund and registered sub-advisory) and Whale Rock (long-only vehicles) are kept on their private hedge funds only.</li>
+    </ul>
+  </div>
+  <div class="card caveats">
+    <h3>Caveats</h3>
+    <ul>
+      <li>The Crustdata index ends around 17 Sep 2026. A live refresh with TinyFish search found public posts by Taranis and Julien Leegenhoek only; LinkedIn's login wall blocked fetches of the Atreides and Whale Rock pages and Gavin Baker's profile, so recent posts there cannot be fully ruled out. Logged-out pages show comments, not reaction totals.</li>
+      <li>Hedge-fund sites are holding or login pages by design; that is recorded as a finding. Form ADV facts come from ADV aggregators (privatefunddata, Radient, formds, FINTRX) because adviserinfo.sec.gov was unreachable from this environment; official links are given by CRD number.</li>
+      <li>AUM sources conflict for every fund (regulatory vs discretionary vs 13F vs press); each is shown with its source, none is resolved.</li>
+      <li>Whale Rock was more active just before the window (posts on 18 May, 2 Jun, 9 Jun), so 13 weeks understates its usual pace. Index dates drift: its intern post is dated 12 Aug in the index but 3 Aug by its post ID.</li>
+      <li>Alkeon's founder has no findable LinkedIn profile. Monchau figures are from the 27 Oct counts (1,051 posts in the window); his 290k+ followers come from a search snippet and are unverified.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="sec" id="set">
+  <h2>2. Focus set: five tech long/short hedge funds</h2>
+  <p class="note">Hard filter: private technology/TMT long/short equity hedge fund for professional, qualified or accredited investors, re-checked on live pages and Form ADV on 28 Oct. ✓ pass · ⚠ conflict or flag · ✓ partial = tech-led but multi-sector.</p>
+  <div class="card"><div class="scroll"><table id="t-set"></table></div></div>
+</section>
+
+<section class="sec" id="pages">
+  <h2>3. Product / strategy-page comparison</h2>
+  <p class="note">Rows are attributes, columns are funds; Taranis is the last column. Every cell carries its source link in data/product_pages.csv.</p>
+  <div class="card"><div class="scroll cap"><table id="t-pages"></table></div></div>
+  <div class="card"><h3>Positioning summaries</h3><div class="scroll"><table id="t-pos"></table></div></div>
+</section>
+
+<section class="sec" id="cadence">
+  <h2>4. LinkedIn activity</h2>
+  <div class="card">
+    <h3>Posts per week, 17 Jun – 17 Sep 2026</h3>
+    <p class="cap">Company pages and founders, from free Crustdata counts. Axis capped at 6; Monchau's bar is cut and labelled with his real rate (about 81).</p>
+    <div class="legend" id="leg-cad"></div>
+    <div class="chart" id="c-cad"></div>
+  </div>
+  <div class="card"><h3>Channel, cadence and best post</h3><div class="scroll"><table id="t-li"></table></div></div>
+</section>
+
+<section class="sec" id="monchau">
+  <h2>5. Monchau benchmark (context, not a peer)</h2>
+  <p class="note">Charles-Henry Monchau, CIO of Syz Group (<a href="https://www.linkedin.com/in/charles-henry-monchau-cfa-cmt-caia-4003096" target="_blank" rel="noopener">profile</a>, Crustdata person 28667460): about 81 posts a week, 86% crediting a "Source". The "loud individual voice" model: copy his chart-first format, not his volume.</p>
+  <div class="grid2">
+    <div class="card"><h3>a. Average posts per day by month, 2026</h3><div class="chart" id="c-month"></div></div>
+    <div class="card"><h3>b. Curated vs own view</h3><p class="cap">Share of posts reaching 54+ reactions, 1 Jun – 16 Sep 2026.</p><div class="chart" id="c-mix"></div></div>
+    <div class="card"><h3>c. Topic mix</h3><p class="cap">Grey: Sep 1–16 hand-coded reference (136 posts). Blue: Jun 1 – Sep 16 keyword counts (1,244 posts).</p><div class="legend" id="leg-top"></div><div class="chart" id="c-top"></div></div>
+    <div class="card"><h3>d. Reaction distribution</h3><p class="cap">Share of all 1,244 posts at or above each reaction count.</p><div class="chart" id="c-react"></div></div>
+    <div class="card"><h3>e. Engagement by format</h3><p class="cap">Estimated median reactions from threshold counts.</p><div class="chart" id="c-fmt"></div></div>
+    <div class="card"><h3>f. Tech/AI posts vs his other posts</h3><p class="cap">Share at or above each reaction count, 17 Jun – 17 Sep (271 tech, 780 other).</p><div class="legend" id="leg-tech"></div><div class="chart" id="c-tech"></div></div>
+  </div>
+</section>
+
+<section class="sec" id="voices">
+  <h2>6. Famous tech voices, by format</h2>
+  <p class="note">Compare formats, not reactions: their audiences are in the millions. None posts as often as Monchau (the most frequent, Eduardo Ordax, posts 19 a week) or credits sources as much (6–19% against his 86%).</p>
+  <div class="card"><h3>Frequency and source crediting</h3><div class="scroll"><table id="t-tvf"></table></div></div>
+  <div class="card"><h3>Formats and what Taranis can borrow</h3><div class="scroll"><table id="t-voices"></table></div></div>
+</section>
+
+<section class="sec" id="plan">
+  <h2>7. SWOT and operating plan</h2>
+  <div class="swot">
+    <div class="card"><h3>Strengths</h3><ul><li>The only fund in the set with a behavioural-sentiment quant engine (since 2016) beside discretionary tech picking</li><li>Founder-CEO with BFM Business and RTS airtime, already posting again</li><li>Already posts more than all five peers; HFM award history</li></ul></div>
+    <div class="card"><h3>Weaknesses</h3><ul><li>0.15 posts a week on the page; posts mostly in French</li><li>Product page hides fund facts, team and the two sleeves; award labelled "Managed Futures"</li><li>Far smaller than peers (USD 2.7–25bn regulatory AUM)</li></ul></div>
+    <div class="card"><h3>Opportunities</h3><ul><li>The tech long/short peer set is silent on LinkedIn: the lane is open</li><li>No one publishes an AI-disruption or market-sentiment thesis</li><li>No direct Swiss peer in the set</li></ul></div>
+    <div class="card"><h3>Threats</h3><ul><li>Founders like Gavin Baker win reach through podcasts and conferences without posting</li><li>Coatue and Altimeter set the bar for how a tech fund communicates</li><li>FinSA limits public performance talk</li></ul></div>
+  </div>
+  <div class="card"><h3>Operating plan</h3><div class="scroll"><table id="t-plan"></table></div></div>
+</section>
+
+<section class="sec" id="raw">
+  <h2>8. Raw posts</h2>
+  <p class="note">Posts used in this review. True dates are decoded from LinkedIn post IDs. The same rows are in data/posts_raw.csv; every Crustdata query is in data/count_queries.csv.</p>
+  <div class="card">
+    <label for="q" class="cap">Filter by author or text</label>
+    <input type="search" id="q" placeholder="e.g. Whale Rock, AI, Monchau">
+    <div class="scroll cap"><table id="t-raw"></table></div>
+  </div>
+</section>
+
+<footer>Sources: Crustdata /social_post/search and company_identify (index through ~17 Sep 2026), TinyFish page reads and searches (28 Oct 2026), fund sites, Form ADV aggregators and press linked in each table. Built 28 Oct 2026.</footer>
+</div>
+
+<script>/*__D3__*/</script>
+<script>window.DATA = /*__DATA__*/;</script>
+<script>
+(function () {
+  const D = window.DATA;
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const f = { dec: d3.format(',.2~f'), int: d3.format(','), pct: d3.format('.0%'), pct1: d3.format('.1%') };
+
+  function tip(box) {
+    let t = box.querySelector('.tip');
+    if (!t) { t = document.createElement('div'); t.className = 'tip'; t.hidden = true; box.appendChild(t); }
+    return {
+      show(ev, k, v) {
+        t.replaceChildren();
+        const a = document.createElement('div'); a.className = 'k'; a.textContent = k;
+        const b = document.createElement('div'); b.textContent = v;
+        t.append(a, b); t.hidden = false;
+        const r = box.getBoundingClientRect();
+        let x = ev.clientX - r.left + 12;
+        x = Math.max(4, Math.min(x, r.width - t.offsetWidth - 4));
+        t.style.left = x + 'px'; t.style.top = (ev.clientY - r.top + 12) + 'px';
+      },
+      hide() { t.hidden = true; }
+    };
+  }
+  const tickStyle = a => a.attr('font-size', null).attr('font-family', null)
+    .call(g => g.selectAll('text').attr('fill', css('--muted')).style('font-size', '12px'))
+    .call(g => g.selectAll('line,path').attr('stroke', css('--axis')));
+
+  // Horizontal bars: rows [{label, value, color, text, tipText}]; opt {max, bar, gap, tick}
+  function hbar(box, rows, opt) {
+    box.replaceChildren();
+    const W = box.clientWidth || 640, bh = opt.bar || 16, gap = opt.gap || 8;
+    const svg = d3.select(box).append('svg').attr('width', '100%');
+    const probe = svg.append('g').style('font-size', '12px');
+    let lw = 0, vw = 0;
+    rows.forEach(r => { const t = probe.append('text').text(r.label); lw = Math.max(lw, t.node().getComputedTextLength()); t.remove();
+                        const u = probe.append('text').text(r.text); vw = Math.max(vw, u.node().getComputedTextLength()); u.remove(); });
+    probe.remove();
+    lw = Math.min(lw, W * 0.5);
+    const m = { l: lw + 10, r: vw + 12, t: 4, b: 24 };
+    const H = m.t + m.b + rows.length * (bh + gap);
+    svg.attr('viewBox', `0 0 ${W} ${H}`).attr('height', H);
+    const max = opt.max ?? (d3.max(rows, r => r.value) || 1);
+    const x = d3.scaleLinear([0, max], [m.l, W - m.r]);
+    const n = Math.max(2, Math.floor((W - m.l - m.r) / 80));
+    svg.append('g').selectAll('line').data(x.ticks(n)).join('line').attr('x1', d => x(d)).attr('x2', d => x(d)).attr('y1', m.t).attr('y2', H - m.b).attr('stroke', css('--grid'));
+    svg.append('g').attr('transform', `translate(0,${H - m.b})`).call(d3.axisBottom(x).ticks(n).tickFormat(opt.tick || f.dec).tickSizeOuter(0)).call(tickStyle);
+    const T = tip(box);
+    const row = svg.append('g').selectAll('g').data(rows).join('g').attr('transform', (d, i) => `translate(0,${m.t + i * (bh + gap)})`);
+    row.append('text').attr('x', m.l - 8).attr('y', bh / 2).attr('dy', '0.35em').attr('text-anchor', 'end').attr('fill', css('--fg')).style('font-size', '12px')
+      .text(d => d.label).each(function (d) { // trim labels that would cross the left edge
+        let s = d.label; while (this.getComputedTextLength() > lw && s.length > 4) { s = s.slice(0, -2); this.textContent = s + '…'; } });
+    row.append('rect').attr('x', m.l).attr('height', bh).attr('rx', 4).attr('width', d => Math.max(d.value > 0 ? 2 : 0, x(Math.min(d.value, max)) - m.l)).attr('fill', d => d.color);
+    row.filter(d => d.value > max).append('path').attr('d', () => { const e = x(max); return `M${e - 12},-1 l6,${bh + 2} M${e - 6},-1 l6,${bh + 2}`; }).attr('stroke', css('--panel')).attr('stroke-width', 3);
+    row.append('text').attr('x', d => x(Math.min(d.value, max)) + 6).attr('y', bh / 2).attr('dy', '0.35em').attr('fill', css('--muted')).style('font-size', '12px').text(d => d.text);
+    row.append('rect').attr('width', W).attr('y', -gap / 2).attr('height', bh + gap).attr('fill', 'transparent')
+      .on('mousemove', (ev, d) => T.show(ev, d.label, d.tipText || d.text)).on('mouseleave', () => T.hide());
+  }
+
+  // Vertical bars, optionally grouped: rows [{label, values:[{v, color, text, name}]}]
+  function vbar(box, rows, opt) {
+    box.replaceChildren();
+    const W = box.clientWidth || 520, H = 230, m = { l: 40, r: 8, t: 20, b: 36 };
+    const svg = d3.select(box).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).attr('height', H);
+    const x = d3.scaleBand(rows.map(r => r.label), [m.l, W - m.r]).padding(0.28);
+    const ymax = d3.max(rows, r => d3.max(r.values, v => v.v)) || 1;
+    const y = d3.scaleLinear([0, ymax * 1.12], [H - m.b, m.t]).nice();
+    svg.append('g').selectAll('line').data(y.ticks(4)).join('line').attr('x1', m.l).attr('x2', W - m.r).attr('y1', d => y(d)).attr('y2', d => y(d)).attr('stroke', css('--grid'));
+    svg.append('g').attr('transform', `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(4).tickFormat(opt.tick || f.dec).tickSize(0)).call(tickStyle).call(g => g.select('path').remove());
+    svg.append('g').attr('transform', `translate(0,${H - m.b})`).call(d3.axisBottom(x).tickSizeOuter(0)).call(tickStyle);
+    const k = rows[0].values.length, inner = d3.scaleBand(d3.range(k), [0, x.bandwidth()]).padding(0.12), bw = Math.min(32, inner.bandwidth());
+    const T = tip(box);
+    rows.forEach(r => r.values.forEach((v, i) => {
+      const cx = x(r.label) + inner(i) + (inner.bandwidth() - bw) / 2;
+      svg.append('rect').attr('x', cx).attr('width', bw).attr('y', y(v.v)).attr('height', y(0) - y(v.v)).attr('rx', 4).attr('fill', v.color);
+      if (bw >= 22) svg.append('text').attr('x', cx + bw / 2).attr('y', y(v.v) - 5).attr('text-anchor', 'middle').attr('fill', css('--muted')).style('font-size', '11px').text(v.text);
+      svg.append('rect').attr('x', cx - 2).attr('width', bw + 4).attr('y', m.t).attr('height', H - m.t - m.b).attr('fill', 'transparent')
+        .on('mousemove', ev => T.show(ev, r.label + (v.name ? ' · ' + v.name : ''), v.tipText || v.text)).on('mouseleave', () => T.hide());
+    }));
+  }
+
+  // Tables: cols [{key, label, num, link, linkText, pct, cls}]
+  function table(id, rows, cols, opt = {}) {
+    const t = document.getElementById(id); t.replaceChildren();
+    const thead = t.createTHead().insertRow();
+    let sortKey = null, asc = true;
+    cols.forEach(c => {
+      const th = document.createElement('th');
+      if (opt.sortable) { const b = document.createElement('button'); b.textContent = c.label; b.addEventListener('click', () => { asc = sortKey === c.key ? !asc : true; sortKey = c.key; th.parentNode.querySelectorAll('th').forEach(h => h.removeAttribute('aria-sort')); th.setAttribute('aria-sort', asc ? 'ascending' : 'descending'); body(); }); th.appendChild(b); }
+      else th.textContent = c.label;
+      thead.appendChild(th);
+    });
+    const tb = t.createTBody();
+    function body() {
+      let rs = rows.slice();
+      if (opt.filter) { const q = opt.filter().toLowerCase(); if (q) rs = rs.filter(r => cols.some(c => String(r[c.key] ?? '').toLowerCase().includes(q))); }
+      if (sortKey) { const c = cols.find(c => c.key === sortKey); rs.sort((a, b) => { const A = c.num ? +a[sortKey] || 0 : String(a[sortKey]); const B = c.num ? +b[sortKey] || 0 : String(b[sortKey]); return (A > B ? 1 : A < B ? -1 : 0) * (asc ? 1 : -1); }); }
+      tb.replaceChildren();
+      rs.forEach(r => {
+        const tr = tb.insertRow();
+        if (opt.hl && opt.hl(r)) tr.className = 'taranis';
+        cols.forEach(c => {
+          const td = tr.insertCell(); const v = r[c.key] ?? '';
+          if (c.num) td.className = 'n'; if (c.cls) td.classList.add(c.cls);
+          if ((c.link || /^https?:\/\//.test(v)) && /^https?:\/\//.test(v)) {
+            const a = document.createElement('a'); a.href = v; a.target = '_blank'; a.rel = 'noopener';
+            a.textContent = c.linkText ? c.linkText(v) : new URL(v).hostname.replace('www.', ''); td.appendChild(a);
+          } else if (c.pill) { const s = document.createElement('span'); s.className = 'pill ' + c.pill(v); s.textContent = v; td.appendChild(s); }
+          else td.textContent = c.pct && v !== '' ? f.pct(+v) : (c.num && v !== '' && !isNaN(+v) ? f.dec(+v) : v);
+        });
+      });
+    }
+    body();
+    return body;
+  }
+  const postLink = v => /\/company\/[^/]+\/?$/.test(v) ? 'Open page' : 'Open post';
+
+  // ---------- 1. tiles
+  const cad = D.cadence;
+  const per = name => +(cad.find(r => r.account === name) || {}).posts_per_week;
+  const fs = D.focus_set, pass = fs.filter(r => /^Pass/.test(r.filter_result)).length;
+  const peerMax = fs.map(r => ({ n: r.fund, v: per(r.fund) })).sort((a, b) => b.v - a.v)[0];
+  const tiles = [
+    ['TMS company page', f.dec(per('Taranis (company page)')), 'posts / week', true],
+    ['Most active focus fund', f.dec(peerMax.v), 'posts / week · ' + peerMax.n.replace(' Capital Management', '')],
+    ['Monchau (benchmark)', f.dec(per('Charles-Henry Monchau (benchmark)')), 'posts / week'],
+    ['Tech L/S hedge funds verified', pass + ' of 5 ✓', 'Sylebra at risk (growth-equity rebrand)'],
+    ['Coatue (benchmark)', f.dec(per('Coatue (benchmark)')), 'posts / week'],
+  ];
+  const tw = document.getElementById('tiles');
+  tiles.forEach(([lab, num, sub, hl]) => { const d = document.createElement('div'); d.className = 'tile' + (hl ? ' hl' : '');
+    d.innerHTML = '<span class="lab"></span><span class="num"></span><span class="sub"></span>';
+    d.querySelector('.lab').textContent = lab; d.querySelector('.num').textContent = num; d.querySelector('.sub').textContent = sub; tw.appendChild(d); });
+
+  // ---------- 2. focus set
+  const pill = v => /^Pass$/.test(v) ? 'ok' : /^Pass/.test(v) ? 'warn' : 'bad';
+  table('t-set', fs, [
+    { key: 'fund', label: 'Fund', cls: 'key' }, { key: 'hq', label: 'HQ' }, { key: 'founded', label: 'Est.' }, { key: 'strategy', label: 'Strategy' }, { key: 'founder', label: 'Founder / CIO' },
+    { key: 'aum', label: 'AUM (Form ADV)' }, { key: 'aum_date', label: 'As of' }, { key: 'hedge_fund', label: 'Hedge fund' }, { key: 'professional_only', label: 'Prof. only' }, { key: 'tech_focused', label: 'Tech-focused' },
+    { key: 'filter_result', label: 'Filter', pill }, { key: 'flag', label: 'Flag' }, { key: 'site', label: 'Site' }, { key: 'linkedin', label: 'LinkedIn', linkText: () => 'LinkedIn' }, { key: 'aum_source', label: 'AUM source' }
+  ]);
+
+  // ---------- 3. pages
+  const pcols = Object.keys(D.pages_compare[0]);
+  table('t-pages', D.pages_compare, pcols.map((k, i) => ({ key: k, label: i === 0 ? 'Attribute' : k, cls: i === 0 ? 'key' : undefined, linkText: v => new URL(v).hostname.replace('www.', '') })));
+  document.querySelectorAll('#t-pages tbody tr').forEach(tr => { const c = tr.cells[tr.cells.length - 1]; c.style.background = 'color-mix(in srgb, ' + css('--taranis') + ' 9%, transparent)'; });
+  table('t-pos', D.positioning, [{ key: 'fund', label: 'Fund', cls: 'key' }, { key: 'summary', label: 'Positioning' }, { key: 'page_url', label: 'Page' }], { hl: r => r.fund.startsWith('Taranis') });
+
+  // ---------- 4. cadence
+  const gcol = g => g === 'Taranis' ? css('--taranis') : g === 'Focus fund' ? css('--accent') : g === 'Founder' ? css('--swiss') : css('--muted-bar');
+  const L = document.getElementById('leg-cad');
+  [['Taranis', '--taranis'], ['Focus funds (company page)', '--accent'], ['Focus-fund founders', '--swiss'], ['Benchmarks (not peers)', '--muted-bar']].forEach(([t, v]) => { const s = document.createElement('span'); s.textContent = t; s.style.setProperty('--sw', css(v)); L.appendChild(s); });
+  const drawCad = () => hbar(document.getElementById('c-cad'), cad.map(r => ({ label: r.account, value: +r.posts_per_week, color: gcol(r.group), text: f.dec(+r.posts_per_week),
+      tipText: `${f.dec(+r.posts_per_week)} / week · ${f.int(+r.posts_13w)} posts in 13 weeks` })), { max: 6, bar: 14, gap: 7 });
+  table('t-li', D.linkedin_table, [
+    { key: 'account', label: 'Account', cls: 'key' }, { key: 'group', label: 'Group' }, { key: 'channel', label: 'Channel' }, { key: 'posts_13w', label: 'Posts 13 wk', num: true }, { key: 'posts_per_week', label: 'Per week', num: true },
+    { key: 'lifetime_posts', label: 'Posts ever', num: true }, { key: 'dominant_format', label: 'Format' }, { key: 'original_vs_curated', label: 'Original vs curated' },
+    { key: 'best_post_reactions', label: 'Best post reactions', num: true }, { key: 'best_post_url', label: 'Best post', linkText: postLink }, { key: 'lesson', label: 'What Taranis can learn / gap' }
+  ], { hl: r => r.group === 'Subject' });
+
+  // ---------- 5. Monchau
+  const mix = D.monchau_mix;
+  const mlabel = s => s.replace(' (Jan-Mar)', '').replace('2026-', '').replace('09 (1-16)', 'Sep 1–16').replace(/^0?(\d+)$/, (_, n) => d3.utcFormat('%b')(new Date(Date.UTC(2026, +n - 1, 1))));
+  const drawM = () => {
+    vbar(document.getElementById('c-month'), D.monchau_monthly.map(r => ({ label: mlabel(r.month), values: [{ v: +r.posts_per_day, color: css('--accent'), text: d3.format('.1f')(+r.posts_per_day), tipText: `${d3.format('.1f')(+r.posts_per_day)} / day · ${f.int(+r.posts)} posts over ${r.days} days` }] })), { tick: d3.format('~f') });
+    hbar(document.getElementById('c-mix'), mix.map((r, i) => ({ label: r.segment, value: +r.share_ge54, color: i === 2 ? css('--taranis') : css('--accent'), text: f.pct(+r.share_ge54), tipText: `${f.int(+r.posts_ge54)} of ${f.int(+r.posts)} posts · ${r.definition}` })), { max: 1, tick: f.pct, bar: 22, gap: 12 });
+    vbar(document.getElementById('c-top'), D.monchau_topics.map(r => ({ label: r.topic, values: [
+      { v: +r.sep_share_of_136, color: css('--muted-bar'), text: f.pct(+r.sep_share_of_136), name: 'Sep 1–16 reference', tipText: `${r.sep_posts} of 136 posts` },
+      { v: +r.summer_share_of_1244, color: css('--accent'), text: f.pct(+r.summer_share_of_1244), name: 'Jun–Sep keyword', tipText: `${r.summer_posts} of 1,244 posts` }] })), { tick: f.pct });
+    vbar(document.getElementById('c-react'), D.monchau_reactions.map(r => ({ label: '≥' + r.threshold, values: [{ v: +r.share_of_1244, color: css('--accent'), text: f.pct(+r.share_of_1244), tipText: `${f.int(+r.posts_at_or_above)} posts at or above ${r.threshold}` }] })), { tick: f.pct });
+    const med = s => +String(s).replace(/[^0-9.]/g, '') || 0;
+    vbar(document.getElementById('c-fmt'), D.monchau_format_engagement.filter(r => +r.posts > 5).map(r => ({ label: `${r.format} (n=${f.int(+r.posts)})`, values: [{ v: med(r.median_reactions_est), color: css('--accent'), text: r.median_reactions_est, tipText: r.note }] })), { tick: d3.format('~f') });
+    vbar(document.getElementById('c-tech'), D.monchau_tech_vs_other.map(r => ({ label: '≥' + r.threshold, values: [
+      { v: +r.tech_share, color: css('--accent'), text: f.pct(+r.tech_share), name: 'Tech/AI' }, { v: +r.other_share, color: css('--muted-bar'), text: f.pct(+r.other_share), name: 'Other' }] })), { tick: f.pct });
+  };
+  const lg = (id, items) => { const el = document.getElementById(id); items.forEach(([t, v]) => { const s = document.createElement('span'); s.textContent = t; s.style.setProperty('--sw', css(v)); el.appendChild(s); }); };
+  lg('leg-top', [['Sep 1–16 reference', '--muted-bar'], ['Jun–Sep keyword counts', '--accent']]);
+  lg('leg-tech', [['Tech/AI posts', '--accent'], ['Other posts', '--muted-bar']]);
+
+  // ---------- 6. voices
+  table('t-tvf', D.tech_voices_frequency, [{ key: 'name', label: 'Voice', cls: 'key' }, { key: 'posts_13w', label: 'Posts 13 wk', num: true }, { key: 'posts_per_week', label: 'Per week', num: true },
+    { key: 'credited_share', label: 'Credits a source', pct: true }, { key: 'top_format', label: 'Top post format' }, { key: 'top_url', label: 'Top post', linkText: postLink }, { key: 'authorship_signal', label: 'Own voice or curator?' }], { hl: r => /Monchau/.test(r.name) });
+  table('t-voices', D.voices, [{ key: 'name', label: 'Voice', cls: 'key' }, { key: 'posts_per_week', label: 'Posts / week', num: true }, { key: 'dominant_format_top3', label: 'Top formats' },
+    { key: 'best_post_url', label: 'Best post', linkText: postLink }, { key: 'what_taranis_can_borrow', label: 'What Taranis can borrow' }]);
+
+  // ---------- 7. plan
+  table('t-plan', D.plan, [{ key: 'lever', label: 'Lever', cls: 'key' }, { key: 'recommendation', label: 'Recommendation' }, { key: 'target_posts_per_week', label: 'Target / week' }, { key: 'evidence', label: 'Evidence' }]);
+
+  // ---------- 8. raw
+  const q = document.getElementById('q');
+  const rawBody = table('t-raw', D.posts_raw, [
+    { key: 'author', label: 'Author', cls: 'key' }, { key: 'true_date_utc', label: 'Date' }, { key: 'format', label: 'Format' },
+    { key: 'reactions', label: 'Reactions', num: true }, { key: 'comments', label: 'Comments', num: true }, { key: 'shares', label: 'Shares', num: true },
+    { key: 'text_truncated', label: 'Text' }, { key: 'url', label: 'Link', linkText: postLink }, { key: 'source', label: 'Source' }
+  ], { sortable: true, filter: () => q.value, hl: r => /Taranis|Leegenhoek/.test(r.author) });
+  q.addEventListener('input', rawBody);
+
+  const draw = () => { drawCad(); drawM(); };
+  draw();
+  let t0; addEventListener('resize', () => { clearTimeout(t0); t0 = setTimeout(draw, 150); });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => location.reload());
+  document.querySelectorAll('nav a').forEach(a => a.addEventListener('click', ev => { const el = document.querySelector(a.getAttribute('href')); if (el) { ev.preventDefault(); el.scrollIntoView({ behavior: 'smooth' }); } }));
+})();
+</script>
+</body>
+</html>

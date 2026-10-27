@@ -1,0 +1,63 @@
+query_id,entity,entity_id_or_url,filters_summary,date_from,date_to,result_count,status,credits_spent
+Q001,Cadian,https://www.linkedin.com/company/cadian-capital-management,"company_identify_v2 by profile URL (single batched call) -> id 988803 ""Cadian Capital Management""",,,1,ok,0
+Q002,Atreides,https://www.linkedin.com/company/atreides-management,"company_identify_v2 by profile URL (single batched call) -> id 990159 ""Atreides Management, LP""",,,1,ok,0
+Q003,Alkeon,https://www.linkedin.com/company/alkeon-capital,"company_identify_v2 by profile URL (single batched call) -> id 1544140 ""Alkeon Capital""",,,1,ok,0
+Q004,Sylebra,https://www.linkedin.com/company/sylebra,"company_identify_v2 by profile URL (single batched call) -> id 983853 ""Sylebra Capital""",,,1,ok,0
+Q005,Whale Rock,https://www.linkedin.com/company/whale-rock-capital-management-llc,"company_identify_v2 by profile URL (single batched call) -> id 993750 ""Whale Rock Capital Management LLC""",,,1,ok,0
+Q006,Taranis,7865447,"company_identify_v2 by id (single batched call) -> ""Taranis""",,,1,ok,0
+Q007,Coatue,1033880,"company_identify_v2 by id (single batched call) -> ""Coatue Management""",,,1,ok,0
+Q008,Altimeter,992773,"company_identify_v2 by id (single batched call) -> ""Altimeter""",,,1,ok,0
+Q009,Atreides,990159,company posts; window total,2026-06-17,2026-09-17,0,ok,0
+Q010,Cadian,988803,company posts; window total,2026-06-17,2026-09-17,0,ok,0
+Q011,Alkeon,1544140,company posts; window total,2026-06-17,2026-09-17,0,ok,0
+Q012,Sylebra,983853,company posts; window total,2026-06-17,2026-09-17,0,ok,0
+Q013,Whale Rock,993750,company posts; window total,2026-06-17,2026-09-17,1,ok,0
+Q014,Taranis,7865447,company posts; window total,2026-06-17,2026-09-17,2,ok,0
+Q015,Coatue,1033880,company posts; window total,2026-06-17,2026-09-17,63,ok,0
+Q016,Altimeter,992773,company posts; window total,2026-06-17,2026-09-17,29,ok,0
+Q017,Atreides,990159,company posts; lifetime total (no date filter),,,0,ok,0
+Q018,Cadian,988803,company posts; lifetime total (no date filter),,,0,dropped-retried,0
+Q019,Alkeon,1544140,company posts; lifetime total (no date filter),,,0,ok,0
+Q020,Sylebra,983853,company posts; lifetime total (no date filter),,,5,ok,0
+Q021,Whale Rock,993750,company posts; lifetime total (no date filter),,,7,ok,0
+Q022,Taranis,7865447,company posts; lifetime total (no date filter),,,15,ok,0
+Q023,Atreides,"actor.name [.] ""Atreides Management""","sanity check: any actor named this (no type/id), lifetime",,,0,ok,0
+Q024,Alkeon,"actor.name [.] ""Alkeon Capital""","sanity check: any actor named this (no type/id), lifetime",,,0,ok,0
+Q025,Cadian,"actor.name [.] ""Cadian Capital""","sanity check: any actor named this (no type/id), lifetime",,,0,ok,0
+Q026,Taranis,7865447,window; content_type = image,2026-06-17,2026-09-17,0,ok,0
+Q027,Taranis,7865447,window; content_type = video,2026-06-17,2026-09-17,1,ok,0
+Q028,Taranis,7865447,window; content_type = article,2026-06-17,2026-09-17,1,ok,0
+Q029,Taranis,7865447,window; content_type = document,2026-06-17,2026-09-17,0,ok,0
+Q030,Taranis,7865447,"window; curation: text (.) ""Source"" OR ""via"" OR ""credit""",2026-06-17,2026-09-17,0,ok,0
+Q031,Taranis,7865447,window; engagement.total_reactions => 25,2026-06-17,2026-09-17,0,ok,0
+Q032,Taranis,7865447,window; engagement.total_reactions => 50,2026-06-17,2026-09-17,0,ok,0
+Q033,Taranis,7865447,window; engagement.total_reactions => 100,2026-06-17,2026-09-17,0,ok,0
+Q034,Taranis,7865447,window; engagement.total_reactions => 250,2026-06-17,2026-09-17,0,ok,0
+Q035,Taranis,7865447,month jun: date_posted => 2026-06-17 and < 2026-07-01,2026-06-17,2026-07-01,0,ok,0
+Q036,Taranis,7865447,month jul: date_posted => 2026-07-01 and < 2026-08-01,2026-07-01,2026-08-01,0,ok,0
+Q037,Taranis,7865447,month aug: date_posted => 2026-08-01 and < 2026-09-01,2026-08-01,2026-09-01,2,ok,0
+Q038,Taranis,7865447,month sep: date_posted => 2026-09-01 and < 2026-09-18,2026-09-01,2026-09-18,0,ok,0
+Q039,Whale Rock,993750,window; content_type = image,2026-06-17,2026-09-17,1,ok,0
+Q040,Whale Rock,993750,window; content_type = video,2026-06-17,2026-09-17,0,ok,0
+Q041,Whale Rock,993750,window; content_type = article,2026-06-17,2026-09-17,0,ok,0
+Q042,Whale Rock,993750,window; content_type = document,2026-06-17,2026-09-17,0,ok,0
+Q043,Whale Rock,993750,"window; curation: text (.) ""Source"" OR ""via"" OR ""credit""",2026-06-17,2026-09-17,0,ok,0
+Q044,Whale Rock,993750,window; engagement.total_reactions => 25,2026-06-17,2026-09-17,1,ok,0
+Q045,Whale Rock,993750,window; engagement.total_reactions => 50,2026-06-17,2026-09-17,1,ok,0
+Q046,Whale Rock,993750,window; engagement.total_reactions => 100,2026-06-17,2026-09-17,1,ok,0
+Q047,Whale Rock,993750,window; engagement.total_reactions => 250,2026-06-17,2026-09-17,0,ok,0
+Q048,Whale Rock,993750,month jun: date_posted => 2026-06-17 and < 2026-07-01,2026-06-17,2026-07-01,0,ok,0
+Q049,Whale Rock,993750,month jul: date_posted => 2026-07-01 and < 2026-08-01,2026-07-01,2026-08-01,0,ok,0
+Q050,Whale Rock,993750,month aug: date_posted => 2026-08-01 and < 2026-09-01,2026-08-01,2026-09-01,1,ok,0
+Q051,Whale Rock,993750,month sep: date_posted => 2026-09-01 and < 2026-09-18,2026-09-01,2026-09-18,0,ok,0
+Q052,Gavin Baker (Atreides),https://www.linkedin.com/in/gavinbaker-portfoliomanager,person posts by actor.professional_network_url; window total,2026-06-17,2026-09-17,1,ok,0
+Q053,Gavin Baker (Atreides),https://www.linkedin.com/in/gavinbaker-portfoliomanager,person posts by actor.professional_network_url; lifetime total,,,6,ok,0
+Q054,Eric Bannasch (Cadian),https://www.linkedin.com/in/eric-bannasch-7638598,person posts by actor.professional_network_url; window total,2026-06-17,2026-09-17,0,ok,0
+Q055,Eric Bannasch (Cadian),https://www.linkedin.com/in/eric-bannasch-7638598,person posts by actor.professional_network_url; lifetime total,,,0,ok,0
+Q056,Dan Gibson (Sylebra),https://www.linkedin.com/in/daniel-gibson-690b7711,person posts by actor.professional_network_url; window total,2026-06-17,2026-09-17,0,ok,0
+Q057,Dan Gibson (Sylebra),https://www.linkedin.com/in/daniel-gibson-690b7711,person posts by actor.professional_network_url; lifetime total,,,0,ok,0
+Q058,Alex Sacerdote (Whale Rock),https://www.linkedin.com/in/alex-sacerdote-59747814,person posts by actor.professional_network_url; window total,2026-06-17,2026-09-17,0,ok,0
+Q059,Alex Sacerdote (Whale Rock),https://www.linkedin.com/in/alex-sacerdote-59747814,person posts by actor.professional_network_url; lifetime total,,,0,ok,0
+Q060,Julien Leegenhoek (Taranis),https://www.linkedin.com/in/julien-leegenhoek,person posts by actor.professional_network_url; window total,2026-06-17,2026-09-17,1,ok,0
+Q061,Julien Leegenhoek (Taranis),https://www.linkedin.com/in/julien-leegenhoek,person posts by actor.professional_network_url; lifetime total,,,15,ok,0
+Q062,Whale Rock,993750,"PAID pull: window posts, limit=1, sorted engagement.total_reactions desc, format json",2026-06-17,2026-09-17,1,ok,0.5
