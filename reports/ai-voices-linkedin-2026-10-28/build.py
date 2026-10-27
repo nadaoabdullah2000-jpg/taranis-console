@@ -3,6 +3,8 @@
 Inputs (all from free Crustdata limit=0 count queries, window 17 Jun - 17 Sep 2026 = 13 weeks):
   data/ai_voices_counts.csv           totals, tech counts, reaction thresholds, monthly split (7 named voices)
   data/ai_voices_formats_credits.csv  source credits and content-type counts (7 named voices)
+  data/ai_voices_tech_broad.csv       tech count with a broader keyword set (adds Perplexity, model, agent, software,
+                                      compute, Copilot, Microsoft, GPT, robot)
   data/ai_voices_similar.csv          similar voices found in this screen (totals, tech, thresholds)
   ../tms-competitive-review-full-2026-10-27/data/posts_raw_all.csv  sample posts pulled earlier
 Writes data/ai_voices_summary.csv, data/ai_voices_similar_summary.csv, data/ai_voices_samples.csv
@@ -59,6 +61,7 @@ def lift(r):
 def main():
     counts = load(os.path.join(DATA, "ai_voices_counts.csv"))
     fmts = {r["name"]: r for r in load(os.path.join(DATA, "ai_voices_formats_credits.csv"))}
+    broad = {r["name"]: int(r["tech_broad_13w"]) for r in load(os.path.join(DATA, "ai_voices_tech_broad.csv"))}
     out = []
     for r in counts:
         total, tech = num(r["total_13w"]), num(r["tech_13w"])
@@ -66,6 +69,7 @@ def main():
         row = {"name": r["name"], "role": ROLE.get(r["name"], ""), "profile_url": "https://www.linkedin.com/in/" + r["slug"],
                "total_13w": int(total), "posts_per_week": round(total / WEEKS, 2), "tech_13w": int(tech),
                "tech_share": round(tech / total, 3) if total else "", "tech_per_week": round(tech / WEEKS, 2),
+               "tech_broad_13w": broad.get(r["name"], ""), "tech_broad_share": round(broad[r["name"]] / total, 3) if r["name"] in broad and total else "",
                "credited_13w": f["credited_13w"], "credited_share": round(int(f["credited_13w"]) / total, 3) if total else ""}
         known = 0
         for k in ("video", "image", "article"):

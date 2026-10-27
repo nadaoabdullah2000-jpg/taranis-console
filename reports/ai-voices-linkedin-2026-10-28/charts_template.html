@@ -78,7 +78,7 @@ footer { font-size: 12px; color: var(--muted); }
 </head>
 <body><div class="wrap" style="max-width:1000px">
 <div class="card" id="k-ppw"><h3>Posts per week, 17 Jun – 17 Sep 2026</h3><p class="cap">Crustdata count queries by profile URL. Grey bars = similar voices found in this screen.</p><div class="chart" id="c-ppw"></div></div>
-<div class="card" id="k-tech"><h3>Share of posts about tech/AI</h3><p class="cap">Keyword match on AI, Nvidia, OpenAI, semiconductor, tech: the same rule used for Monchau (26%).</p><div class="chart" id="c-tech"></div></div>
+<div class="card" id="k-tech"><h3>Share of posts about tech/AI</h3><p class="cap">Bars: keyword match on AI, Nvidia, OpenAI, semiconductor, tech, the same rule used for Monchau (26%). "Broad" adds Perplexity, model, agent, software, compute, Copilot, Microsoft, GPT, robot.</p><div class="chart" id="c-tech"></div></div>
 <div class="card" id="k-lift"><h3>Do tech posts do better? Share of posts at or above each person's median-level threshold</h3><p class="cap">Threshold chosen per person as the reaction level closest to half of all posts. Blue = tech/AI posts, grey = other posts.</p><div class="legend" id="l-lift"></div><div class="chart" id="c-lift"></div></div>
 <div class="card" id="k-month"><h3>Tech/AI share by month</h3><p class="cap">June = 17–30 June; September = 1–17 September.</p><div class="legend" id="l-month"></div><div class="chart" id="c-month"></div></div>
 <div class="card" id="k-fmt"><h3>Format mix</h3><p class="cap">Share of posts by content type; "text/other" = remainder (text-only and documents).</p><div class="legend" id="l-fmt"></div><div class="chart" id="c-fmt"></div></div>
@@ -208,7 +208,7 @@ footer { font-size: 12px; color: var(--muted); }
   const leg = (id, items) => { const L = document.getElementById(id); items.forEach(([t, c]) => { const s = document.createElement('span'); s.textContent = t; s.style.setProperty('--sw', c); L.appendChild(s); }); };
   hbar(document.getElementById('c-ppw'), S.map(r => ({ label: r.name, value: +r.posts_per_week, color: ac, text: f.dec(+r.posts_per_week) }))
     .concat(SIM.map(r => ({ label: r.name, value: +r.posts_per_week, color: mb, text: f.dec(+r.posts_per_week) }))).sort((a, b) => b.value - a.value), { bar: 14, gap: 6 });
-  hbar(document.getElementById('c-tech'), S.map(r => ({ label: r.name, value: +r.tech_share, color: ac, text: f.pct(+r.tech_share) + ' (' + r.tech_13w + ' of ' + r.total_13w + ')' }))
+  hbar(document.getElementById('c-tech'), S.map(r => ({ label: r.name, value: +r.tech_share, color: ac, text: f.pct(+r.tech_share) + ' (' + r.tech_13w + ' of ' + r.total_13w + ') · broad ' + f.pct(+r.tech_broad_share) }))
     .concat(SIM.map(r => ({ label: r.name, value: +r.tech_share, color: mb, text: f.pct(+r.tech_share) + ' (' + r.tech_13w + ' of ' + r.total_13w + ')' })))
     .concat([{ label: 'Monchau (benchmark)', value: 0.258, color: tc, text: '26% (271 of 1,051)' }]).sort((a, b) => b.value - a.value), { max: 1, tick: f.pct, bar: 14, gap: 6 });
   leg('l-lift', [['Tech/AI posts', ac], ['Other posts', mb]]);
