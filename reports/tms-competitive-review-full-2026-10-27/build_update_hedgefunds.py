@@ -79,11 +79,14 @@ hf_posts = [
 ]
 write("hf_posts_sample.csv", ["author", "format", "reactions", "comments", "shares", "url", "text", "true_date_utc"], [r + (true_date(r[5]),) for r in hf_posts])
 
-# ------------------------------------------------------------------ Monchau: tech vs other (17 Jun - 17 Sep 2026)
-TOTAL, TECH = 1051, 271
+# ------------------------------------------------------------------ Monchau: tech vs other (1 Jun - 17 Sep 2026)
+# Client window is 1 Jun - 27 Oct 2026; the Crustdata index ends ~17 Sep, so counts cover 1 Jun - 17 Sep
+# (108 days) and 18 Sep - 27 Oct is a live sample (monchau_live_sep17_oct28.csv).
+MON_DAYS = 108
+TOTAL, TECH = 1244, 328
 OTHER = TOTAL - TECH
-all_ge = {25: 743, 54: 558, 100: 380, 200: 212}
-tech_ge = {25: 200, 54: 151, 100: 99, 200: 46}
+all_ge = {25: 901, 54: 692, 100: 487, 200: 279}
+tech_ge = {25: 249, 54: 193, 100: 134, 200: 66}
 rows = []
 for th in (25, 54, 100, 200):
     o = all_ge[th] - tech_ge[th]
@@ -91,11 +94,14 @@ for th in (25, 54, 100, 200):
     rows.append((th, tech_ge[th], round(ts, 3), o, round(os_, 3), round(ts / os_ - 1, 3)))
 write("monchau_tech_vs_other.csv", ["threshold", "tech_posts_at_or_above", "tech_share", "other_posts_at_or_above", "other_share", "tech_relative_lift"], rows)
 write("monchau_tech_monthly.csv", ["period", "tech_posts", "all_posts", "tech_share"], [
-    ("Jun 17-30", 39, 160, round(39 / 160, 3)), ("Jul", 153, 573, round(153 / 573, 3)), ("Aug", 42, 182, round(42 / 182, 3)), ("Sep 1-16", 37, 136, round(37 / 136, 3))])
+    ("Jun", 96, 353, round(96 / 353, 3)), ("Jul", 153, 573, round(153 / 573, 3)), ("Aug", 42, 182, round(42 / 182, 3)), ("Sep 1-16", 37, 136, round(37 / 136, 3))])
 write("monchau_tech_summary.csv", ["metric", "value", "note"], [
-    ("Posts in window", TOTAL, "17 Jun - 17 Sep 2026"), ("Tech/AI posts", TECH, "keyword AI|Nvidia|OpenAI|semiconductor|tech"),
-    ("Tech share of all posts", round(TECH / TOTAL, 3), ""), ("Tech posts crediting a Source", 230, "84.9% of tech posts (all posts: 86%)"),
-    ("Tech posts per day", round(TECH / 92, 2), "92 days")])
+    ("Posts in window", TOTAL, "1 Jun - 17 Sep 2026 (index end; window runs to 27 Oct)"), ("Tech/AI posts", TECH, "keyword AI|Nvidia|OpenAI|semiconductor|tech"),
+    ("Tech share of all posts", round(TECH / TOTAL, 3), ""), ("Tech posts crediting a Source", 277, "84.5% of tech posts (all posts: 86%)"),
+    ("Tech posts per day", round(TECH / MON_DAYS, 2), f"{MON_DAYS} days"),
+    ("Tech share, broad keywords", round(363 / TOTAL, 3), "adds Perplexity, model, agent, software, compute, Copilot, Microsoft, GPT, robot (363 posts)"),
+    ("Tech share, all tech-related keywords", round(481 / TOTAL, 3), "adds big-tech names, chips, cloud, data centres, Musk/SpaceX, robots, quantum (481 posts)"),
+    ("Tech share incl. tech-market posts", round(514 / TOTAL, 3), "adds Nasdaq, Magnificent 7, SOX (514 posts)")])
 mts = [
  ("Morgan Stanley maps the AI infrastructure supply chain", "image", 2452, 76, 156, "https://www.linkedin.com/posts/charles-henry-monchau-cfa-cmt-caia-4003096_morgan-stanley-just-mapped-out-the-entire-activity-7487933666971615233-ThPI", "Curated (Source: Milk Road); picks-and-shovels framing"),
  ("AI-generated 'Champion of the Universe' video", "video", 1487, 56, 138, "https://www.linkedin.com/posts/charles-henry-monchau-cfa-cmt-caia-4003096_these-ai-generated-videos-are-amazing-ugcPost-7478449831934373889-xN9F", "Humour clip, AI as subject (Source: Laurent Lequeu)"),
@@ -114,7 +120,7 @@ write("monchau_tech_samples.csv", ["post", "format", "reactions", "comments", "s
 # ------------------------------------------------------------------ high-frequency tech voices (like Monchau)
 cur = [
  # name, url, posts_13w, credited_posts, top_post_title, top_format, top_reactions, top_url, authorship_signal
- ("Charles-Henry Monchau (benchmark)", "https://www.linkedin.com/in/charles-henry-monchau-cfa-cmt-caia-4003096", 1051, 907, "Pierce Brosnan photo (humour)", "image", 17611, "https://www.linkedin.com/posts/charles-henry-monchau-cfa-cmt-caia-4003096_the-camera-man-is-a-genius-for-those-activity-7505271378573594624-jGSn", "Curator: 86% credit a Source/via (907 of 1,051); text largely follows the cited account"),
+ ("Charles-Henry Monchau (benchmark)", "https://www.linkedin.com/in/charles-henry-monchau-cfa-cmt-caia-4003096", 1244, 1075, "Pierce Brosnan photo (humour)", "image", 17611, "https://www.linkedin.com/posts/charles-henry-monchau-cfa-cmt-caia-4003096_the-camera-man-is-a-genius-for-those-activity-7505271378573594624-jGSn", "Curator: 86% credit a Source/via (1,075 of 1,244, 1 Jun - 17 Sep); text largely follows the cited account"),
  ("Eduardo Ordax (AWS, GenAI GTM)", "https://www.linkedin.com/in/eordax", 250, 27, "Vibe coder at 2AM (humour video)", "video", 6837, "https://www.linkedin.com/posts/eordax_ai-humor-ugcPost-7474863040736350209-PN7h", "Mostly own short commentary; humour clips posted natively without a credit line"),
  ("Linas Beliūnas (fintech/AI)", "https://www.linkedin.com/in/linasbeliunas", 200, 38, "Watch this Stanford lecture instead of Netflix", "video", 16285, "https://www.linkedin.com/posts/linasbeliunas_instead-of-watching-2-hours-of-netflix-tonight-ugcPost-7481787865924956160-4yUE", "Curates others' content but re-frames it in his own voice; 19% carry a credit"),
  ("Ethan Mollick (Wharton)", "https://www.linkedin.com/in/emollick", 199, 12, "New book: Co-Existence", "image", 3928, "https://www.linkedin.com/posts/emollick_i-have-a-new-book-coming-out-october-20-activity-7468411654381289472-oxlx", "Writes his own: first-hand tests and opinions; 6% credit others"),
@@ -130,6 +136,7 @@ cur = [
 rows = []
 for n, u, p, c, tt, tf, tr, tu, a in cur:
     share = round(c / p, 3) if c != "" else ""
-    rows.append((n, u, p, round(p / 13, 1), c, share, tt, tf, tr, tu, a))
+    weeks = MON_DAYS / 7 if "Monchau" in n else 13
+    rows.append((n, u, p, round(p / weeks, 1), c, share, tt, tf, tr, tu, a))
 write("tech_voices_frequency.csv", ["name", "profile_url", "posts_13w", "posts_per_week", "credited_posts", "credited_share", "top_post", "top_format", "top_reactions", "top_url", "authorship_signal"], rows)
 print("ok")

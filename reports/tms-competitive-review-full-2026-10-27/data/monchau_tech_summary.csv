@@ -1,6 +1,9 @@
 metric,value,note
-Posts in window,1051,17 Jun - 17 Sep 2026
-Tech/AI posts,271,keyword AI|Nvidia|OpenAI|semiconductor|tech
-Tech share of all posts,0.258,
-Tech posts crediting a Source,230,84.9% of tech posts (all posts: 86%)
-Tech posts per day,2.95,92 days
+Posts in window,1244,1 Jun - 17 Sep 2026 (index end; window runs to 27 Oct)
+Tech/AI posts,328,keyword AI|Nvidia|OpenAI|semiconductor|tech
+Tech share of all posts,0.264,
+Tech posts crediting a Source,277,84.5% of tech posts (all posts: 86%)
+Tech posts per day,3.04,108 days
+"Tech share, broad keywords",0.292,"adds Perplexity, model, agent, software, compute, Copilot, Microsoft, GPT, robot (363 posts)"
+"Tech share, all tech-related keywords",0.387,"adds big-tech names, chips, cloud, data centres, Musk/SpaceX, robots, quantum (481 posts)"
+Tech share incl. tech-market posts,0.413,"adds Nasdaq, Magnificent 7, SOX (514 posts)"

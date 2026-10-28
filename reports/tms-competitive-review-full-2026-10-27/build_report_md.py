@@ -46,7 +46,9 @@ The competitor set is now five non-retail tech hedge funds. The earlier Swiss/UC
 
 {table(hfp, [("author","Author"),("true_date_utc","Date"),("format","Format"),("reactions","Reactions"),("comments","Comments"),("shares","Shares"),("text","Post"),("url","Link")])}
 
-## Update (27 Oct): Monchau's tech posts vs his other posts (17 Jun – 17 Sep 2026)
+## Update (28 Oct): Monchau's tech posts vs his other posts (window 1 Jun – 27 Oct 2026)
+
+Counts cover 1 Jun – 17 Sep 2026, where the Crustdata index ends (1,244 posts); 18 Sep – 27 Oct is covered by the live sample in data/monchau_live_sep17_oct28.csv. Tech share: 26% by the narrow keyword rule, 29% broad, about 39–41% with a wide net of tech names and themes (see monchau_tech_summary.csv).
 
 {table(mtv, [("threshold","≥ reactions"),("tech_posts_at_or_above","Tech posts"),("tech_share","Tech share"),("other_posts_at_or_above","Other posts"),("other_share","Other share"),("tech_relative_lift","Tech lift")])}
 

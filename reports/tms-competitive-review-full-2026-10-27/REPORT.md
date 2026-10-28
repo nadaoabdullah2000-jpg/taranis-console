@@ -5,7 +5,7 @@ Prepared 27 Oct 2026 for Taranis SA (Geneva). "Taranis" here is Taranis SA, the 
 **Deliverables in this folder**
 - `dashboard.html`: self-contained dashboard (d3 and all data inlined; opens offline).
 - `TMS_LinkedIn_Competitive_Review.docx`: detailed Word report with links and charts.
-- `data/posts_raw_all.csv`: 132 posts (author, true_date_utc, format, reactions, comments, shares, text, url).
+- `data/posts_raw_all.csv`: 161 posts (author, true_date_utc, format, reactions, comments, shares, text, url).
 - `data/*.csv`: every table below. `count_queries.csv` and `count_queries_swiss.csv`: every Crustdata count query.
 - Build scripts: `build_data.py`, `build_dashboard.py`, `build_word.js`, `build_report_md.py`.
 
@@ -52,18 +52,20 @@ The competitor set is now five non-retail tech hedge funds. The earlier Swiss/UC
 | Whale Rock Capital | 2026-06-09 | article | 142 | 0 | 2 | Grateful to Patrick O'Shaughnessy and the Invest Like the Best team for having Alex Sacerdote on the podcast. | [post](https://www.linkedin.com/posts/whale-rock-capital-management-llc_alex-sacerdote-how-to-invest-through-technology-activity-7470121869430624257-XZw2) |
 | Glen Kacher (Light Street founder) | 2026-06-23 | text | 147 | 5 | 0 | Congratulations to my brother for his exemplary 36 years of service in the U.S. Navy... The Defense Tech opportunity... | [post](https://www.linkedin.com/posts/activity-7475250417921105920-VNLq) |
 
-## Update (27 Oct): Monchau's tech posts vs his other posts (17 Jun – 17 Sep 2026)
+## Update (28 Oct): Monchau's tech posts vs his other posts (window 1 Jun – 27 Oct 2026)
+
+Counts cover 1 Jun – 17 Sep 2026, where the Crustdata index ends (1,244 posts); 18 Sep – 27 Oct is covered by the live sample in data/monchau_live_sep17_oct28.csv. Tech share: 26% by the narrow keyword rule, 29% broad, about 39–41% with a wide net of tech names and themes (see monchau_tech_summary.csv).
 
 | ≥ reactions | Tech posts | Tech share | Other posts | Other share | Tech lift |
 |---|---|---|---|---|---|
-| 25 | 200 | 0.738 | 543 | 0.696 | 0.06 |
-| 54 | 151 | 0.557 | 407 | 0.522 | 0.068 |
-| 100 | 99 | 0.365 | 281 | 0.36 | 0.014 |
-| 200 | 46 | 0.17 | 166 | 0.213 | -0.202 |
+| 25 | 249 | 0.759 | 652 | 0.712 | 0.067 |
+| 54 | 193 | 0.588 | 499 | 0.545 | 0.08 |
+| 100 | 134 | 0.409 | 353 | 0.385 | 0.06 |
+| 200 | 66 | 0.201 | 213 | 0.233 | -0.135 |
 
 | Period | Tech posts | All posts | Tech share |
 |---|---|---|---|
-| Jun 17-30 | 39 | 160 | 0.244 |
+| Jun | 96 | 353 | 0.272 |
 | Jul | 153 | 573 | 0.267 |
 | Aug | 42 | 182 | 0.231 |
 | Sep 1-16 | 37 | 136 | 0.272 |
@@ -86,7 +88,7 @@ The competitor set is now five non-retail tech hedge funds. The earlier Swiss/UC
 
 | Voice | Posts 13w | Per week | Credit a source | Top post | Reactions | Link | Own posts? (signal) |
 |---|---|---|---|---|---|---|---|
-| Charles-Henry Monchau (benchmark) | 1051 | 80.8 | 0.863 | Pierce Brosnan photo (humour) | 17611 | [post](https://www.linkedin.com/posts/charles-henry-monchau-cfa-cmt-caia-4003096_the-camera-man-is-a-genius-for-those-activity-7505271378573594624-jGSn) | Curator: 86% credit a Source/via (907 of 1,051); text largely follows the cited account |
+| Charles-Henry Monchau (benchmark) | 1244 | 80.6 | 0.864 | Pierce Brosnan photo (humour) | 17611 | [post](https://www.linkedin.com/posts/charles-henry-monchau-cfa-cmt-caia-4003096_the-camera-man-is-a-genius-for-those-activity-7505271378573594624-jGSn) | Curator: 86% credit a Source/via (1,075 of 1,244, 1 Jun - 17 Sep); text largely follows the cited account |
 | Eduardo Ordax (AWS, GenAI GTM) | 250 | 19.2 | 0.108 | Vibe coder at 2AM (humour video) | 6837 | [post](https://www.linkedin.com/posts/eordax_ai-humor-ugcPost-7474863040736350209-PN7h) | Mostly own short commentary; humour clips posted natively without a credit line |
 | Linas Beliūnas (fintech/AI) | 200 | 15.4 | 0.19 | Watch this Stanford lecture instead of Netflix | 16285 | [post](https://www.linkedin.com/posts/linasbeliunas_instead-of-watching-2-hours-of-netflix-tonight-ugcPost-7481787865924956160-4yUE) | Curates others' content but re-frames it in his own voice; 19% carry a credit |
 | Ethan Mollick (Wharton) | 199 | 15.3 | 0.06 | New book: Co-Existence | 3928 | [post](https://www.linkedin.com/posts/emollick_i-have-a-new-book-coming-out-october-20-activity-7468411654381289472-oxlx) | Writes his own: first-hand tests and opinions; 6% credit others |
@@ -319,7 +321,7 @@ The TMS gate (country → professional/retail → "I Accept") matches Schroders'
 |---|---|---|---|
 | 1. Lead through Julien (Altimeter-style) | Julien is the public face: 60-90s BFM clips with one quoted line, a clear stance on the AI cycle; a partner interviews companies or allocators | 3 | Altimeter's Gerstner clips 120+ reactions; Taranis page 14 vs Julien 64 |
 | 2. One-line thesis + chart (Coatue-style) | Open every post with one claim and one chart or clip; Monday TMS sentiment-gauge chart as the signature | 1 | Coatue's best posts pair a thesis line with a portfolio fact or TV clip (136-232 reactions) |
-| 3. Cadence 3-5 posts/week | ~3 from Julien + ~2 from the company page | 5 | Altimeter 2.23/week, Coatue 4.85/week, DECALIA 2.3/week; Taranis 0.15 |
+| 3. Cadence 3-5 posts/week | ~3 from Julien + ~2 from the company page | 5 | Altimeter 2.23/week, Coatue 4.85/week; Taranis 0.15 |
 | 4. Milestones as events (Whale Rock-style) | Awards, anniversaries, conferences, podcasts posted with a thesis and a number |  | Whale Rock's 7 posts average ~243 reactions; 20th-anniversary letter 709 |
 | 5. Own voice over curation; tech as core lane | ~80/20 original to curated; English first, French second |  | Monchau tech posts only +7% vs his average; own-voice tech creators (Mollick, Pandey) credit others in 6-19% of posts |
 | 6. Fix the product page | Two sleeves and weights, named PMs, vehicle/ISIN/fees/liquidity, gated factsheet, 'request factsheet' CTA, relabel the award |  | TMS page shows three paragraphs; Coatue runs an insights hub beside a gated investor area |

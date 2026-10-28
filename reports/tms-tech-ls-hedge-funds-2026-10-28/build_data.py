@@ -144,7 +144,8 @@ def main():
     cad.append({"account": "Julien Leegenhoek (Taranis)", "group": "Taranis", "posts_13w": j["window_total"], "posts_per_week": j["posts_per_week"]})
     for k in ("Coatue", "Altimeter"):
         cad.append({"account": k + " (benchmark)", "group": "Benchmark", "posts_13w": counts[k]["window_total"], "posts_per_week": counts[k]["posts_per_week"]})
-    cad.append({"account": "Charles-Henry Monchau (benchmark)", "group": "Benchmark", "posts_13w": 1051, "posts_per_week": 80.85})
+    # Monchau window is 1 Jun - 27 Oct; counts run to the index end (17 Sep, 108 days), so posts_13w holds his 1 Jun - 17 Sep total
+    cad.append({"account": "Charles-Henry Monchau (benchmark)", "group": "Benchmark", "posts_13w": 1244, "posts_per_week": round(1244 / (108 / 7), 2)})
     write("cadence.csv", cad)
 
     # Operating plan

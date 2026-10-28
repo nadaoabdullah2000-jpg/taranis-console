@@ -121,7 +121,7 @@ const method = [
   bullet('Hedge-fund sites are holding or login pages by design; this is recorded as a finding. adviserinfo.sec.gov was unreachable from this environment, so Form ADV facts come from aggregators (privatefunddata, Radient, formds, FINTRX) with the official links given by CRD number.'),
   bullet('AUM figures conflict for every fund (regulatory vs discretionary vs 13F vs press). Each is shown with its source; none is resolved.'),
   bullet('Whale Rock posted on 18 May, 2 Jun and 9 Jun, just before the window, so 13 weeks understates its usual pace. Its intern post is dated 12 Aug in the index and 3 Aug by its post ID.'),
-  bullet('Alkeon founder Panayotis Sparaggis has no findable LinkedIn profile. Monchau figures come from the 27 Oct counts; his 290k+ follower count is from a search snippet and unverified.'),
+  bullet('Alkeon founder Panayotis Sparaggis has no findable LinkedIn profile. Monchau figures use his 1 Jun – 27 Oct window: counts to 17 Sep (1,244 posts), live sample after; his 290k+ follower count is from a search snippet and unverified.'),
 ];
 
 const setSec = [
@@ -163,7 +163,7 @@ const liSec = [
 
 const monSec = [
   H1('6. Benchmark: Charles-Henry Monchau'),
-  P([t('Context, not a peer: Monchau (Syz Group CIO, '), link('https://www.linkedin.com/in/charles-henry-monchau-cfa-cmt-caia-4003096', 'profile'), t(`) is the "loud individual voice" model. In the 13 weeks he published 1,051 posts (about 81 a week, 11.5 a day). ${Math.round(100 * MIX[0].posts / (+MIX[0].posts + +MIX[1].posts))}% credit a "Source"; only 4 of 78 own-view or Syz-branded posts cleared 54 reactions. Tech/AI is about 26% of posts; tech posts beat his average only slightly (+6–7% at 25 and 54 reactions) and go viral less often, because his viral outliers are humour.`)]),
+  P([t('Context, not a peer: Monchau (Syz Group CIO, '), link('https://www.linkedin.com/in/charles-henry-monchau-cfa-cmt-caia-4003096', 'profile'), t(`) is the "loud individual voice" model. Window 1 Jun – 27 Oct 2026: from 1 Jun to 17 Sep (the index end) he published 1,244 posts (about 81 a week, 11.5 a day); 18 Sep – 27 Oct is covered by a live sample. ${Math.round(100 * MIX[0].posts / (+MIX[0].posts + +MIX[1].posts))}% credit a "Source"; only 4 of 78 own-view or Syz-branded posts cleared 54 reactions. Tech/AI is 26% of posts by the narrow keyword rule (328 of 1,244) and about 39–41% with a wide net of tech names and themes; tech posts beat his average only slightly (+7–8% at 25 and 54 reactions) and go viral less often, because his viral outliers are humour.`)]),
   image('c-month.png', 440), image('c-mix.png', 440), image('c-top.png', 440), image('c-react.png', 440), image('c-fmt.png', 440), image('c-tech.png', 440),
   P([t('Reading for Taranis: ', { bold: true }), t('copy the chart-first image format (his most reliable, 57% of image posts clear 54 reactions), not the volume or the curation.')]),
 ];
