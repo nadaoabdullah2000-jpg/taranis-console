@@ -210,7 +210,7 @@ footer { font-size: 12px; color: var(--muted); }
     .concat(SIM.map(r => ({ label: r.name, value: +r.posts_per_week, color: mb, text: f.dec(+r.posts_per_week) }))).sort((a, b) => b.value - a.value), { bar: 14, gap: 6 });
   hbar(document.getElementById('c-tech'), S.map(r => ({ label: r.name, value: +r.tech_share, color: ac, text: f.pct(+r.tech_share) + ' (' + r.tech_13w + ' of ' + r.total_13w + ') · broad ' + f.pct(+r.tech_broad_share) }))
     .concat(SIM.map(r => ({ label: r.name, value: +r.tech_share, color: mb, text: f.pct(+r.tech_share) + ' (' + r.tech_13w + ' of ' + r.total_13w + ')' })))
-    .concat([{ label: 'Monchau (benchmark)', value: 0.258, color: tc, text: '26% (271 of 1,051)' }]).sort((a, b) => b.value - a.value), { max: 1, tick: f.pct, bar: 14, gap: 6 });
+    .concat([{ label: 'Monchau (benchmark)', value: 0.258, color: tc, text: '26% (271 of 1,051) · broad 28%' }]).sort((a, b) => b.value - a.value), { max: 1, tick: f.pct, bar: 14, gap: 6 });
   leg('l-lift', [['Tech/AI posts', ac], ['Other posts', mb]]);
   vbar(document.getElementById('c-lift'), S.filter(r => r.other_n > 0).map(r => ({ label: r.name.split(' ').slice(-1)[0] + ' ≥' + d3.format('~s')(+r.lift_threshold), values: [
     { v: +r.tech_share_at_t, color: ac, text: f.pct(+r.tech_share_at_t), name: 'Tech' }, { v: +r.other_share_at_t, color: mb, text: f.pct(+r.other_share_at_t), name: 'Other' }] })), { tick: f.pct });
