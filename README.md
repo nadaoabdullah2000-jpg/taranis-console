@@ -159,6 +159,20 @@ functions, `console_search_suggest($1, $2)` and `console_search_company($1)`
 The typed text is a bound parameter on both paths, never SQL text. Node setup:
 [docs/gateway-search-actions.md](docs/gateway-search-actions.md).
 
+### Hedge funds in the alerts
+
+With Intelligence → **Hedge funds** lists the managers the alerts write
+about: launches and new firms, hires, performance, closures. These raise
+money rather than place it, so the screen keeps them out of Opportunities
+(WI 01's *Apply Taranis Hard Criteria* and the console's `isManagerNews`:
+Shutter, Manager information, untyped People items, anything typed as a
+hedge fund, and **Hedge Fund Alert** items unless they carry an investor
+type or speak of placing money). The tab reads those rows, names the fund
+from `evidence.other_firm_named` where the intake took a headline as the
+name, lists each story once, and groups them by kind. Read-only.
+`repair-hfa-manager-news-2026-10-30.sql` records the 11 rows re-screened
+when the Hedge Fund Alert rule was added (with its undo).
+
 ### Matching an iConnections export (schema-15)
 
 Opportunities → **Match an iConnections export**. Read-only against

@@ -887,6 +887,8 @@ const TABS = [
     sub: 'The ones a person has approved. A subset of Opportunities, not a separate list.' },
   { id: 'rejected', icon: '\u25BD', label: 'Rejected',      title: 'Rejected', group: 'wi',
     sub: 'Screened out on two or more criteria. Kept so you can see what was turned away, and why.' },
+  { id: 'hedgefunds', icon: '\u25C6', label: 'Hedge funds', title: 'Hedge funds in the alerts', group: 'wi',
+    sub: 'Managers With Intelligence writes about: launches, new firms, hires, closures, performance. They raise money rather than place it, so they are kept out of Opportunities and listed here.' },
   { id: 'hfn',      icon: '\u25A4', label: 'HFA & FOC',     title: 'Hedge Fund Alert & Family Office Confidential', group: 'wi',
     sub: 'Filed by publication, each with a summary written beside it so you need not open the PDF.' },
   { id: 'validate', icon: '\u2713', label: 'To validate',   title: 'To validate', group: 'wi', sub2: true,
@@ -1157,11 +1159,17 @@ function isStrong(m, t) {
 // A manager's own news is not an allocator's mandate: anything typed as a hedge
 // fund, anything WI files under Shutter or Manager information, and People items
 // with no investor type unless they speak of placing money. People items about
-// an allocator stay (a pension hiring a hedge-fund head is a lead). Same as WI 01.
+// an allocator stay (a pension hiring a hedge-fund head is a lead). Hedge Fund
+// Alert is WI's hedge-fund industry desk (launches, hires, new firms): manager
+// news too, unless it has an investor type or speaks of placing money; "search"
+// counts only as "search for" / "manager search", so a new executive-search
+// firm stays manager news. Same as WI 01.
+const RE_HFA_PLACES = /third.party|allocat|commit|\bsearch(es|ing)? for\b|manager search|\bseed(s|ed|er|ers|ing)?\b/;
 function isManagerNews(m, t) {
   const tag = String(m.investor_tag || '').trim().toLowerCase();
   const typ = String(m.investor_type || '').trim().toLowerCase();
   if (typ === 'hedge fund' || tag === 'shutter' || tag === 'manager information') return true;
+  if (tag === 'hedge fund alert') return !typ && !RE_HFA_PLACES.test(t.replace(RE_NEGATED, ' '));
   return tag === 'people' && !typ
     && !/third.party|allocat|commit|search|seed/.test(t.replace(RE_NEGATED, ' '));
 }
@@ -4266,6 +4274,120 @@ RENDER.rejected = function (body) {
     });
   }
   load();
+};
+
+/* ---- the hedge funds the alerts write about ---- */
+// Manager news, not mandates: what WI files under Shutter or Manager
+// information, Hedge Fund Alert items that are not about an allocator,
+// anything typed as a hedge fund, and what the screen set aside as a
+// manager's news or a manager raising capital. The same rows
+// sit in Rejected as "not a mandate"; here they are read as market news.
+// A Hedge Fund Alert item about an allocator (a family office, a seeder) is
+// not one: isManagerNews decides, the same test the screen applies.
+function isHedgeFundItem(m) {
+  return isManagerNews(m, sigText(m))
+    || /manager news|raises capital rather than placing/i.test(wiReasonsOf(m).join(' '))
+    || KNOWN_MANAGERS.test(String(m.investor_name || ''));
+}
+// The fund an item is about. The intake often takes a headline's first words
+// as the name ("Ex-analyst", "Yieldpoint recoups $4m after court battle"); the
+// firm the text names (evidence.other_firm_named) is better when there is one.
+// Otherwise the stored name counts only when it reads like a firm's: every
+// word capitalised (or a number, or of / & / and / the / for / de).
+const HF_NAME_WORD = /^([A-Z0-9$][^\s]*|of|and|&|the|for|de|du|la|von|van)$/;
+function hedgeFundName(m) {
+  let ev = m.evidence;
+  for (let i = 0; i < 2 && typeof ev === 'string'; i++) { try { ev = JSON.parse(ev); } catch (_) { ev = {}; } }
+  const other = ev && typeof ev === 'object' ? String(ev.other_firm_named || '').trim() : '';
+  if (other) return { name: other, named: true };
+  const nm = String(m.investor_name || m.organization_name || '').trim();
+  const firmLike = nm && !/^(ex-|former|alums?\b)/i.test(nm) && nm.split(/\s+/).every(w => HF_NAME_WORD.test(w));
+  return firmLike ? { name: nm, named: true } : { name: '', named: false };
+}
+const HF_KIND = [
+  ['launch',  'Launches & new firms', /launch|debut|\bforms?\b|start(s|ed|ing)? |spin.?out|new (fund|firm|shop)|plots|maps|begins trading|seed/i],
+  ['people',  'Hires & departures',   /\bhires?\b|\btaps\b|joins|departs|exits|\bex-|former|alums?\b|recruit|bolsters/i],
+  ['perf',    'Performance & assets', /gain|return|outpac|slump|stumble|loss|\bup \d|\bdown \d|\$\d|assets|aum|record/i],
+  ['closing', 'Closures & trouble',   /shut|clos(e|es|ing|ure)|liquidat|wind(s|ing)? down|ditch|abandon|fraud|court|lawsuit/i]
+];
+function hedgeFundKind(m) {
+  const t = String(m.intention_summary || '') + ' ' + String(m.investor_name || '');
+  if (String(m.investor_tag || '').trim().toLowerCase() === 'shutter') return 'closing';
+  for (const [k, , re] of HF_KIND) if (re.test(t)) return k;
+  return 'other';
+}
+
+RENDER.hedgefunds = function (body) {
+  clear(body);
+  ensureIconnCss();
+  let all = null, kind = 'all';
+  const out = el('div');
+  const find = el('input', { class: 'search', type: 'search', placeholder: 'Fund, headline or strategy…' });
+  find.addEventListener('input', () => { clearTimeout(find._t); find._t = setTimeout(paint, 200); });
+  const chipRow = el('div', { class: 'chips', style: 'margin:12px 0 10px' });
+  body.append(el('div', { class: 'toolbar' }, find), chipRow, out);
+
+  function chips() {
+    clear(chipRow);
+    const n = (k) => k === 'all' ? all.length : all.filter(m => hedgeFundKind(m) === k).length;
+    const list = [['all', 'Everything']].concat(HF_KIND.map(x => [x[0], x[1]]), [['other', 'Other news']]);
+    for (const [k, label] of list) {
+      const c = n(k);
+      if (k !== 'all' && !c) continue;
+      chipRow.appendChild(el('button', { class: 'btn btn-sm ' + (kind === k ? '' : 'btn-quiet'), 'aria-pressed': String(kind === k),
+        onclick: () => { kind = k; chips(); paint(); } }, label + ' ' + c));
+    }
+  }
+
+  function paint() {
+    clear(out);
+    if (!all) return;
+    const q = find.value.trim().toLowerCase();
+    const rows = all.filter(m => (kind === 'all' || hedgeFundKind(m) === kind)
+      && (!q || [hedgeFundName(m).name, m.investor_name, m.intention_summary, asText(m.strategies), m.investor_tag]
+        .filter(Boolean).join(' ').toLowerCase().indexOf(q) > -1));
+    if (!rows.length) {
+      return out.appendChild(empty('Nothing here', all.length ? 'No item matches.' : 'No hedge-fund news has come in the alerts yet.'));
+    }
+    const table = el('table', { class: 'ic-table' },
+      el('thead', null, el('tr', null,
+        el('th', { scope: 'col', style: 'width:24%' }, 'Hedge fund'),
+        el('th', { scope: 'col' }, 'What the alert says'),
+        el('th', { scope: 'col', style: 'width:16%' }, 'Strategy'),
+        el('th', { scope: 'col', style: 'width:15%' }, 'Alert'))),
+      el('tbody', null, ...rows.map(m => {
+        const f = hedgeFundName(m);
+        const strat = jsonArr(m.strategies).map(x => String(x).replace(/_/g, ' ')).join(', ');
+        return el('tr', null,
+          el('td', null, f.named ? el('span', { class: 'ic-nm' }, f.name) : el('span', { class: 'ic-dash' }, 'not named'),
+            el('div', { class: 'ic-sub' }, (HF_KIND.find(x => x[0] === hedgeFundKind(m)) || [, , ])[1] || 'Other news')),
+          el('td', null, m.intention_summary || m.investor_name || '—'),
+          el('td', null, strat || el('span', { class: 'ic-dash' }, '—')),
+          el('td', null, el('div', null, fmtDate(m.alert_date || m.source_email_date)),
+            el('div', { class: 'ic-sub' }, m.investor_tag || 'With Intelligence'),
+            el('button', { class: 'ic-link', style: 'margin-top:4px', onclick: () => openMandate(m) }, 'Open the record')));
+      })));
+    out.appendChild(el('div', { class: 'ic-wrap' }, table));
+    out.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px;margin-top:14px' },
+      'Showing ' + rows.length + ' of ' + all.length + '. The same story sent in several alerts is listed once. '
+      + 'None of these is an investor: they stay out of Opportunities, Find and Ask.'));
+  }
+
+  fill(out, () => readRows('wi_mandates',
+    'select=' + MANDATE_LIST_COLS + '&' + NOT_PENDING
+    + '&or=(investor_tag.in.("Hedge Fund Alert",Shutter,"Manager information"),investor_type.ilike.hedge%20fund,'
+    + 'new_qualification.eq.rejected,qualification.eq.rejected)'
+    + '&order=alert_date.desc.nullslast,id.desc&limit=5000', 'wi.mandates.list', {}), (rows) => {
+    // Newest first; one row per story (the same item comes in several emails).
+    const seen = new Set();
+    all = [];
+    for (const m of rows.filter(isHedgeFundItem)) {
+      const k = (hedgeFundName(m).name + '|' + String(m.intention_summary || m.investor_name || '')).toLowerCase().replace(/\s+/g, ' ');
+      if (seen.has(k)) continue;
+      seen.add(k); all.push(m);
+    }
+    chips(); paint();
+  });
 };
 
 RENDER.meetings = function (body) {
