@@ -8726,7 +8726,7 @@ function iconnMapping(stage) {
       iconnMapping(stage);
     });
     map.append(el('label', { for: 'iconn-col-' + f }, spec.label + (spec.required ? ' *' : '')
-      + (spec.browserOnly ? ' \u2014 stays in your browser' : '')), sel);
+      + (spec.browserOnly ? ' \u2014 shown beside the firm' : '')), sel);
   }
   stage.appendChild(map);
 
@@ -8774,9 +8774,11 @@ async function iconnMatch(btn, stage) {
   const headers = (sheet.rows[ICONN.headerIndex] || { cells: [] }).cells;
   const columns = {};
   for (const f of window.IconnReader.SENT_FIELDS) if (ICONN.cols[f] !== undefined) columns[f] = String(headers[ICONN.cols[f]] || window.IconnReader.colName(ICONN.cols[f]));
-  // The people at each firm, by sheet row, for the Investors column. Kept
-  // here, never sent: the rows above carry firm-level fields only.
+  // The people at each firm, by sheet row, for the Investors column. Sent
+  // with each firm's row (schema-18 stores them with the run, so a reopened
+  // run shows them too); before schema-18 the database ignores them.
   const people = window.IconnReader.peopleByRow(sheet, ICONN.headerIndex, ICONN.cols);
+  const withPeople = (r) => Object.assign({}, r, { people: iconnPeopleOf({ row_nos: r.row_nos }, people) });
   btn.disabled = true;
   try {
     let res;
@@ -8788,7 +8790,7 @@ async function iconnMatch(btn, stage) {
         btn.textContent = 'Matching ' + Math.min(i + ICONN_CHUNK, built.rows.length) + ' of ' + built.rows.length + '…';
         const out = await supaRpc('console_iconnections_match', {
           p_file_sha256: ICONN.sha, p_file_name: ICONN.file.name, p_sheet: sheet.name, p_columns: columns,
-          p_first: i === 0, p_rows: built.rows.slice(i, i + ICONN_CHUNK) });
+          p_first: i === 0, p_rows: built.rows.slice(i, i + ICONN_CHUNK).map(withPeople) });
         runId = out.run_id;
       }
       btn.textContent = 'Reading the results…';
@@ -9001,10 +9003,14 @@ function iconnFitDetail(fx) {
 
 // The people the file lists at a firm: every sheet row folded into it,
 // in sheet order, each name once.
-function iconnPeopleOf(f) {
+// From the file when it was read here (by sheet row), else as stored with
+// the run (schema-18).
+function iconnPeopleOf(f, byRow) {
+  const map = byRow || ICONN.people;
   const seen = new Set(), out = [];
-  for (const r of (f.row_nos || [])) {
-    const n = ICONN.people && ICONN.people.get(Number(r));
+  const names = (map && map.size) ? (f.row_nos || []).map(r => map.get(Number(r))) : (f.people || []);
+  for (const raw of names) {
+    const n = raw && String(raw).replace(/\s+/g, ' ').trim();
     const k = n && n.toLowerCase();
     if (n && !seen.has(k)) { seen.add(k); out.push(n); }
   }
@@ -9179,7 +9185,7 @@ function iconnResults(body) {
   const LIMIT = 300;
   const shown = ICONN.open.all ? list : list.slice(0, LIMIT);
   // Only when this result came from a file read here that names people.
-  const showPeople = !!(ICONN.people && ICONN.people.size);
+  const showPeople = !!(ICONN.people && ICONN.people.size) || firms.some(f => Array.isArray(f.people) && f.people.length);
   const table = el('table', { class: 'ic-table' + (showPeople ? ' with-ppl' : '') },
     el('thead', null, el('tr', null,
       sortHead('firm', 'Firm / allocator'),

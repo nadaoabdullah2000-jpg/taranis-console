@@ -179,7 +179,8 @@ is the one that writes.) Database only, no gateway action:
 4. `console_iconnections_run` returns one entry per firm. A contacts export
    (Name + Firm, one row per person) is folded to one row per firm with a
    contact count: in the browser on exact text, then on the normalised name.
-   Only the firm column is read; people's names never leave the browser.
+   People's names go with their firm's row and are stored with the run
+   (`iconnections_import_rows.people`, schema-18), nowhere else.
    A duplicate is several opportunity rows behind one firm, or several firms
    landing on one opportunity. A conflict is a disagreement on AUM (more than
    2× apart), type group, country, or a website whose contacts work elsewhere.
@@ -217,10 +218,14 @@ is the one that writes.) Database only, no gateway action:
    the page, and hidden when there are none.
    Right of Firm, **Investors** lists the people from the file's name column
    (Name / Contact / Full name, or First + Last) for that firm, deduped, the
-   first four then "+N more". It is built in the browser from the file
-   (`peopleByRow`); `p_columns` / `p_rows` only carry `SENT_FIELDS`, so names
-   are never sent or stored. With no name column, or for a reopened earlier
-   run, the column is hidden.
+   first four then "+N more". The browser reads them from the file
+   (`peopleByRow`) and sends each firm's names with its row; schema-18
+   stores them on the staged row and `console_iconnections_run` returns them
+   per firm, each name once, in sheet order, so a run reopened from Earlier
+   matches shows them too. They live only in the iConnections staging
+   tables (not Opportunities or contacts) and are replaced when the file is
+   matched again. With no name column, or for a run staged before
+   schema-18, the column is hidden.
    A **Company profile** box at the top opens
    the same Search view for any company typed, in the file or not, with Back
    returning to the results. Nothing on this page links to With Intelligence.

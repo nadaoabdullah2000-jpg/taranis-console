@@ -119,3 +119,30 @@ test('schema.sql section 8 = schema-17 (hide a run from Earlier matches)', () =>
   assert.doesNotMatch(body, /\bdelete\b|\bdrop\b|\btruncate\b|wi_mandates|investor_aliases|contacts/i);
   assert.match(body, /alter table public\.iconnections_import_runs\s+add column if not exists hidden_at timestamptz;/);
 });
+
+test('schema.sql section 9 = schema-18 (people stored with the run)', () => {
+  const m18 = read('schema-18-iconnections-people.sql');
+  const a = m18.indexOf('-- ---------------------------------------------------------------------\n-- 1. STAGED PEOPLE');
+  const b = m18.indexOf('-- ---------------------------------------------------------------------\n-- ROLLBACK');
+  assert.ok(a > 0 && b > a, 'schema-18 sections found');
+  assert.ok(read('schema.sql').includes(m18.slice(a, b).trimEnd()), 'schema.sql section 9 differs from schema-18');
+});
+
+test('schema-18 is schema-16\'s two console functions plus the people lines; matching untouched', () => {
+  const m18 = read('schema-18-iconnections-people.sql');
+  const m16 = read('schema-16-iconnections-fit.sql');
+  assert.doesNotMatch(m18, /function public\.iconn_match_rows/, 'schema-18 must not redefine the matcher');
+  assert.doesNotMatch(m18.replace(/--.*$/gm, ''), /\bdelete\b|\bdrop\b|\btruncate\b|wi_mandates|investor_aliases/i);
+  const fns = (s) => s.slice(s.indexOf('create or replace function public.console_iconnections_match('),
+                             s.indexOf('$$;', s.indexOf('create or replace function public.console_iconnections_run(')) + 3);
+  // Undo exactly what schema-18 adds; what is left must be schema-16's text.
+  const undo = (s) => s
+    .replace(/, people\)$/m, ')')
+    .replace(/, now\(\),\n(?:.*\n){5}/, ', now()\n')
+    .replace(/,\n\s+people text\[\]\)/, ')')
+    .replace(/, people = excluded\.people;/, ';')
+    .replace(/\n\s+-- Everyone the file lists at the firm(?:.*\n){6}.*as people,/, '')
+    .replace(/, firm\.people,/, ',')
+    .replace(/ 'people', people,/, '');
+  assert.equal(undo(fns(m18)), fns(m16));
+});

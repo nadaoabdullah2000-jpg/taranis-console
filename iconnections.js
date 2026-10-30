@@ -271,9 +271,10 @@
               'domicile', 'location country', 'hq location', 'headquarters', 'hq', 'location', 'country region'],
       patterns: [/\bcountry\b/, /\bdomicile\b/]
     },
-    // The people at each firm, as a contacts export lists them. Read for the
-    // Investors column only: it is never put into the rows that are sent,
-    // their raw cells or the column mapping, so names stay in the browser.
+    // The people at each firm, as a contacts export lists them, for the
+    // Investors column. Never put into buildRows' rows, their raw cells or the
+    // column mapping; the console adds each firm's names to its row itself
+    // (peopleByRow), and schema-18 stores them with the run.
     person: {
       label: 'Investor (person) name',
       browserOnly: true,
@@ -486,7 +487,7 @@
   // more than MAX_ROWS data rows: better to say so than to match part of a
   // file. Rows with no allocator name are not sent, and each is reported
   // (`unnamed`) so nothing disappears without a word. Only the mapped
-  // columns are read, so a person's name never leaves the browser.
+  // firm-level columns are read; person names come from peopleByRow.
   function buildRows(sheet, headerIndex, cols) {
     if (cols.name === undefined || cols.name === null || cols.name < 0) {
       throw new ReadError('Choose which column holds the allocator name.');
