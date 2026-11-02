@@ -200,3 +200,84 @@ test('a slower, older fill() does not draw over a newer one', async () => {
   ]);
   assert.deepEqual(node.drawn, ['new']);
 });
+
+const techCtx = (rescoreImpl, stored) => {
+  const patches = [];
+  const ctx = sandbox([
+    grab('const TECH_BY_PERSON', '\n/* EDIT 4'),
+    grab('const BAND_LABEL', '\nfunction bandTone'),
+    grab('function legacyQual', '\n// new_qualification / new_fit_score'),
+    grab('const VERDICT_RANK', '\n'),
+    grab('const TECH_CHOICES', '\nfunction techControl'),
+    'this.setTech = setTech; this.techOf = techOf; this.techChoiceOf = techChoiceOf;'
+  ].join('\n'), {
+    String, Number, Object, isFinite, Math,
+    isTech: (t) => /technology/.test(String(t)), sigText: (m) => String(m.intention_summary || ''),
+    rescore: rescoreImpl, rejectFails: () => ['Asset class excludes hedge funds'],
+    session: { email: 'a@taranis.net' }, localDay: () => '2026-11-02',
+    manualVerdict: () => ({ verdict_source: 'manual', verdict_set_at: 'now' }),
+    fullMandate: async () => Object.assign({}, stored),
+    supaPatch: async (t, f, p) => { patches.push(p); }
+  });
+  return { ctx, patches };
+};
+// The rule as the console has it: tech lifts needs_data to "tech" (0.60) and
+// strong to strong_tech (1.0).
+const fakeRescore = (m) => {
+  const tech = m.is_tech_investor === true;
+  if (m._reject) return { q: 'rejected', s: 0 };
+  if (m._strong) return tech ? { q: 'matched', s: 1 } : { q: 'matched', s: 0.9 };
+  return tech ? { q: 'uncertain', s: 0.6 } : { q: 'needs_data', s: null };
+};
+
+test('Tech: Yes re-scores a needs-data row up and records the choice as a person\'s', async () => {
+  const row = { id: 1, new_qualification: 'needs_data', new_fit_score: null };
+  const { ctx, patches } = techCtx(fakeRescore, row);
+  const m = Object.assign({}, row);
+  const { note } = await ctx.setTech(m, 'yes');
+  assert.equal(patches[0].is_tech_investor, true);
+  assert.match(patches[0].tech_signal, /^Set by a person: a@taranis\.net/);
+  assert.equal(patches[0].new_qualification, 'uncertain');
+  assert.equal(patches[0].new_fit_score, 0.6);
+  assert.equal(patches[0].verdict_source, 'manual');
+  assert.match(note, /Re-scored/);
+  assert.equal(ctx.techChoiceOf(m), 'yes');
+});
+
+test('Tech: Yes never lowers a verdict, and a hard reject stays rejected', async () => {
+  const strong = { id: 2, new_qualification: 'matched', new_fit_score: 0.95, _strong: true };
+  let t = techCtx(fakeRescore, strong);
+  await t.ctx.setTech(Object.assign({}, strong), 'yes');           // 1.0 > 0.95: up
+  assert.equal(t.patches[0].new_fit_score, 1);
+  const manualHigh = { id: 3, new_qualification: 'matched', new_fit_score: 1, verdict_source: 'manual' };
+  t = techCtx(() => ({ q: 'uncertain', s: 0.6 }), manualHigh);
+  await t.ctx.setTech(Object.assign({}, manualHigh), 'yes');       // would go down: not applied
+  assert.equal(t.patches[0].new_qualification, undefined);
+  const rej = { id: 4, new_qualification: 'rejected', new_fit_score: 0, _reject: true };
+  t = techCtx(fakeRescore, rej);
+  const { note } = await t.ctx.setTech(Object.assign({}, rej), 'yes');
+  assert.equal(t.patches[0].new_qualification, undefined);
+  assert.match(note, /stays rejected: Asset class excludes hedge funds/);
+});
+
+test('Tech: No re-scores without tech, but keeps a verdict a person set', async () => {
+  const auto = { id: 5, new_qualification: 'uncertain', new_fit_score: 0.6 };
+  let t = techCtx(fakeRescore, auto);
+  await t.ctx.setTech(Object.assign({}, auto), 'no');
+  assert.equal(t.patches[0].is_tech_investor, false);
+  assert.equal(t.patches[0].new_qualification, 'needs_data');
+  const manual = { id: 6, new_qualification: 'matched', new_fit_score: 0.9, verdict_source: 'manual' };
+  t = techCtx(fakeRescore, manual);
+  const { note } = await t.ctx.setTech(Object.assign({}, manual), 'no');
+  assert.equal(t.patches[0].new_qualification, undefined);
+  assert.match(note, /verdict a person set is kept/);
+});
+
+test('techOf: a person\'s choice wins; otherwise the text or the enrichment', () => {
+  const { ctx } = techCtx(fakeRescore, {});
+  assert.equal(ctx.techOf({ intention_summary: 'wants technology', is_tech_investor: false, tech_signal: 'Set by a person: x' }), false);
+  assert.equal(ctx.techOf({ intention_summary: 'macro', is_tech_investor: true, tech_signal: 'Set by a person: x' }), true);
+  assert.equal(ctx.techOf({ intention_summary: 'wants technology' }), true);
+  assert.equal(ctx.techOf({ intention_summary: 'macro', is_tech_investor: true, tech_signal: 'appetite_raw: AI' }), true);
+  assert.equal(ctx.techOf({ intention_summary: 'macro', is_tech_investor: false, tech_signal: 'non-tech focus - real estate' }), false);
+});

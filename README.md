@@ -159,6 +159,26 @@ functions, `console_search_suggest($1, $2)` and `console_search_company($1)`
 The typed text is a bound parameter on both paths, never SQL text. Node setup:
 [docs/gateway-search-actions.md](docs/gateway-search-actions.md).
 
+### Tech: a person's answer, and the Technology filter
+
+Every card in Opportunities and Rejected has a **Tech** dropdown (Not set /
+Yes / No) beside Qualification. The answer is stored on the row
+(`is_tech_investor`, with `tech_signal` = "Set by a person: <email>, <date>")
+and the row is re-scored at once by the console's rule (`rescore`, which now
+reads technology through `techOf`: a person's answer first, then the text,
+then the enrichment's evidence-based `is_tech_investor = true`):
+
+- **Yes** counts technology. The verdict and score only go up (needs data
+  becomes review 0.60-0.65; long/short becomes 1.00); a row the rule rejects
+  outright (a manager, no hedge funds) stays rejected and the toast says why.
+  The new verdict is recorded as a person's.
+- **No** re-scores without technology, unless a person already set the
+  verdict, which is kept.
+- **Not set** clears the person's answer.
+
+**Technology** is also an option in the Strategy filter of Opportunities and
+Find, and a chip in Rejected; it filters on the same `techOf` signal.
+
 ### Hedge funds in the alerts
 
 With Intelligence → **Hedge funds** lists the managers the alerts write

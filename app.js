@@ -1240,6 +1240,17 @@ function isTech(t) {
     .replace(RE_TECH_NAME, ' ').replace(RE_TECH_PLURAL, ' technology '));
 }
 
+// Technology, as the score reads it. A person's Tech choice (the dropdown on
+// Opportunities and Rejected: is_tech_investor, with tech_signal saying who
+// set it) decides. Otherwise the text does, or the enrichment's evidence-based
+// is_tech_investor = true (schema-13).
+const TECH_BY_PERSON = /^Set by a person/;
+function techSetByPerson(m) { return TECH_BY_PERSON.test(String((m && m.tech_signal) || '')); }
+function techOf(m, t) {
+  if (techSetByPerson(m) && typeof m.is_tech_investor === 'boolean') return m.is_tech_investor;
+  return isTech(t === undefined ? sigText(m) : t) || (m && m.is_tech_investor === true);
+}
+
 // Strategy tags as words: "equity_long_short" -> "equity long short", so
 // RE_STRONG can read them. A long/short or quant tag only counts when the
 // mandate lists 3 strategies or fewer; on a long menu (a pension's whole
@@ -1284,7 +1295,7 @@ function critOf(m) {
   return [
     assets.some(a => RE_HEDGE.test(a)) || RE_HEDGE.test(t),  // buys hedge funds
     isStrong(m, t),                                          // long/short or quant
-    isTech(t)                                                // technology
+    techOf(m, t)                                             // technology
   ];
 }
 
@@ -1298,7 +1309,7 @@ function critStatus(m) {
     assets.length ? (assets.some(a => RE_HEDGE.test(String(a).toLowerCase())) ? 'yes' : 'no')
                   : (RE_HEDGE.test(t) ? 'yes' : 'unknown'),
     isStrong(m, t) ? 'yes' : (strats.length ? 'no' : 'unknown'),
-    isTech(t)         ? 'yes' : 'unknown'
+    techOf(m, t) ? 'yes' : (techSetByPerson(m) ? 'no' : 'unknown')
   ];
 }
 
@@ -1426,7 +1437,7 @@ function rescore(m) {
       || (assets.length && !RE_HEDGE.test(assets.join(' ')) && !RE_HEDGE.test(t))) {
     return { band: 'rejected', q: 'rejected', s: 0 };
   }
-  const strong = isStrong(m, t), tech = isTech(t);
+  const strong = isStrong(m, t), tech = techOf(m, t);
   let band = strong ? (tech ? 'strong_tech' : 'strong') : tech ? 'tech' : RE_EXCL.test(t) ? 'low' : 'needs_data';
   // An allocator's hire is worth a look, never an automatic match.
   if (band.indexOf('strong') === 0 && /^people$/i.test(String(m.investor_tag || '').trim())) band = 'hire';
@@ -1791,6 +1802,80 @@ function qualificationControl(m, after) {
 
   return el('label', { class: 'field', style: 'margin-bottom:0' },
     el('span', null, 'Qualification'), sel);
+}
+
+// Tech: Not set / Yes / No, per row, on Opportunities and Rejected. The choice
+// is the person's (is_tech_investor + tech_signal "Set by a person ..."), and
+// the row is re-scored with it at once:
+//   Yes - technology counts. The verdict and score only ever go up; a row the
+//         rule rejects outright (a manager, no hedge funds) stays rejected.
+//   No  - technology does not count. The row is re-scored, unless a person
+//         already set its verdict, which is kept.
+//   Not set - back to what the text says.
+const TECH_CHOICES = [['', 'Not set'], ['yes', 'Yes'], ['no', 'No']];
+function techChoiceOf(m) {
+  if (!techSetByPerson(m) || typeof m.is_tech_investor !== 'boolean') return '';
+  return m.is_tech_investor ? 'yes' : 'no';
+}
+
+async function setTech(m, choice) {
+  const full = await fullMandate(m);
+  const who = (session && session.email) || 'someone';
+  const patch = choice === ''
+    ? (techSetByPerson(full) ? { is_tech_investor: null, tech_signal: null } : {})
+    : { is_tech_investor: choice === 'yes',
+        tech_signal: 'Set by a person: ' + who + ', ' + localDay() };
+  const next = Object.assign({}, full, patch);
+  const r = rescore(next);
+  const curBand = bandOf(full);
+  const curScore = Number(full.new_fit_score);
+  const manual = String(full.verdict_source || '') === 'manual';
+  let note = '';
+  if (r.q === 'rejected') {
+    if (choice === 'yes' && curBand === 'rejected') note = ' It stays rejected: ' + (rejectFails(next)[0] || 'the rule rejects it whatever its technology') + '.';
+  } else {
+    const up = (VERDICT_RANK[r.q] || 0) > (VERDICT_RANK[curBand] || 0)
+      || ((VERDICT_RANK[r.q] || 0) === (VERDICT_RANK[curBand] || 0) && (Number(r.s) || 0) > (isFinite(curScore) ? curScore : -1));
+    const apply = choice === 'yes' ? up : !manual;
+    if (apply && (r.q !== curBand || r.s !== (isFinite(curScore) ? curScore : null))) {
+      Object.assign(patch, { new_qualification: r.q, new_fit_score: r.s, qualification: legacyQual(r.q) });
+      if (choice === 'yes') Object.assign(patch, manualVerdict());
+      note = ' Re-scored: ' + (BAND_LABEL[r.q] || r.q) + (r.s !== null && r.s !== undefined ? ' ' + Math.round(r.s * 100) + '%' : '') + '.';
+    } else if (choice === 'no' && manual) {
+      note = ' The verdict a person set is kept.';
+    }
+  }
+  if (!Object.keys(patch).length) return { patch, note: ' Nothing to change.' };
+  await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), patch);
+  Object.assign(m, patch);
+  return { patch, note };
+}
+
+function techControl(m, after) {
+  const cur = techChoiceOf(m);
+  const sel = el('select', { class: 'search', style: 'flex:none;min-width:120px',
+    title: 'Is this investor looking for technology? Your answer re-scores the row.' });
+  for (const [v, label] of TECH_CHOICES) {
+    const o = el('option', { value: v },
+      v === '' ? (techOf(Object.assign({}, m, { tech_signal: null }), undefined) ? 'Not set (text says yes)' : 'Not set') : label);
+    if (v === cur) o.selected = true;
+    sel.appendChild(o);
+  }
+  sel.addEventListener('change', async () => {
+    const to = sel.value;
+    if (to === cur) return;
+    sel.disabled = true;
+    try {
+      const { note } = await setTech(m, to);
+      toast('Tech: ' + (to === 'yes' ? 'yes' : to === 'no' ? 'no' : 'not set') + '.' + note);
+      if (typeof after === 'function') after();
+    } catch (e) {
+      toast(e.message, true);
+      sel.value = cur;
+      sel.disabled = false;
+    }
+  });
+  return el('label', { class: 'field', style: 'margin-bottom:0' }, el('span', null, 'Tech'), sel);
 }
 
 function routeAfterQualification(m, to) {
@@ -3615,7 +3700,10 @@ function oppsPasses(m, skip) {
   // the multi-family offices as well.
   if (skip !== 'country'  && F.country && String(m.investor_country || '').trim().toUpperCase() !== F.country) return false;
   if (skip !== 'type'     && F.type && String(m.investor_type || '').trim().toLowerCase() !== F.type) return false;
-  if (skip !== 'strategy' && F.strategy && !jarr(m.strategies).some(s => s.includes(F.strategy))) return false;
+  // "Technology" is not a strategy tag: it is the tech signal the score reads
+  // (the text, the enrichment, or a person's Tech choice).
+  if (skip !== 'strategy' && F.strategy === '__tech' && !techOf(m)) return false;
+  if (skip !== 'strategy' && F.strategy && F.strategy !== '__tech' && !jarr(m.strategies).some(s => s.includes(F.strategy))) return false;
   if (skip !== 'asset'    && F.asset && !assetMatches(jarr(m.asset_classes), F.asset)) return false;
   if (skip !== 'tmin'     && F.tmin) {
     const t = Number(m.ticket_max_usd || m.ticket_min_usd || 0);
@@ -3657,7 +3745,8 @@ const MANDATE_LIST_COLS = [
   'fit_reason', 'positive_signals', 'view_intention_url', 'view_investor_url', 'view_article_url',
   'linkedin_url', 'linkedin_urls', 'emails', 'contact_id', 'created_at', 'source_email_date',
   'alert_date', 'published_at', 'approved_at', 'approved_by', 'seen_at', 'wi_enriched_at',
-  'source_page', 'source_kind', 'validation_status', 'verdict_source'
+  'source_page', 'source_kind', 'validation_status', 'verdict_source',
+  'is_tech_investor', 'tech_signal'
 ].join(',');
 
 // The whole row as the database holds it now. Every verdict or field write
@@ -3865,7 +3954,8 @@ RENDER.opps = function (body) {
 
       const fStrat = sel([['', 'Any strategy'], ['equity_long_short', 'Equity long/short'],
         ['macro', 'Macro'], ['cta', 'CTA / managed futures'], ['market_neutral', 'Market neutral'],
-        ['quant', 'Quant / systematic'], ['multi_strategy', 'Multi-strategy'], ['event', 'Event driven']]);
+        ['quant', 'Quant / systematic'], ['multi_strategy', 'Multi-strategy'], ['event', 'Event driven'],
+        ['__tech', 'Technology']]);
       const fAsset = sel([['', 'Any asset class'], ['hedge', 'Hedge funds'], ['equit', 'Equities'],
         ['credit', 'Credit'], ['private', 'Private markets'], ['real', 'Real assets'],
         ['multi', 'Multi-asset']]);
@@ -3924,7 +4014,8 @@ RENDER.opps = function (body) {
 
       grid.appendChild(matchCard(m, {
         tone,
-        controls: qualificationControl(m, (to) => routeAfterQualification(m, to)),
+        controls: [qualificationControl(m, (to) => routeAfterQualification(m, to)),
+          techControl(m, () => redrawOpps())],
         actions: [
           { label: 'View the mandate', primary: true, run: () => { markSeen(m).catch(() => {}); openMandate(m); } },
           { label: 'Fill a gap', run: () => fillSheet(m) },
@@ -4253,6 +4344,7 @@ RENDER.rejected = function (body) {
     ['one',       'Missed by one',         'x'],
     ['none',      'Rejected on score',     'x'],
     ['news',      'Not a mandate',         'x'],
+    ['tech',      'Technology',            'x'],
     ['strategy',  'Strategy',              'r'],
     ['asset',     'Asset class',           'r'],
     ['type',      'Investor type',         'r'],
@@ -4331,6 +4423,7 @@ RENDER.rejected = function (body) {
   const strOf = (v) => asText(v).toLowerCase();
 
   const TESTS = {
+    tech: (m) => techOf(m),
     one:  (m, why) => why.length === 1,
     none: (m, why) => why.length === 0,
 
@@ -4399,7 +4492,8 @@ RENDER.rejected = function (body) {
     for (const m of rows) {
       grid.appendChild(matchCard(m, {
         tone: 'bad',
-        controls: qualificationControl(m, (to) => routeAfterQualification(m, to)),
+        controls: [qualificationControl(m, (to) => routeAfterQualification(m, to)),
+          techControl(m, () => { all = null; load(); })],
         actions: [
           { label: 'View the mandate', primary: true, run: () => openMandate(m) }
         ].concat(verdictActions(m, (to) => {
@@ -6527,7 +6621,8 @@ RENDER.find = function (body) {
     ['multi', 'Multi-asset']]);
   const fStrat = sel([['', 'Any strategy'], ['equity_long_short', 'Equity long/short'],
     ['macro', 'Macro'], ['cta', 'CTA / managed futures'], ['market_neutral', 'Market neutral'],
-    ['quant', 'Quant / systematic'], ['multi_strategy', 'Multi-strategy'], ['event', 'Event driven']]);
+    ['quant', 'Quant / systematic'], ['multi_strategy', 'Multi-strategy'], ['event', 'Event driven'],
+        ['__tech', 'Technology']]);
   const fTick = sel([['', 'Any ticket'], ['100000', 'USD 100k and up'],
     ['1000000', 'USD 1m and up'], ['5000000', 'USD 5m and up'], ['10000000', 'USD 10m and up']]);
   /* EDIT 9 — Outcome dropdown on the fine-grained re-score bands. */
@@ -6572,7 +6667,8 @@ RENDER.find = function (body) {
     if (F.type && skip !== 'type' && typeKey(m) !== F.type) return false;
     if (F.country && skip !== 'country' && geoKey(m) !== F.country) return false;
     if (F.asset    && !assetMatches(jarr(m.asset_classes), F.asset))            return false;
-    if (F.strategy && !jarr(m.strategies).some(s => s.includes(F.strategy)))   return false;
+    if (F.strategy === '__tech' && !techOf(m))                                  return false;
+    if (F.strategy && F.strategy !== '__tech' && !jarr(m.strategies).some(s => s.includes(F.strategy))) return false;
     if (F.tmin) {
       const t = Number(m.ticket_max_usd || m.ticket_min_usd || 0);
       if (!(t >= Number(F.tmin))) return false;
@@ -8082,7 +8178,7 @@ function htmlToText(s) {
 function mandateSignals(m) {
   const t = sigText(m);
   return {
-    tech: isTech(t),
+    tech: techOf(m, t),
     strong: isStrong(m, t),
     emerging: m.open_to_emerging_managers === true,
     country: String(m.investor_country || '').trim().toUpperCase().slice(0, 2)
