@@ -204,13 +204,26 @@ function zonedTimeToUtc(local, tz) {
   if (!m) return new Date(local).toISOString();
   const wall = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
   try {
-    let t = wall - zoneOffsetMs(wall, tz);
-    const again = wall - zoneOffsetMs(t, tz);
-    if (again !== t) t = again;
+    const o1 = zoneOffsetMs(wall, tz);
+    let t = wall - o1;
+    const o2 = zoneOffsetMs(t, tz);
+    if (o2 !== o1) t = wall - o2;
+    // A wall time that does not exist (the hour the clocks skip in spring)
+    // does not come back as itself. It is moved forward by the skipped hour,
+    // as calendars do: 02:30 on 8 Mar 2026 in New York is 03:30 EDT, and the
+    // same rule gives 03:30 in Zurich on 29 Mar, wherever the zone is.
+    if (zoneLocalMs(t, tz) !== wall) t = wall - Math.min(o1, o2);
     return new Date(t).toISOString();
   } catch (_) {
     return new Date(wall).toISOString();
   }
+}
+
+// The wall clock in tz at instant t, as if it were UTC (to compare with a
+// requested wall time).
+function zoneLocalMs(t, tz) {
+  const p = zoneParts(t, tz);
+  return Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi, p.s);
 }
 
 /* The reverse: the wall clock in `tz` at a UTC instant, as

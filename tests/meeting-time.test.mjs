@@ -110,3 +110,12 @@ test('teamZonesNote: winter offsets and a zone outside the three', () => {
 test('teamZonesNote: no time yet gives only the label', () => {
   assert.deepEqual(app.teamZonesNote('', 'Africa/Cairo'), { label: 'Entered as Cairo time', line: '' });
 });
+
+test('a wall time in the spring-forward gap is moved forward by the skipped hour', () => {
+  assert.equal(app.zonedTimeToUtc('2026-03-08T02:30', 'America/New_York'), '2026-03-08T07:30:00.000Z');  // 03:30 EDT
+  assert.equal(app.zonedTimeToUtc('2026-03-29T02:30', 'Europe/Zurich'), '2026-03-29T01:30:00.000Z');     // 03:30 CEST
+  // ordinary times either side are untouched
+  assert.equal(app.zonedTimeToUtc('2026-03-08T01:30', 'America/New_York'), '2026-03-08T06:30:00.000Z');
+  assert.equal(app.zonedTimeToUtc('2026-03-08T03:30', 'America/New_York'), '2026-03-08T07:30:00.000Z');
+  assert.equal(app.zonedTimeToUtc('2026-07-01T09:00', 'Africa/Cairo'), '2026-07-01T06:00:00.000Z');
+});

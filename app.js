@@ -462,6 +462,15 @@ function localDay(d) {
   return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0');
 }
 
+// Links that come out of the data (parsed from inbound email, stored by a
+// workflow) open only if they are web addresses: a "javascript:" or "data:"
+// value is refused rather than handed to the browser.
+function openExternal(url) {
+  const u = String(url || '').trim();
+  if (!/^https?:\/\//i.test(u)) { toast('That link is not a web address, so it was not opened.', true); return null; }
+  return window.open(u, '_blank', 'noopener,noreferrer');
+}
+
 function fmtDate(v) {
   if (!v) return '\u2014';
   const d = new Date(v);
@@ -899,12 +908,17 @@ function readTokenFromUrl() {
   const token = p.get('access_token');
   if (!token) return null;
   history.replaceState(null, '', location.pathname + location.search);
-  let email = '';
+  let email = '', exp = 0;
   try {
     const body = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
     email = body.email || '';
-  } catch (_) { /* token still usable; the gateway is the real verifier */ }
-  return { token, email };
+    exp = Number(body.exp) || 0;
+  } catch (_) { /* token still usable; the server check at boot is the real verifier */ }
+  // Keep the refresh token and the real expiry, so the sign-in renews like
+  // any other instead of ending (or failing with 401s) after an hour.
+  const at = Number(p.get('expires_at')) || exp;
+  const expires = at ? at * 1000 : Date.now() + (Number(p.get('expires_in') || 3600) * 1000);
+  return { token, email, refresh: p.get('refresh_token') || null, expires };
 }
 
 function signOut() {
@@ -913,6 +927,11 @@ function signOut() {
   try { sessionStorage.removeItem(SESSION_KEY); } catch (_) {}
   try { localStorage.removeItem(SESSION_KEY); localStorage.removeItem(KEEP_KEY); } catch (_) {}
   if (pollTimer) clearInterval(pollTimer);
+  pollTimer = null;
+  // Nothing of the last session stays on screen or in the badges for the
+  // next person to sign in at this browser.
+  for (const k of Object.keys(counts)) delete counts[k];
+  try { const b = $('pg-body'); if (b) clear(b); } catch (_) {}
   $('app').className = '';
   $('gate').style.display = 'grid';
 }
@@ -2772,7 +2791,7 @@ function decisionSheet(r) {
                    : d === 'rejected' ? 'rejected'
                    : 'pending_information';
       await supaPatch('tools_counterparties', 'id=eq.' + encodeURIComponent(r.id),
-        { compliance_status: status, last_review_date: new Date().toISOString().slice(0, 10) });
+        { compliance_status: status, last_review_date: localDay() });
       closeSheet();
       toast('Decision recorded.');
       go('tools');
@@ -3927,7 +3946,7 @@ RENDER.notes = function (body) {
 
   const title = el('input', { class: 'search', placeholder: 'What was it? e.g. Coffee with Marc Dubois' });
   const date  = el('input', { class: 'search', type: 'date' });
-  date.value  = new Date().toISOString().slice(0, 10);
+  date.value  = localDay();
   const place = el('input', { class: 'search', placeholder: 'Where? e.g. Zurich, their office, a call' });
   const text  = el('textarea', { class: 'ta', placeholder: 'What was said, what they are after, what you promised to do next.' });
 
@@ -4007,7 +4026,7 @@ RENDER.notes = function (body) {
     try {
       const row = {
         title:           title.value.trim() || 'Untitled note',
-        note_date:       date.value || new Date().toISOString().slice(0, 10),
+        note_date:       date.value || localDay(),
         place:           place.value.trim() || null,
         body:            text.value.trim() || null,
         contact_id:      chosen ? chosen.id : null,
@@ -4789,9 +4808,9 @@ RENDER.meetings = function (body) {
     issued.appendChild(el('div', { class: 'acts' },
       el('button', { class: 'btn btn-sm', onclick: () => copy(url, 'Link') }, 'Copy the link'),
       el('button', { class: 'btn btn-sm btn-quiet',
-        onclick: () => window.open(url, '_blank', 'noopener,noreferrer') }, 'Open it'),
+        onclick: () => openExternal(url) }, 'Open it'),
       calUrl ? el('button', { class: 'btn btn-sm', style: 'background:#1a73e8;border-color:#1a73e8;color:#fff',
-        onclick: () => window.open(calUrl, '_blank', 'noopener,noreferrer') }, 'Add to Google Calendar') : null));
+        onclick: () => openExternal(calUrl) }, 'Add to Google Calendar') : null));
 
     let draftBox = null;
     if (message) {
@@ -5082,7 +5101,7 @@ RENDER.meetings = function (body) {
           ].filter(Boolean),
           actions: [
             m.meet_url ? { label: 'Join the meeting', primary: true,
-              run: () => window.open(m.meet_url, '_blank', 'noopener,noreferrer') } : null,
+              run: () => openExternal(m.meet_url) } : null,
             m.meet_url ? { label: 'Copy the link', run: () => copy(m.meet_url, 'Link') } : null,
             m.invitation_body ? { label: 'Invitation',
               run: () => invitationSheet(Object.assign({}, m, { to_csv_display: people(m) })) } : null,
@@ -5274,7 +5293,7 @@ RENDER.docs = function (body) {
       tags: [x.is_current ? ['current', 'good'] : ['superseded', 'quiet']],
       actions: x.public_url ? [
         { label: 'View the report', primary: true,
-          run: () => window.open(x.public_url, '_blank', 'noopener,noreferrer') },
+          run: () => openExternal(x.public_url) },
         { label: 'Copy the link', run: () => copy(x.public_url) }
       ] : []
     }));
@@ -5474,7 +5493,7 @@ RENDER.validate = function (body) {
     ];
     if (decided) actions.push({ label: 'Fix details', run: () => fixDetails(table, row) });
     if (pdf) actions.push({ label: 'Open the PDF' + (page ? '  \u00B7  p.' + page : ''),
-      run: () => window.open(pdf, '_blank', 'noopener,noreferrer') });
+      run: () => openExternal(pdf) });
 
     // The Opportunities card. A row still waiting is drawn with the verdict the
     // rule suggests (a display copy; nothing is written); a row a person already
@@ -5585,7 +5604,7 @@ RENDER.hfn = function (body) {
   const title   = el('input', { class: 'search', placeholder: 'Title, e.g. Hedge Fund Alert — August 2026' });
   const pubName = el('input', { class: 'search', placeholder: 'Publisher, e.g. With Intelligence' });
   const issue   = el('input', { class: 'search', type: 'date' });
-  issue.value = new Date().toISOString().slice(0, 10);
+  issue.value = localDay();
   const send    = el('button', { class: 'btn' }, 'File it');
   const prog    = el('div', { class: 'bar' }, el('i'));
   prog.style.display = 'none';
@@ -5738,7 +5757,7 @@ RENDER.hfn = function (body) {
       const foot = [el('button', { class: 'btn btn-quiet', onclick: closeSheet }, 'Close')];
       if (r.public_url) {
         foot.push(el('button', { class: 'btn',
-          onclick: () => window.open(r.public_url, '_blank', 'noopener,noreferrer') }, 'Open the PDF'));
+          onclick: () => openExternal(r.public_url) }, 'Open the PDF'));
       }
       sheet(r.title || 'Summary', [inner], foot);
     }
@@ -5780,7 +5799,7 @@ RENDER.hfn = function (body) {
           }
           closeSheet();
           toast(orphan
-            ? 'Deleted, but the PDF is still in storage \u2014 run migration 5 to allow that.'
+            ? 'Deleted, but the PDF could not be removed from storage. It can be deleted from the Supabase Storage browser (documents bucket).'
             : 'Deleted.', orphan);
           go('hfn');
         } catch (e) { toast(e.message, true); }
@@ -5870,7 +5889,7 @@ RENDER.hfn = function (body) {
       }
       if (r.public_url) {
         actions.push({ label: 'Open the PDF', primary: st !== 'done',
-          run: () => window.open(r.public_url, '_blank', 'noopener,noreferrer') });
+          run: () => openExternal(r.public_url) });
         actions.push({ label: 'Copy the link', run: () => copy(r.public_url) });
       }
       actions.push({ label: 'Edit or delete', run: () => newsletterSheet(r) });
@@ -6292,7 +6311,7 @@ RENDER.network = function (body) {
           m ? { label: 'Open the opportunity', primary: true,
                 run: () => { markSeen(m).catch(() => {}); openMandate(m); } } : null,
           { label: 'Open the profile', primary: !m,
-            run: () => window.open(r.profile_url, '_blank', 'noopener,noreferrer') },
+            run: () => openExternal(r.profile_url) },
           c && c.email ? { label: 'Draft an email',
             run: () => { PENDING.draft = c.name; go('email'); } } : null
         ].filter(Boolean)
@@ -6350,9 +6369,13 @@ RENDER.network = function (body) {
 
       let mand = [];
       try {
+        // The term is matched in the database, not in the first 400 rows an
+        // unordered read happened to return.
         mand = await readRows('wi_mandates',
           'select=id,investor_name,organization_name,linkedin_url,qualification,investor_country'
-          + '&linkedin_url=not.is.null&' + NOT_PENDING + '&limit=400', 'wi.mandates.list', {});
+          + '&linkedin_url=not.is.null&' + NOT_PENDING
+          + '&or=(investor_name.ilike.' + lk(term) + ',organization_name.ilike.' + lk(term) + ',linkedin_url.ilike.' + lk(term) + ')'
+          + '&order=id.desc&limit=200', 'wi.mandates.list', {});
       } catch (_) {}
 
       const seen = {};
@@ -6404,7 +6427,7 @@ RENDER.network = function (body) {
             : (p.in_contact_book ? [['in the book', 'good']] : [['not in the book', 'quiet']])),
           actions: p.profile_url ? [
             { label: 'View LinkedIn profile', primary: true,
-              run: () => window.open(p.profile_url, '_blank', 'noopener,noreferrer') },
+              run: () => openExternal(p.profile_url) },
             fromMandate
               ? { label: 'View the mandate', run: () => openMandate(p.mandate) }
               : { label: 'View profile', run: () => openProfile({ name: p.full_name }) },
@@ -6873,7 +6896,7 @@ RENDER.search = function (body) {
       section('Documents', docs, (x) => entry({
         action: x.title || x.doc_key || 'Document',
         who: [x.version_label, x.period_date ? fmtDate(x.period_date) : ''].filter(Boolean).join(' · '),
-        actions: https(x.public_url) ? [{ label: 'Open', run: () => window.open(https(x.public_url), '_blank', 'noopener') }] : []
+        actions: https(x.public_url) ? [{ label: 'Open', run: () => openExternal(https(x.public_url)) }] : []
       }));
       section('LinkedIn network', net, (p) => {
         const via = Array.isArray(p.mutual_to) ? p.mutual_to.filter(Boolean) : [];
@@ -6881,7 +6904,7 @@ RENDER.search = function (body) {
           action: p.full_name || 'LinkedIn profile',
           who: via.length ? 'Reachable through ' + via.join(', ') : 'No one here is connected yet',
           tags: [[p.via === 'mandate' ? 'From a mandate' : 'From the contact book', '']],
-          actions: https(p.profile_url) ? [{ label: 'Profile', run: () => window.open(https(p.profile_url), '_blank', 'noopener') }] : []
+          actions: https(p.profile_url) ? [{ label: 'Profile', run: () => openExternal(https(p.profile_url)) }] : []
         });
       });
     });
@@ -7232,7 +7255,7 @@ function attachmentBlock(m) {
       el('span', { class: 'nm' }, f.name || 'attachment'),
       kb ? el('span', { class: 'sz' }, kb) : null,
       el('button', { class: 'btn btn-sm', style: 'flex:none',
-        onclick: () => window.open(f.url, '_blank', 'noopener,noreferrer') }, 'Open')));
+        onclick: () => openExternal(f.url) }, 'Open')));
   }
   return wrap;
 }
@@ -7452,20 +7475,20 @@ async function openMandate(m) {
       el('button', { class: 'btn btn-sm btn-quiet', onclick: () => go(PROFILE_BACK || 'opps') }, '\u2190 Back'),
       full.view_article_url
         ? el('button', { class: 'btn btn-sm',
-            onclick: () => window.open(full.view_article_url, '_blank', 'noopener,noreferrer') },
+            onclick: () => openExternal(full.view_article_url) },
             full.source_page ? 'View article  \u00B7  p.' + full.source_page : 'View article')
         : null,
       full.view_intention_url
         ? el('button', { class: 'btn btn-sm btn-quiet',
-            onclick: () => window.open(full.view_intention_url, '_blank', 'noopener,noreferrer') }, 'View intention')
+            onclick: () => openExternal(full.view_intention_url) }, 'View intention')
         : null,
       full.view_investor_url
         ? el('button', { class: 'btn btn-sm btn-quiet',
-            onclick: () => window.open(full.view_investor_url, '_blank', 'noopener,noreferrer') }, 'Investor page')
+            onclick: () => openExternal(full.view_investor_url) }, 'Investor page')
         : null,
       full.linkedin_url
         ? el('button', { class: 'btn btn-sm btn-quiet',
-            onclick: () => window.open(full.linkedin_url, '_blank', 'noopener,noreferrer') }, 'LinkedIn')
+            onclick: () => openExternal(full.linkedin_url) }, 'LinkedIn')
         : null,
       el('button', { class: 'btn btn-sm btn-quiet', onclick: () => fillSheet(full) }, 'Fill a gap'),
       ...verdictActions(full, () => openMandate(full)).map(v =>
@@ -8286,7 +8309,7 @@ async function answerLocally(host, question) {
           tags: [d.is_current ? ['current version', 'good'] : ['superseded', 'quiet']],
           actions: d.public_url ? [
             { label: 'View the report', primary: true,
-              run: () => window.open(d.public_url, '_blank', 'noopener,noreferrer') },
+              run: () => openExternal(d.public_url) },
             { label: 'Copy the link', run: () => copy(d.public_url) }
           ] : []
         }));
@@ -9866,8 +9889,14 @@ function start() {
   mountRefresh();
   if (!DEMO) {
     poll();
+    if (pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(poll, Math.max(60, CFG.pollSeconds) * 1000);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+    // Added once per page, not once per sign-in (each sign-in added another,
+    // and polls multiplied).
+    if (!start.listening) {
+      start.listening = true;
+      document.addEventListener('visibilitychange', () => { if (!document.hidden && session && !DEMO) poll(); });
+    }
   } else {
     counts.today = 3; counts.approvals = 2; paintCounts();
   }
@@ -10005,12 +10034,11 @@ window.addEventListener('beforeinstallprompt', (e) => {
 watchForUpdates();
 
 (async function boot() {
+  // A token in the URL (an e-mailed sign-in link) is checked with the server
+  // like a stored one before anything opens, and the address shown is the
+  // one the server confirms, not what the token says about itself.
   const t = readTokenFromUrl();
-  if (t && t.token) {
-    saveSession({ token: t.token, refresh: null, email: t.email, expires: Date.now() + 3600000 });
-    start();
-    return;
-  }
+  if (t && t.token) saveSession({ token: t.token, refresh: t.refresh, email: t.email, expires: t.expires });
   const s = loadSession();
   if (!s || !s.token) return;
   session = s;
@@ -10024,6 +10052,10 @@ watchForUpdates();
       headers: { apikey: CFG.supabaseAnonKey, Authorization: 'Bearer ' + session.token }
     });
     if (r.status === 401 || r.status === 403) verdict = 'refused';
+    else if (r.ok) {
+      const u = await r.json().catch(() => null);
+      if (u && u.email && u.email !== session.email) saveSession(Object.assign({}, session, { email: u.email }));
+    }
   } catch (_) {
     if (!session) verdict = 'refused';   // ensureToken signed out: the refresh was refused
   }
