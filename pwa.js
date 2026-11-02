@@ -14,9 +14,14 @@
 
 if ('serviceWorker' in navigator) {
   let reloading = false;
+  // The very first install also fires controllerchange (clients.claim), with
+  // no older version to replace: reloading then would wipe what a first-time
+  // visitor is typing at the sign-in. Only a page that was already run by a
+  // worker has anything to swap.
+  const hadController = !!navigator.serviceWorker.controller;
 
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (reloading) return;
+    if (!hadController || reloading) return;
     reloading = true;
     location.reload();
   });

@@ -13,7 +13,7 @@
    (the HTML, the script, the icons).
    ========================================================================= */
 
-const VERSION = 'taranis-v18';
+const VERSION = 'taranis-v19';
 const SHELL = [
   './',
   './index.html',
@@ -56,18 +56,34 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;   // gateway + Supabase pass straight through
 
+  // build.txt (what the server is running) and config.js (secrets written at
+  // deploy) are never cached: offline, build.txt must fail rather than come
+  // back as a cached page, or the console announces a new version every time.
+  if (/\/(build\.txt|config\.js)$/.test(url.pathname)) return;
+
+  // One cache entry per file, whatever its ?v= or ?t= suffix, so the cache
+  // holds the shell and stops growing with every deploy and every check.
+  const key = url.origin + url.pathname;
+  const navigate = req.mode === 'navigate';
+
   e.respondWith(
     fetch(req)
       .then((res) => {
         // Keep the shell fresh for the next offline moment.
-        if (res && res.ok) {
+        if (res && res.ok && res.type === 'basic') {
           const copy = res.clone();
-          caches.open(VERSION).then((c) => c.put(req, copy)).catch(() => {});
+          caches.open(VERSION).then((c) => c.put(navigate ? './index.html' : key, copy)).catch(() => {});
         }
         return res;
       })
       .catch(() =>
-        caches.match(req).then((hit) => hit || caches.match('./index.html'))
+        caches.match(navigate ? './index.html' : key).then((hit) => {
+          if (hit) return hit;
+          // Only a page load falls back to the app page; a script or image
+          // that is not cached fails as itself, not as HTML.
+          if (navigate) return caches.match('./index.html');
+          return Response.error();
+        })
       )
   );
 });

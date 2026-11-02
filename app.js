@@ -489,10 +489,24 @@ async function createMeeting(payload) {
     });
     if (res.status === 401) { signOut(); throw new Error('Signed out. Sign in again.'); }
     const out = await res.json().catch(() => ({}));
-    if (!res.ok && !out.message) throw new Error('The meeting service returned ' + res.status);
+    // A refusal (not on the allow list, no usable time, the platform said no)
+    // comes back as ok:false, with a 2xx or a 4xx/5xx status, and is an error
+    // here. ok:false with status 'pending' is not: the server kept the meeting
+    // in the diary without a link, and the caller shows it that way.
+    if (!res.ok || (out.ok === false && out.status !== 'pending')) {
+      const err = new Error(out.message || ('The meeting service returned ' + res.status));
+      err.refused = true;
+      throw err;
+    }
     return out;
   } catch (e) {
-    if (e.name === 'AbortError') throw new Error('The meeting service did not answer in time.');
+    if (e.name === 'AbortError') {
+      // The server may still finish (and write its own row) after we stop
+      // waiting, so the caller must not book again or write a second row.
+      const err = new Error('The meeting service did not answer in time. Check Meetings in a minute before booking again.');
+      err.timedOut = true;
+      throw err;
+    }
     throw e;
   } finally {
     clearTimeout(timer);
@@ -681,6 +695,30 @@ async function readRows(table, query, action, payload) {
   }
 }
 
+// Every row a query matches, up to `max`, a page at a time. The Supabase API
+// returns at most 1,000 rows per request whatever `limit` asks for, so a
+// single "limit=5000" read silently stops at the newest 1,000 (1,402 rows
+// were rejected on 30 Oct 2026). The query must carry its own order=, so the
+// pages are stable; no limit= or offset=.
+const PAGE_ROWS = 1000;
+async function readAllRows(table, query, action, payload, max) {
+  if (DEMO) return readRows(table, query, action, payload);
+  const cap = max || 10000;
+  const out = [];
+  for (let off = 0; off < cap; off += PAGE_ROWS) {
+    let page;
+    try {
+      page = await supaSelect(table, query + '&limit=' + Math.min(PAGE_ROWS, cap - off) + '&offset=' + off);
+    } catch (e) {
+      if (e.message === 'NO_SUPABASE' && off === 0) return readRows(table, query, action, payload);
+      throw e;
+    }
+    out.push(...(page || []));
+    if (!page || page.length < PAGE_ROWS) break;
+  }
+  return out;
+}
+
 async function deleteFromStorage(path) {
   await ensureToken();
   const res = await fetch(CFG.supabaseUrl + '/storage/v1/object/documents/' + encodeURI(path), {
@@ -790,14 +828,21 @@ function loadSession() {
   } catch (_) { return null; }
 }
 
+// true = renewed; false = the server refused (the sign-in is over);
+// 'offline' = no answer (no network, a blip), which says nothing about the
+// sign-in, so the caller keeps it and tries again on the next request.
 async function refreshSession() {
   if (!session || !session.refresh) return false;
   try {
-    const res = await fetch(CFG.supabaseUrl + '/auth/v1/token?grant_type=refresh_token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: CFG.supabaseAnonKey },
-      body: JSON.stringify({ refresh_token: session.refresh })
-    });
+    let res;
+    try {
+      res = await fetch(CFG.supabaseUrl + '/auth/v1/token?grant_type=refresh_token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: CFG.supabaseAnonKey },
+        body: JSON.stringify({ refresh_token: session.refresh })
+      });
+    } catch (_) { return 'offline'; }
+    if (res.status >= 500) return 'offline';
     if (!res.ok) return false;
     const d = await res.json();
     if (!d.access_token) return false;
@@ -814,7 +859,9 @@ async function refreshSession() {
 async function ensureToken() {
   if (DEMO || !session || !session.token) return;
   if (!session.expires || Date.now() < session.expires - 120000) return;
-  if (!(await refreshSession())) {
+  const r = await refreshSession();
+  if (r === 'offline') throw new Error('No connection, so the sign-in could not be renewed. Check the network and try again.');
+  if (!r) {
     signOut();
     throw new Error('Your session expired. Sign in again.');
   }
@@ -1828,7 +1875,7 @@ function entry(o) {
     let node;
     if (/^score$/i.test(key)) {
       node = scoreChip(v, o.record);
-    } else if (typeof v === 'number' || (/^-?\d+(\.\d+)?$/.test(String(v)) && !/url|id$/i.test(key))) {
+    } else if (typeof v === 'number' || (/^-?\d+(\.\d+)?$/.test(String(v)) && !/url|id$|pass|code|pin|phone|tel|ref/i.test(key))) {
       node = document.createTextNode(num(v));
     } else if (hot) {
       node = el('span', { class: 'gold' }, String(v));
@@ -4262,8 +4309,8 @@ RENDER.rejected = function (body) {
 
   function load() {
     clear(out);
-    fill(out, () => readRows('wi_mandates',
-      'select=' + MANDATE_LIST_COLS + '&' + VERDICT_REJECTED + '&order=id.desc&limit=5000',
+    fill(out, () => readAllRows('wi_mandates',
+      'select=' + MANDATE_LIST_COLS + '&' + VERDICT_REJECTED + '&order=id.desc',
       'wi.mandates.list', {}), (rows) => {
       all = dedupeInvestors(rows);
       paintChips();
@@ -4373,11 +4420,11 @@ RENDER.hedgefunds = function (body) {
       + 'None of these is an investor: they stay out of Opportunities, Find and Ask.'));
   }
 
-  fill(out, () => readRows('wi_mandates',
+  fill(out, () => readAllRows('wi_mandates',
     'select=' + MANDATE_LIST_COLS + '&' + NOT_PENDING
     + '&or=(investor_tag.in.("Hedge Fund Alert",Shutter,"Manager information"),investor_type.ilike.hedge%20fund,'
     + 'new_qualification.eq.rejected,qualification.eq.rejected)'
-    + '&order=alert_date.desc.nullslast,id.desc&limit=5000', 'wi.mandates.list', {}), (rows) => {
+    + '&order=alert_date.desc.nullslast,id.desc', 'wi.mandates.list', {}), (rows) => {
     // Newest first; one row per story (the same item comes in several emails).
     const seen = new Set();
     all = [];
@@ -4594,6 +4641,14 @@ RENDER.meetings = function (body) {
       clear(mForSugg); invited = []; drawInvited(); drawTzNote();
       run();
     } catch (e) {
+      // Refused: nothing was booked, so nothing to keep. Timed out: the server
+      // may still be creating it (and writes its own row), so a second row
+      // here would offer "Issue the link" for a meeting that already exists.
+      if (e.refused || e.timedOut) {
+        toast(e.message, true);
+        if (e.timedOut) run();
+        return;
+      }
       try {
         await supaInsert('crm_meetings', {
           title:        payload.title,
@@ -4851,6 +4906,7 @@ RENDER.meetings = function (body) {
           for (const e of to.concat(cc, bcc)) { try { await supaInsert('contacts', { email: e }); } catch (_) {} }
           if (r.emailed === false && r.email_status) {
             toast('Meeting saved, but the email did not send: ' + r.email_status, true);
+            sendNow.disabled = false; sendNow.textContent = 'Send from nada.osama@taranis.net';
           } else if (askedFf && r.fireflies !== 'on') {
             panel.style.display = 'none';
           } else {
@@ -4954,9 +5010,9 @@ RENDER.meetings = function (body) {
                              : (r.message || 'Cancelled here, but the platform refused.'),
                         !r.ok);
                   run();
-                } catch (e) { toast(e.message, true); }
+                } catch (e) { toast(e.message, true); run(); }
               } } : null,
-            (st === 'pending' || !m.meet_url) ? { label: 'Issue the link', primary: true,
+            st !== 'cancelled' && (st === 'pending' || !m.meet_url) ? { label: 'Issue the link', primary: true,
               run: () => {
                 const label = providerLabel(m.provider) || 'the meeting';
                 const ff = firefliesBox('mtg-issue-fireflies');
@@ -5999,8 +6055,7 @@ RENDER.reports = function (body) {
 
     (async () => {
       try {
-        const li = await supaSelect('contacts', 'select=id&linkedin_url=not.is.null&limit=5000');
-        liCount = Array.isArray(li) ? li.length : 0;
+        liCount = await supaCount('contacts', 'linkedin_url=not.is.null');
         draw();
       } catch (_) { /* leave the em dash */ }
     })();
@@ -6471,8 +6526,8 @@ RENDER.find = function (body) {
   out.appendChild(el('p', { class: 'mono', style: 'color:var(--ink-3);font-size:12px' }, 'Loading\u2026'));
   fill(out, async () => {
     if (DEMO) return [];
-    /* EDIT 8 — raise the row cap from 1000 so all ~1,286 mandates load. */
-    return await supaSelect('wi_mandates', 'select=' + MANDATE_LIST_COLS + '&' + NOT_PENDING + '&order=id.desc&limit=5000');
+    // Every screened mandate, paged: the API stops at 1,000 rows a request.
+    return await readAllRows('wi_mandates', 'select=' + MANDATE_LIST_COLS + '&' + NOT_PENDING + '&order=id.desc');
   }, (rows) => { all = rows; allInvestors = dedupeInvestors(rows).length; run(); });
 };
 
@@ -7080,11 +7135,14 @@ function searchTerms(q) {
   return words;
 }
 
+// An ilike pattern for a PostgREST or=() filter, URL-encoded: every caller
+// pastes it into a query string, where a raw "&" ("Smith & Williamson",
+// "AT&T") started a new parameter and "#" cut the URL short.
 function lk(term) {
-  return '"*' + String(term == null ? '' : term)
+  return '"*' + encodeURIComponent(String(term == null ? '' : term)
     .replace(/[\\"(),]/g, ' ')
     .replace(/\s+/g, ' ')
-    .trim() + '*"';
+    .trim()) + '*"';
 }
 
 function ilikeAny(cols, term) {
@@ -9780,14 +9838,18 @@ watchForUpdates();
   const s = loadSession();
   if (!s || !s.token) return;
   session = s;
+  // Only the server saying no ends the sign-in. Offline (an installed app
+  // opened on a plane, a Wi-Fi blip) keeps it: the console opens and each
+  // view says it could not load until the network is back.
+  let verdict = 'ok';
   try {
     await ensureToken();
     const r = await fetch(CFG.supabaseUrl + '/auth/v1/user', {
       headers: { apikey: CFG.supabaseAnonKey, Authorization: 'Bearer ' + session.token }
     });
-    if (!r.ok) throw new Error('stale');
-    start();
+    if (r.status === 401 || r.status === 403) verdict = 'refused';
   } catch (_) {
-    signOut();
+    if (!session) verdict = 'refused';   // ensureToken signed out: the refresh was refused
   }
+  if (verdict === 'refused') signOut(); else start();
 })();
