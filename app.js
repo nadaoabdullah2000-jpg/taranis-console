@@ -1390,9 +1390,14 @@ function verdictPatch(m, to) {
   if (to === 'rejected') return { new_qualification: 'rejected', new_fit_score: 0 };
   const r = rescore(m);
   if (to === 'matched') {
+    // Matched sits at 0.75 and up. A score already there is kept; otherwise
+    // the rule's own score if it reaches the line, else the line itself. A
+    // rejected row carries 0, and "matched at 0" would sort last under
+    // "Best match first" and contradict its own verdict.
     const cur = m.new_fit_score === null || m.new_fit_score === undefined || m.new_fit_score === ''
       ? NaN : Number(m.new_fit_score);
-    return { new_qualification: 'matched', new_fit_score: isFinite(cur) ? cur : r.s };
+    const s = isFinite(cur) && cur >= 0.75 ? cur : Math.max(0.75, Number(r.s) || 0);
+    return { new_qualification: 'matched', new_fit_score: s };
   }
   // Any other choice is "a person should look": keep the signal's review band,
   // and keep the score under the matched line so the two never disagree.
@@ -2047,14 +2052,12 @@ RENDER.today = function (body) {
   fill(body, async () => {
     const cutoff = new Date(Date.now() - 7 * 86400000).toISOString();
     const mands = await readRows('wi_mandates',
-      'select=*&qualification=neq.rejected&created_at=gte.' + cutoff + '&' + NOT_PENDING
+      'select=*&' + VERDICT_OPEN + '&created_at=gte.' + cutoff
       + '&order=id.desc&limit=150', 'today.mandates', {});
     return { mands: mands };
   }, (d) => {
     const seen = (m) => !!m.seen_at;
     const grouped = dedupeInvestors(d.mands || []);
-    counts.today = grouped.filter(m => !seen(m)).length;
-    paintCounts();
 
     const VIEWS = [['new', 'New'], ['read', 'Cleared']];
     if (['new', 'read'].indexOf(todayView) === -1) todayView = 'new';
@@ -2079,7 +2082,8 @@ RENDER.today = function (body) {
     const grid = el('div', { class: 'matchgrid' });
     body.appendChild(grid);
     for (const m of rows) {
-      const tone = m.qualification === 'matched' ? 'good' : m.qualification === 'uncertain' ? 'signal' : 'bad';
+      const band = scoreBand(m);
+      const tone = band === 'matched' ? 'good' : band === 'rejected' ? 'bad' : 'signal';
       grid.appendChild(matchCard(m, {
         tone: tone,
         actions: [
@@ -2113,7 +2117,12 @@ RENDER.intake = function (body) {
   const list  = el('div', { style: 'margin-top:14px' });
   body.append(chips, list);
 
-  const verdict = (m) => String(m.qualification || '').toLowerCase();
+  // The verdict (new_qualification where the re-score set one), in the three
+  // buckets the chips use, so a row re-scored to rejected is not "accepted".
+  const verdict = (m) => {
+    const nq = String(m.new_qualification || '').trim().toLowerCase();
+    return nq ? legacyQual(nq) : String(m.qualification || '').trim().toLowerCase();
+  };
   const shown   = (m) => view === 'all' || verdict(m) === view;
 
   const jarr = (v) => {
@@ -2323,7 +2332,7 @@ RENDER.intake = function (body) {
         + '&received_at=gte.' + encodeURIComponent(dayStart.toISOString())
         + '&order=received_at.desc&limit=50'),
       supaSelect('wi_mandates',
-        'select=*&published_at=not.is.null'
+        'select=*&published_at=not.is.null&' + VERDICT_OPEN
         + '&created_at=gte.' + encodeURIComponent(monthBack)
         + '&order=new_fit_score.desc.nullslast,fit_score.desc.nullslast&limit=200')
     ]);
@@ -2371,8 +2380,7 @@ RENDER.approvals = function (body) {
       + 'ticket_min_usd,ticket_max_usd,alert_date,fit_score,fit_reason,approved_at,approved_by,seen_at,qualification,new_qualification,new_fit_score,'
       + 'intention_summary,requirements_raw,appetite_raw,evidence,strategies,asset_classes,investor_city,open_to_emerging_managers,'
       + 'investor_tag,hard_fail_reasons,verdict_source,positive_signals,risks,missing_information'
-      + '&approved_at=not.is.null'
-      + '&qualification=neq.rejected'
+      + '&approved_at=not.is.null&' + VERDICT_OPEN
       + '&order=approved_at.desc.nullslast&limit=200',
       'wi.reviews.pending', {});
     return { rows: rows.map(r => Object.assign({}, r, {
@@ -3517,6 +3525,14 @@ const OPPS_COUNTRY_NAMES = { GB: 'United Kingdom', US: 'United States', CH: 'Swi
   SE: 'Sweden', NO: 'Norway', DK: 'Denmark', IT: 'Italy', ES: 'Spain', LU: 'Luxembourg',
   IL: 'Israel', JP: 'Japan', CN: 'China', IN: 'India' };
 
+// An asset-class filter key against a row's asset classes. "Equities" is
+// public equities: "Private Equity" contains "equit" too, and is a private
+// market, not a listed-equity allocation.
+function assetMatches(list, key) {
+  if (key === 'equit') return list.some(a => /equit/.test(a) && !/private equit/.test(a));
+  return list.some(a => a.includes(key));
+}
+
 function oppsPasses(m, skip) {
   const F = oppsFilters;
   const jarr = (v) => {
@@ -3524,10 +3540,13 @@ function oppsPasses(m, skip) {
     for (let i = 0; i < 2 && typeof x === 'string'; i++) { try { x = JSON.parse(x); } catch (_) { x = []; } }
     return Array.isArray(x) ? x.map(s => String(s).toLowerCase()) : [];
   };
-  if (skip !== 'country'  && F.country && String(m.investor_country || '').toUpperCase() !== F.country) return false;
-  if (skip !== 'type'     && F.type && !String(m.investor_type || '').toLowerCase().includes(F.type)) return false;
+  // Country and type are compared in the same form the option counts use
+  // (trimmed; exact type), so "Family office (5)" shows those five and not
+  // the multi-family offices as well.
+  if (skip !== 'country'  && F.country && String(m.investor_country || '').trim().toUpperCase() !== F.country) return false;
+  if (skip !== 'type'     && F.type && String(m.investor_type || '').trim().toLowerCase() !== F.type) return false;
   if (skip !== 'strategy' && F.strategy && !jarr(m.strategies).some(s => s.includes(F.strategy))) return false;
-  if (skip !== 'asset'    && F.asset && !jarr(m.asset_classes).some(a => a.includes(F.asset))) return false;
+  if (skip !== 'asset'    && F.asset && !assetMatches(jarr(m.asset_classes), F.asset)) return false;
   if (skip !== 'tmin'     && F.tmin) {
     const t = Number(m.ticket_max_usd || m.ticket_min_usd || 0);
     if (!(t >= Number(F.tmin))) return false;
@@ -3612,7 +3631,10 @@ async function openOpportunities(read) {
 // What the badge needs from a row that has a DB verdict: the verdict, the names
 // the investor key is built from and the fields dedupe ranks by. A row without a
 // DB verdict falls back to the browser rule, which reads the whole row.
-const OPPS_COUNT_COLS = 'id,qualification,new_qualification,new_fit_score,investor_name,'
+// investor_type too: entityRejected hides an investor's open rows when a
+// rejected row types it as a hedge fund, PE or VC firm, and the badge must
+// hide the same ones the tab does.
+const OPPS_COUNT_COLS = 'id,qualification,new_qualification,new_fit_score,investor_name,investor_type,'
   + 'organization_name,investor_tag,hard_fail_reasons,fit_reason,wi_enriched_at,fit_score,'
   + 'alert_date,created_at';
 
@@ -4080,10 +4102,17 @@ async function setApproved(m, on, after) {
     ? { approved_at: new Date().toISOString(), approved_by: (session && session.email) || null }
     : { approved_at: null, approved_by: null };
   try {
-    if (on && (String(m.qualification || '').trim().toLowerCase() === 'rejected'
-               || String(m.new_qualification || '').trim().toLowerCase() === 'rejected')) {
+    // Approving a rejected row brings it back for review. Only the verdict
+    // decides that (new_qualification where set): a row whose old column says
+    // rejected but whose re-score says matched is already in play, and keeps
+    // its verdict and score; only the old column is brought into line.
+    const nq = String(m.new_qualification || '').trim().toLowerCase();
+    const oldQ = String(m.qualification || '').trim().toLowerCase();
+    if (on && (nq || oldQ) === 'rejected') {
       patch.qualification = 'uncertain';
       Object.assign(patch, verdictPatch(await fullMandate(m), 'uncertain'), manualVerdict());
+    } else if (on && oldQ === 'rejected') {
+      patch.qualification = legacyQual(nq);
     }
     await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), patch);
     Object.assign(m, patch);
@@ -4176,10 +4205,12 @@ RENDER.rejected = function (body) {
       b.style.color       = (k === tone) ? 'var(--bad)' : '';
       b.style.fontWeight  = (k === tone) ? '600' : '';
       if (all) {
+        // Rows are folded to one card per investor after they are picked, as
+        // paint() does, so the counts are the cards each filter shows.
         const mand = all.filter(m => !notMandate(m) && effectivelyRejected(m));
-        const n = k === 'news' ? all.filter(notMandate).length
-                : k === 'all'  ? mand.length
-                : mand.filter(m => passes(m, k)).length;
+        const n = k === 'news' ? dedupeInvestors(all.filter(notMandate)).length
+                : k === 'all'  ? dedupeInvestors(mand).length
+                : dedupeInvestors(mand.filter(m => passes(m, k))).length;
         b.textContent = lbl + '  ' + n;
         b.style.opacity = n ? '' : '.45';
       } else {
@@ -4257,11 +4288,13 @@ RENDER.rejected = function (body) {
     clear(out);
     if (!all) return;
     const q = find.value.trim().toLowerCase();
-    const pool = (tone === 'news') ? all.filter(notMandate)
-                                   : all.filter(m => !notMandate(m) && effectivelyRejected(m));
-    let rows = pool;
-
-    rows = rows.filter(m => passes(m, tone));
+    // Pick the rejected rows first, then fold to one card per investor. Folding
+    // first let an investor's open (reclaimed) row front its card, which this
+    // list then dropped, and its rejected row showed nowhere.
+    const picked = (tone === 'news') ? all.filter(notMandate)
+                                     : all.filter(m => !notMandate(m) && effectivelyRejected(m));
+    const pool = dedupeInvestors(picked);
+    let rows = dedupeInvestors(picked.filter(m => passes(m, tone)));
 
     if (q) {
       rows = rows.filter(m => [m.investor_name, m.organization_name, m.investor_country,
@@ -4312,7 +4345,7 @@ RENDER.rejected = function (body) {
     fill(out, () => readAllRows('wi_mandates',
       'select=' + MANDATE_LIST_COLS + '&' + VERDICT_REJECTED + '&order=id.desc',
       'wi.mandates.list', {}), (rows) => {
-      all = dedupeInvestors(rows);
+      all = rows;
       paintChips();
       if (!rows.length) {
         return out.appendChild(empty('Nothing rejected', 'Everything screened is still in play.'));
@@ -5196,9 +5229,11 @@ RENDER.docs = function (body) {
 // the same rescore() rule as every other row; Not an allocator rejects it; Fix
 // details corrects the fields and then confirms.
 async function validationQueue() {
+  // Every pending row, paged (a capped read hid the oldest and made the
+  // badge disagree with the exact count).
   const [mandates, leads] = await Promise.all([
-    supaSelect('wi_mandates', 'select=*&validation_status=eq.pending&order=id.desc&limit=500'),
-    supaSelect('report_leads', 'select=*&validation_status=eq.pending&order=id.desc&limit=500')
+    readAllRows('wi_mandates', 'select=*&validation_status=eq.pending&order=id.desc', 'x', {}),
+    readAllRows('report_leads', 'select=*&validation_status=eq.pending&order=id.desc', 'x', {})
   ]);
   return { mandates: mandates || [], leads: leads || [] };
 }
@@ -5990,7 +6025,9 @@ RENDER.reports = function (body) {
         [awaitLbl, n(m.wi_awaiting), null, 'rpt-c2'],
         ['Matched value', shortMoney(m.wi_ticket_value), null, 'rpt-c1'],
         ['Emails', n(m.crm_week), 'crm_week', 'rpt-c4'],
-        ['LinkedIn', liCount == null ? '\u2014' : String(liCount), null, 'rpt-c4']
+        // A running total of contacts with a LinkedIn profile, not a weekly
+        // figure: the label says so, as no snapshot holds it per week.
+        ['LinkedIn on file', liCount == null ? '\u2014' : String(liCount), null, 'rpt-c4']
       ]) {
         kpis.appendChild(el('div', { class: 'rpt-kpi' },
           el('div', { class: 'l' }, lbl),
@@ -6197,7 +6234,7 @@ RENDER.network = function (body) {
 
   function asHandle(v) {
     const m = String(v || '').match(/linkedin\.com\/in\/([^/?#\s]+)/i);
-    return m ? decodeURIComponent(m[1]).toLowerCase() : null;
+    return m ? safeDecode(m[1]).toLowerCase() : null;
   }
 
   if (networkPrefill) { q.value = networkPrefill; networkPrefill = ''; }
@@ -6433,7 +6470,7 @@ RENDER.find = function (body) {
     if (F.to   && (!d || d > F.to))   return false;
     if (F.type && skip !== 'type' && typeKey(m) !== F.type) return false;
     if (F.country && skip !== 'country' && geoKey(m) !== F.country) return false;
-    if (F.asset    && !jarr(m.asset_classes).some(a => a.includes(F.asset)))   return false;
+    if (F.asset    && !assetMatches(jarr(m.asset_classes), F.asset))            return false;
     if (F.strategy && !jarr(m.strategies).some(s => s.includes(F.strategy)))   return false;
     if (F.tmin) {
       const t = Number(m.ticket_max_usd || m.ticket_min_usd || 0);
@@ -6445,8 +6482,9 @@ RENDER.find = function (body) {
     else if (F.status === 'approved')    { if (!isApproved(m)) return false; }
     else if (F.status === 'notapproved') { if (isApproved(m)) return false; }
     else if (['matched','uncertain','low','needs_data','rejected'].indexOf(F.status) >= 0) {
-      const have = nq || String(m.qualification || '').toLowerCase();
-      if (have !== F.status) return false;
+      // bandOf, as the card's tag reads it: a row with neither column set is
+      // "uncertain", and is found under that filter.
+      if (bandOf(m) !== F.status) return false;
     }
     else if (F.status && m.qualification !== F.status) return false;
     if (F.q) {
@@ -7350,14 +7388,16 @@ async function openMandate(m) {
               + 'against the connection list.'));
             return;
           }
-          const slug = decodeURIComponent(handle[1]).toLowerCase();
+          const slug = safeDecode(handle[1]).toLowerCase().replace(/\/$/, '');
           const hits = await readRows('linkedin_mutual',
             'select=full_name,profile_url,mutual_to,mutual_count'
             + '&profile_url=ilike.*' + encodeURIComponent(slug) + '*&limit=5',
             'li.mutual', { q: slug });
 
           clear(who);
-          const hit = (hits || [])[0];
+          // The ilike finds "john-smith" inside "john-smith-4a2b1c" too, who is
+          // someone else: only the profile with this exact handle counts.
+          const hit = (hits || []).find(h => liHandle(h.profile_url) === slug) || null;
           const names = hit && Array.isArray(hit.mutual_to) ? hit.mutual_to
                       : (hit && hit.mutual_to ? [hit.mutual_to] : []);
 
@@ -8034,11 +8074,20 @@ async function answerLocally(host, question) {
     await answerTechWaiting(host);
     return;
   } else if (/opportunit|mandate|approve/.test(low)) {
-    const m = await readRows('wi_mandates',
-      'select=' + MANDATE_LIST_COLS
-      + '&qualification=eq.uncertain&published_at=is.null&' + NOT_PENDING
-      + '&order=new_fit_score.desc.nullslast,fit_score.desc.nullslast&limit=40',
-      'wi.reviews.pending', {});
+    // Waiting on a decision = the verdict is "uncertain" (a person decides):
+    // new_qualification where the re-score set one, the old column otherwise.
+    let m;
+    try {
+      m = await readRows('wi_mandates',
+        'select=' + MANDATE_LIST_COLS
+        + '&or=(new_qualification.eq.uncertain,and(new_qualification.is.null,qualification.eq.uncertain))'
+        + '&published_at=is.null&' + NOT_PENDING
+        + '&order=new_fit_score.desc.nullslast,fit_score.desc.nullslast&limit=40',
+        'wi.reviews.pending', {});
+    } catch (e) {
+      host.appendChild(el('p', null, 'Could not read the opportunities: ' + e.message));
+      return;
+    }
     if (!m.length) { host.appendChild(el('p', null, 'Nothing is waiting on a decision.')); return; }
     host.appendChild(el('p', { class: 'mono',
       style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:0 0 6px' },
@@ -9429,9 +9478,15 @@ function demoIconnRun(rows) {
 /* ---- the profiles on the pipeline ---- */
 const CONN_SEEN_KEY = 'taranis.profiles.seen';
 
+// decodeURIComponent throws on a malformed escape ("j%E9r", a trailing "%"),
+// and one such stored URL took down the whole Network view.
+function safeDecode(s) {
+  try { return decodeURIComponent(s); } catch (_) { return String(s); }
+}
+
 function liHandle(v) {
   const m = String(v || '').match(/linkedin\.com\/in\/([^/?#\s]+)/i);
-  return m ? decodeURIComponent(m[1]).toLowerCase().replace(/\/$/, '') : null;
+  return m ? safeDecode(m[1]).toLowerCase().replace(/\/$/, '') : null;
 }
 
 function connSeen() {

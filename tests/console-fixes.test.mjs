@@ -100,3 +100,30 @@ test('all-digit passcodes, PINs and phone numbers are shown as typed, not as num
   for (const k of ['passcode', 'Passcode', 'pin', 'phone', 'meeting id', 'url']) assert.ok(re.test(k), k);
   for (const k of ['ticket', 'aum', 'rows']) assert.ok(!re.test(k), k);
 });
+
+test('"Equities" is listed equity, not private equity; other asset keys match as before', () => {
+  const ctx = sandbox(grab('function assetMatches', '\nfunction oppsPasses') + '\nthis.assetMatches = assetMatches;');
+  assert.equal(ctx.assetMatches(['private equity'], 'equit'), false);
+  assert.equal(ctx.assetMatches(['private equity', 'public equities'], 'equit'), true);
+  assert.equal(ctx.assetMatches(['equity'], 'equit'), true);
+  assert.equal(ctx.assetMatches(['private equity'], 'private'), true);
+  assert.equal(ctx.assetMatches(['hedge funds'], 'hedge'), true);
+});
+
+test('a row a person marks Matched scores at the matched line or above, never 0', () => {
+  const ctx = sandbox(grab('function verdictPatch', '\n// A verdict a person chose') + '\nthis.verdictPatch = verdictPatch;', {
+    rescore: (m) => m._r
+  });
+  assert.equal(ctx.verdictPatch({ new_fit_score: 0, _r: { q: 'needs_data', s: null } }, 'matched').new_fit_score, 0.75);
+  assert.equal(ctx.verdictPatch({ new_fit_score: 0, _r: { q: 'matched', s: 0.9 } }, 'matched').new_fit_score, 0.9);
+  assert.equal(ctx.verdictPatch({ new_fit_score: 0.95, _r: { q: 'low', s: 0.2 } }, 'matched').new_fit_score, 0.95);
+  assert.equal(ctx.verdictPatch({ new_fit_score: null, _r: { q: 'tech', s: 0.6 } }, 'matched').new_fit_score, 0.75);
+});
+
+test('a malformed LinkedIn address does not throw; handles compare exactly', () => {
+  const ctx = sandbox(grab('function safeDecode', '\nfunction connSeen') + '\nthis.liHandle = liHandle;', { decodeURIComponent });
+  assert.equal(ctx.liHandle('https://www.linkedin.com/in/j%E9r'), 'j%e9r');
+  assert.equal(ctx.liHandle('https://linkedin.com/in/abc%'), 'abc%');
+  assert.equal(ctx.liHandle('https://linkedin.com/in/John-Smith/'), 'john-smith');
+  assert.notEqual(ctx.liHandle('https://linkedin.com/in/john-smith-4a2b1c'), 'john-smith');
+});
