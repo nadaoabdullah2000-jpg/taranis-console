@@ -454,6 +454,14 @@ function lastSpokenRail(days) {
   return (days === null || days === undefined) ? '\u2014' : days + 'd';
 }
 
+// Today (or a date) as YYYY-MM-DD in the browser's own time zone. Default
+// dates came from toISOString(), the UTC day, which is still yesterday for
+// the first hours after midnight in Cairo or Zurich.
+function localDay(d) {
+  const x = d || new Date();
+  return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0');
+}
+
 function fmtDate(v) {
   if (!v) return '\u2014';
   const d = new Date(v);
@@ -652,20 +660,24 @@ async function supaDelete(table, filter) {
   if (!res.ok) throw new Error(await supaWhy(res, 'deleting from ' + table));
 }
 
-async function supaPatch(table, filter, patch) {
+// opts.returnRows: answer with the rows the filter actually changed (an
+// empty list means it changed none), for a caller that must know.
+async function supaPatch(table, filter, patch, opts) {
   if (!CFG.supabaseUrl || !session || !session.token) throw new Error('NO_SUPABASE');
   await ensureToken();
+  const want = !!(opts && opts.returnRows);
   const res = await fetch(CFG.supabaseUrl + '/rest/v1/' + table + '?' + filter, {
     method: 'PATCH',
     headers: {
       apikey: CFG.supabaseAnonKey,
       Authorization: 'Bearer ' + session.token,
       'Content-Type': 'application/json',
-      Prefer: 'return=minimal'
+      Prefer: want ? 'return=representation' : 'return=minimal'
     },
     body: JSON.stringify(patch)
   });
   if (!res.ok) throw new Error(await supaWhy(res, 'updating ' + table));
+  return want ? await res.json() : undefined;
 }
 
 async function supaInsert(table, row) {
@@ -721,9 +733,21 @@ async function readAllRows(table, query, action, payload, max) {
   return out;
 }
 
+// A Storage object path as a URL: each segment encoded on its own. encodeURI
+// leaves "#" and "?" alone, so a version label "Q3#2" uploaded to ".../Q3"
+// while the full path was saved, and the link pointed at nothing.
+function storageUrlPath(path) {
+  return String(path).split('/').map(encodeURIComponent).join('/');
+}
+// Free text that goes into a Storage path: the same characters as the file
+// name, everything else a hyphen.
+function storageSafe(s) {
+  return String(s || '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
 async function deleteFromStorage(path) {
   await ensureToken();
-  const res = await fetch(CFG.supabaseUrl + '/storage/v1/object/documents/' + encodeURI(path), {
+  const res = await fetch(CFG.supabaseUrl + '/storage/v1/object/documents/' + storageUrlPath(path), {
     method: 'DELETE',
     headers: { apikey: CFG.supabaseAnonKey, Authorization: 'Bearer ' + session.token }
   });
@@ -734,7 +758,7 @@ async function uploadToStorage(file, path, onProgress, replace) {
   await ensureToken();
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', CFG.supabaseUrl + '/storage/v1/object/documents/' + encodeURI(path));
+    xhr.open('POST', CFG.supabaseUrl + '/storage/v1/object/documents/' + storageUrlPath(path));
     xhr.setRequestHeader('apikey', CFG.supabaseAnonKey);
     xhr.setRequestHeader('Authorization', 'Bearer ' + session.token);
     xhr.setRequestHeader('x-upsert', replace ? 'true' : 'false');
@@ -1944,14 +1968,22 @@ function empty(headline, note) {
 
 // Both loaders leave whatever is on screen until the data is in, then clear
 // and draw in one go; inside a staged view they hold the swap until drawn.
+// Each fill()/load() into a node supersedes the ones before it: when a
+// slower, older request (a search typed earlier, the previous filter) answers
+// after a newer one, it is dropped instead of drawing over the newer result.
+let fillSeq = 0;
+
 async function fill(body, get, draw) {
   const st = stageOf(body);
+  const seq = body._fillSeq = ++fillSeq;
   if (st) st.pending++;
   try {
     const rows = await get();
+    if (body._fillSeq !== seq) return;
     clear(body); body.classList.remove('is-busy');
     draw(rows);
   } catch (e) {
+    if (body._fillSeq !== seq) return;
     clear(body); body.classList.remove('is-busy');
     body.appendChild(el('div', { class: 'banner' }, el('b', null, 'Could not load. '), e.message));
   } finally {
@@ -1961,12 +1993,15 @@ async function fill(body, get, draw) {
 
 async function load(body, action, payload, draw) {
   const st = stageOf(body);
+  const seq = body._fillSeq = ++fillSeq;
   if (st) st.pending++;
   try {
     const data = await callGateway(action, payload);
+    if (body._fillSeq !== seq) return;
     clear(body); body.classList.remove('is-busy');
     draw(data);
   } catch (e) {
+    if (body._fillSeq !== seq) return;
     clear(body); body.classList.remove('is-busy');
     body.appendChild(el('div', { class: 'banner' },
       el('b', null, 'Could not load. '), e.message));
@@ -2041,9 +2076,12 @@ function notificationMandateId(n) {
 }
 
 async function openMandateById(id, fallbackTab) {
+  // If the person moves to another tab while the row loads, they stay there.
+  const from = current;
   try {
     const rows = await supaSelect('wi_mandates',
       'select=*&limit=1&id=eq.' + encodeURIComponent(id));
+    if (current !== from) return;
     if (rows && rows[0]) return openMandate(rows[0]);
     toast('That opportunity is no longer in the table.', true);
   } catch (e) {
@@ -2100,7 +2138,7 @@ RENDER.today = function (body) {
       grid.appendChild(matchCard(m, {
         tone: tone,
         actions: [
-          { label: 'View the mandate', primary: true, run: () => { markSeen(m); openMandate(m); } },
+          { label: 'View the mandate', primary: true, run: () => { markSeen(m).catch(() => {}); openMandate(m); } },
           { label: 'Fill a gap', run: () => fillSheet(m) },
           seen(m) ? null : { label: 'Mark as read', run: async () => {
               try { await markSeen(m); go('today'); } catch (e) { toast(e.message, true); } } }
@@ -3869,7 +3907,7 @@ RENDER.opps = function (body) {
         tone,
         controls: qualificationControl(m, (to) => routeAfterQualification(m, to)),
         actions: [
-          { label: 'View the mandate', primary: true, run: () => { markSeen(m); openMandate(m); } },
+          { label: 'View the mandate', primary: true, run: () => { markSeen(m).catch(() => {}); openMandate(m); } },
           { label: 'Fill a gap', run: () => fillSheet(m) },
           seen(m) ? null : { label: 'Mark as read', run: async () => {
               try { await markSeen(m); redrawOpps(); } catch (e) { toast(e.message, true); } } },
@@ -4097,11 +4135,15 @@ RENDER.notes = function (body) {
   run();
 };
 
+// The row is marked read here only once the database has it: marking it
+// first made a failed save impossible to retry (a second click saw seen_at
+// and did nothing) while the card disappeared until the next reload.
 async function markSeen(m) {
   if (m.seen_at) return;
-  m.seen_at = new Date().toISOString();
+  const at = new Date().toISOString();
   await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id),
-    { seen_at: m.seen_at, seen_by: (session && session.email) || null });
+    { seen_at: at, seen_by: (session && session.email) || null });
+  m.seen_at = at;
 }
 
 async function setApproved(m, on, after) {
@@ -5161,31 +5203,36 @@ RENDER.docs = function (body) {
     if (picked.size > 50 * 1048576) return toast('That is over 50 MB. Ask for the limit to be raised.', true);
     if (DEMO) return toast('Sample data — connect Supabase to upload for real.', true);
 
+    // The form stays editable during the upload, so everything is read once
+    // here: changing the type or ticking Current mid-upload must not file the
+    // document under different details from the path it was stored at.
     const safe = picked.name.replace(/[^A-Za-z0-9._-]+/g, '-');
     const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
     const label = version.value.trim();
-    const path = kind.value + '/' + (period.value || new Date().toISOString().slice(0, 7)) + '/' +
-                 (label || stamp) + '-' + safe;
+    const docKey = kind.value, docTitle = title.value.trim(), makeCurrent = !!current.checked;
+    const month = period.value || localDay().slice(0, 7);
+    const path = docKey + '/' + month + '/' + (storageSafe(label) || stamp) + '-' + safe;
+    const file = picked, overwrite = replace.checked;
 
     send.disabled = true; send.textContent = 'Uploading…';
     prog.style.display = 'block';
     try {
-      await uploadToStorage(picked, path, (pc) => { prog.firstChild.style.width = pc + '%'; },
-        replace.checked);
+      await uploadToStorage(file, path, (pc) => { prog.firstChild.style.width = pc + '%'; },
+        overwrite);
       send.textContent = 'Filing…';
-      const pub = CFG.supabaseUrl + '/storage/v1/object/public/documents/' + encodeURI(path);
+      const pub = CFG.supabaseUrl + '/storage/v1/object/public/documents/' + storageUrlPath(path);
       const row = {
-        doc_key:       kind.value,
-        title:         title.value.trim(),
+        doc_key:       docKey,
+        title:         docTitle,
         version_label: label || null,
-        period_date:   (period.value || new Date().toISOString().slice(0, 7)) + '-01',
+        period_date:   month + '-01',
         storage_path:  path,
         public_url:    pub,
-        is_current:    !!current.checked
+        is_current:    makeCurrent
       };
       try {
-        if (current.checked) {
-          await supaPatch('documents', 'doc_key=eq.' + encodeURIComponent(kind.value)
+        if (makeCurrent) {
+          await supaPatch('documents', 'doc_key=eq.' + encodeURIComponent(docKey)
             + '&is_current=is.true', { is_current: false });
         }
         await supaInsert('documents', row);
@@ -5193,11 +5240,11 @@ RENDER.docs = function (body) {
         if (err.message === 'NO_SUPABASE') throw err;
         await callGateway('docs.upload', {
           storage_path: path,
-          doc_key: kind.value,
-          title: title.value.trim(),
+          doc_key: docKey,
+          title: docTitle,
           version_label: label || null,
           period_date: row.period_date,
-          make_current: !!current.checked
+          make_current: makeCurrent
         });
       }
       toast('Uploaded. The team has been told.');
@@ -5339,9 +5386,12 @@ RENDER.validate = function (body) {
 
   const decide = async (table, row, patch, said) => {
     try {
-      await supaPatch(table, 'id=eq.' + encodeURIComponent(row.id)
-        + '&validation_status=eq.pending', patch);
-      toast(said);
+      // Only a row still pending is changed; if someone else decided it in
+      // the meantime nothing is, and saying "Confirmed" would be untrue.
+      const changed = await supaPatch(table, 'id=eq.' + encodeURIComponent(row.id)
+        + '&validation_status=eq.pending', patch, { returnRows: true });
+      if (Array.isArray(changed) && !changed.length) toast('Someone already decided this one. The list is up to date now.', true);
+      else toast(said);
       load();
       poll();
     } catch (e) {
@@ -5511,6 +5561,7 @@ RENDER.validate = function (body) {
   load();
 };
 
+let hfnRefreshTimer = null;
 RENDER.hfn = function (body) {
   clear(body);
 
@@ -5569,28 +5620,32 @@ RENDER.hfn = function (body) {
     if (picked.size > 50 * 1048576) return toast('That is over 50 MB. Ask for the limit to be raised.', true);
     if (DEMO) return toast('Sample data - connect Supabase to file a newsletter.', true);
 
+    // Read once: clicking another folder chip during the upload changes
+    // hfnFolder, and the row must be filed where the PDF was stored.
+    const folder = hfnFolder, file = picked;
+    const fTitle = title.value.trim(), fPublisher = pubName.value.trim() || null, fIssue = issue.value || null;
     const safe  = picked.name.replace(/[^A-Za-z0-9._-]+/g, '-');
-    const when  = issue.value || new Date().toISOString().slice(0, 10);
+    const when  = issue.value || localDay();
     const stamp = Date.now().toString(36);
-    const slug  = (HFN_FOLDERS.find(f => f[0] === hfnFolder) || HFN_FOLDERS[0])[2];
+    const slug  = (HFN_FOLDERS.find(f => f[0] === folder) || HFN_FOLDERS[0])[2];
     const path  = 'newsletters/' + slug + '/' + when.slice(0, 7)
                 + '/' + when + '-' + stamp + '-' + safe;
 
     send.disabled = true; send.textContent = 'Uploading…';
     prog.style.display = 'block';
     try {
-      await uploadToStorage(picked, path, (pc) => { prog.firstChild.style.width = pc + '%'; }, false);
+      await uploadToStorage(file, path, (pc) => { prog.firstChild.style.width = pc + '%'; }, false);
       send.textContent = 'Filing…';
       await supaInsert('hf_newsletters', {
-        title:        title.value.trim(),
-        publisher:    pubName.value.trim() || null,
-        issue_date:   issue.value || null,
-        report_type:  hfnFolder,
+        title:        fTitle,
+        publisher:    fPublisher,
+        issue_date:   fIssue,
+        report_type:  folder,
         storage_path: path,
-        public_url:   CFG.supabaseUrl + '/storage/v1/object/public/documents/' + encodeURI(path),
-        filename:     picked.name,
-        size_bytes:   picked.size,
-        mime:         picked.type || 'application/pdf',
+        public_url:   CFG.supabaseUrl + '/storage/v1/object/public/documents/' + storageUrlPath(path),
+        filename:     file.name,
+        size_bytes:   file.size,
+        mime:         file.type || 'application/pdf',
         uploaded_by:  (session && session.email) || null
       });
       toast('Filed. The summary appears here once it has been read.');
@@ -5761,7 +5816,17 @@ RENDER.hfn = function (body) {
 
     const waiting = rows.some(r =>
       r.summary_status === 'pending' || r.summary_status === 'running');
-    if (waiting) setTimeout(() => { if (current === 'hfn') go('hfn'); }, 60000);
+    // One timer at a time (each render used to add another), and a refresh
+    // never wipes a half-filled upload form: it waits for the next minute.
+    clearTimeout(hfnRefreshTimer);
+    if (waiting) {
+      const tick = () => {
+        if (current !== 'hfn') return;
+        if (picked || title.value.trim() || pubName.value.trim()) { hfnRefreshTimer = setTimeout(tick, 60000); return; }
+        go('hfn');
+      };
+      hfnRefreshTimer = setTimeout(tick, 60000);
+    }
 
     for (const r of rows) {
       const st       = String(r.summary_status || 'pending');
@@ -6225,7 +6290,7 @@ RENDER.network = function (body) {
           .concat(!m ? [['no opportunity on file', 'quiet']] : []),
         actions: [
           m ? { label: 'Open the opportunity', primary: true,
-                run: () => { markSeen(m); openMandate(m); } } : null,
+                run: () => { markSeen(m).catch(() => {}); openMandate(m); } } : null,
           { label: 'Open the profile', primary: !m,
             run: () => window.open(r.profile_url, '_blank', 'noopener,noreferrer') },
           c && c.email ? { label: 'Draft an email',
@@ -6564,7 +6629,7 @@ RENDER.find = function (body) {
                 .concat(isApproved(m) ? [['approved', 'good']] : [])
                 .concat(m._intentions ? [[m._intentions.length + ' mandates', 'quiet']] : []),
         actions: [{ label: 'View the mandate', primary: true,
-                    run: () => { markSeen(m); openMandate(m); } }]
+                    run: () => { markSeen(m).catch(() => {}); openMandate(m); } }]
                  .concat(verdictActions(m, () => go('find')))
       }));
     }
@@ -6832,9 +6897,15 @@ RENDER.search = function (body) {
 // "show more" or "only the UK ones" follow on from the previous answer.
 const ASK_THREAD = [];
 const ASK_TURNS = 10;
+// Which conversation a reply belongs to (Start a new conversation moves it
+// on), and whether a reply is still on its way (so a redrawn tab shows it).
+let askEpoch = 0, askBusy = false;
 
+// The search context rides after the (trimmed) text, so a long answer cannot
+// push it out: it is what lets "show more" continue from the right row.
 function askHistory() {
-  return ASK_THREAD.slice(-ASK_TURNS).map(t => ({ role: t.role, text: String(t.text || '').slice(0, 1500) }));
+  return ASK_THREAD.slice(-ASK_TURNS).map(t => ({ role: t.role,
+    text: String(t.text || '').slice(0, 1500) + (t.context ? '\n' + t.context : '') }));
 }
 
 RENDER.ask = function (body) {
@@ -6918,8 +6989,13 @@ RENDER.ask = function (body) {
   }
   if (ASK_THREAD.length) {
     bar.insertBefore(el('div', { class: 'chips', style: 'margin-bottom:4px' },
-      el('button', { class: 'chip', onclick: () => { ASK_THREAD.length = 0; go('ask'); } }, 'Start a new conversation')), bar.firstChild);
+      el('button', { class: 'chip', onclick: () => { ASK_THREAD.length = 0; askEpoch++; askBusy = false; go('ask'); } }, 'Start a new conversation')), bar.firstChild);
     setTimeout(() => { log.scrollTop = log.scrollHeight; }, 0);
+  }
+
+  if (askBusy) {
+    log.appendChild(el('div', { class: 'msg' }, el('div', { class: 'from' }, 'Taranis'),
+      el('div', { class: 'bub' }, el('span', { class: 'typing' }, el('i'), el('i'), el('i')))));
   }
 
   // The agent's suggested next questions, one tap each.
@@ -6957,7 +7033,11 @@ RENDER.ask = function (body) {
       const bub = el('div', { class: 'bub' });
       const m = el('div', { class: 'msg' }, el('div', { class: 'from' }, 'Taranis'), bub);
       log.appendChild(m);
-      await answerLocally(bub, q);
+      try {
+        await answerLocally(bub, q);
+      } catch (e) {
+        bub.appendChild(el('p', { style: 'color:var(--bad)' }, 'Could not read that from the database: ' + e.message));
+      }
       ASK_THREAD.push({ role: 'assistant', text: bub.innerText });
       bub.appendChild(el('div', { class: 'srcs' },
         'read directly from the database — no model, nothing invented'));
@@ -6965,8 +7045,19 @@ RENDER.ask = function (body) {
       return;
     }
 
+    const epoch = askEpoch;
+    askBusy = true;
+    // The person may have left the tab (and come back to a fresh one) while
+    // the agent was thinking: the reply goes into the thread either way, and
+    // the tab on screen is redrawn to show it. A reply to a conversation that
+    // was started over since is dropped.
+    const landed = () => {
+      askBusy = false;
+      if (!log.isConnected && current === 'ask') go('ask');
+    };
     try {
       const d = await callGateway('assistant.ask', { question: q, history: history });
+      if (epoch !== askEpoch) return;
       wait.remove();
       const bub = el('div', { class: 'bub' });
       // An older gateway returns the follow-ups inside the answer after [[next]].
@@ -6978,8 +7069,7 @@ RENDER.ask = function (body) {
       // d.context records the search behind the answer (filters, where the next
       // page starts). It is never shown; it rides in the history so "show more"
       // continues from the right row.
-      ASK_THREAD.push({ role: 'assistant', html: html,
-        text: bub.innerText + (d.context ? '\n' + d.context : '') });
+      ASK_THREAD.push({ role: 'assistant', html: html, text: bub.innerText, context: d.context || '' });
       const m = el('div', { class: 'msg' }, el('div', { class: 'from' }, 'Taranis'), bub);
       if (next.length) bub.appendChild(nextChips(next));
       if (d.sources && d.sources.length) {
@@ -6987,6 +7077,7 @@ RENDER.ask = function (body) {
       }
       log.appendChild(m);
     } catch (e) {
+      if (epoch !== askEpoch) return;
       wait.remove();
       const bad = el('div', { class: 'bub', style: 'border-color:var(--bad);color:var(--bad)' },
         el('div', null, e.message),
@@ -6996,6 +7087,8 @@ RENDER.ask = function (body) {
             'Answer it from the database instead')));
       log.appendChild(el('div', { class: 'msg' },
         el('div', { class: 'from' }, 'Taranis'), bad));
+    } finally {
+      if (epoch === askEpoch) landed();
     }
     log.scrollTop = log.scrollHeight;
   }

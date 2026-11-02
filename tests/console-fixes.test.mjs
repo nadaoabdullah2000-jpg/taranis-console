@@ -173,3 +173,30 @@ test('text with "<" and ">" keeps its middle; real tags still go', () => {
   assert.equal(ctx.cleanText('<p>Seeks <b>quant</b> managers</p>'), 'Seeks quant managers');
   assert.equal(ctx.cleanText('see <a href="https://x">this</a>'), 'see this');
 });
+
+test('Storage paths: "#", "?" and spaces in a segment are encoded, slashes kept', () => {
+  const ctx = sandbox(grab('function storageUrlPath', '\nasync function deleteFromStorage') + '\nthis.u = storageUrlPath; this.safe = storageSafe;', { encodeURIComponent, String });
+  assert.equal(ctx.u('tms/2026-10/Q3#2 ?x-deck.pdf'), 'tms/2026-10/Q3%232%20%3Fx-deck.pdf');
+  assert.equal(ctx.safe('Q3#2 ?x'), 'Q3-2-x');
+  assert.equal(ctx.safe('v2.1_final'), 'v2.1_final');
+});
+
+test('Ask keeps the search context in the history whatever the answer length', () => {
+  const ctx = sandbox(grab('const ASK_THREAD', '\nRENDER.ask') + '\nthis.T = ASK_THREAD; this.h = askHistory;', { String });
+  ctx.T.push({ role: 'assistant', text: 'x'.repeat(5000), context: '[ctx offset=10]' });
+  const last = ctx.h().pop().text;
+  assert.ok(last.endsWith('[ctx offset=10]'));
+  assert.ok(last.length < 1600);
+});
+
+test('a slower, older fill() does not draw over a newer one', async () => {
+  const ctx = sandbox(grab('let fillSeq', '\nasync function load(') + '\nthis.fill = fill;', {
+    stageOf: () => null, settleStage: () => {}, clear: () => {}, el: () => ({}) });
+  const node = { classList: { remove() {} }, drawn: [] };
+  const later = (v, ms) => () => new Promise(r => setTimeout(() => r(v), ms));
+  await Promise.all([
+    ctx.fill(node, later('old', 30), (v) => node.drawn.push(v)),
+    ctx.fill(node, later('new', 5), (v) => node.drawn.push(v))
+  ]);
+  assert.deepEqual(node.drawn, ['new']);
+});
