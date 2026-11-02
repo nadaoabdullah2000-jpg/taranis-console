@@ -228,3 +228,21 @@ test('Investors: an e-mail, phone or title column is never taken for the person'
   assert.deepEqual(R.detectColumns(['Firm Name', 'Contact Email', 'Contact Phone', 'Contact Title']), { name: 0 });
   assert.deepEqual(R.detectColumns(['Firm Name', 'Contact Email', 'Contact Name']), { name: 0, person: 2 });
 });
+
+test('a two-letter US state after a city is the US, or unread when it is also a country', () => {
+  assert.equal(R.parseCountry('New York, NY'), 'US');
+  assert.equal(R.parseCountry('Austin, TX'), 'US');
+  assert.equal(R.parseCountry('Boston, MA'), null);      // Morocco? Massachusetts? not guessed
+  assert.equal(R.parseCountry('Chicago, IL'), null);
+  assert.equal(R.parseCountry('Boston, MA, USA'), 'US');
+  assert.equal(R.parseCountry('Paris, FR'), 'FR');
+  assert.equal(R.parseCountry('DE'), 'DE');
+  assert.equal(R.parseCountry('Berlin, Germany'), 'DE');
+});
+
+test('an AUM range with one unit reads its left side in the next unit down when it must', () => {
+  assert.deepEqual(R.parseAum('500 - 1bn', 'AUM'), { low: 5e8, high: 1e9, ok: true });
+  assert.deepEqual(R.parseAum('1 - 5bn', 'AUM'), { low: 1e9, high: 5e9, ok: true });
+  assert.deepEqual(R.parseAum('$250m - $500m', 'AUM'), { low: 2.5e8, high: 5e8, ok: true });
+  assert.equal(R.parseAum('5000 - 1bn', 'AUM').ok, false);
+});

@@ -8868,18 +8868,30 @@ async function iconnHideRuns(list, btn) {
   } catch (e) { btn.disabled = false; toast(e.message, true); }
 }
 
+// Results are ready: show them if the person is still on this tab, otherwise
+// keep them for when they come back and say so, rather than pulling them
+// away from whatever they moved on to during a long match.
+function iconnShow() {
+  if (current === 'iconn') return go('iconn');
+  toast('The iConnections match is done. It is under Earlier matches on the iConnections page.');
+}
+
 async function iconnOpenRun(id) {
   try {
     const res = await supaRpc('console_iconnections_run', { p_run_id: id });
     if (!res) return toast('That run is no longer stored.', true);
     // A run reopened from the list has no file in the browser, so no people.
     ICONN.result = res; ICONN.runId = id; ICONN.built = null; ICONN.people = null; ICONN.filter = 'all'; ICONN.open = {};
-    go('iconn');
+    iconnShow();
   } catch (e) { toast(e.message, true); }
 }
 
 // Read the file, pick the data sheet and the columns, then show the mapping.
+let iconnReadSeq = 0;
 async function iconnRead(file, stage) {
+  // Only the file picked last may fill ICONN: a big file finishing after a
+  // small one picked later would otherwise replace it.
+  const seq = ++iconnReadSeq;
   clear(stage);
   stage.appendChild(el('p', { class: 'ic-notes', style: 'padding:0' }, 'Reading ' + file.name + '…'));
   try {
@@ -8887,8 +8899,10 @@ async function iconnRead(file, stage) {
     const R = await loadIconnReader();
     const buf = await file.arrayBuffer();
     const sheets = await R.readWorkbook(buf);
+    const sha = await R.sha256Hex(buf);
+    if (seq !== iconnReadSeq) return;
     ICONN.file = { name: file.name, size: file.size };
-    ICONN.sha = await R.sha256Hex(buf);
+    ICONN.sha = sha;
     ICONN.sheets = sheets;
     const pick = R.chooseSheet(sheets);
     if (pick.sheet) {
@@ -8908,6 +8922,7 @@ async function iconnRead(file, stage) {
     }
     iconnMapping(stage);
   } catch (e) {
+    if (seq !== iconnReadSeq) return;
     clear(stage);
     ICONN.sheets = null;
     stage.appendChild(el('div', { class: 'callout bad', style: 'margin-top:16px' },
@@ -9043,7 +9058,7 @@ async function iconnMatch(btn, stage) {
       supaPatch('iconnections_import_runs', 'id=eq.' + Number(runId) + '&hidden_at=not.is.null', { hidden_at: null }).catch(() => {});
     }
     ICONN.result = res; ICONN.people = people; ICONN.filter = 'all'; ICONN.open = {};
-    go('iconn');
+    iconnShow();
   } catch (e) {
     const msg = e.message === 'NO_SUPABASE'
       ? 'Matching needs a database sign-in, and this session only has the gateway. Sign out and back in, then try again.'
@@ -9410,7 +9425,7 @@ function iconnResults(body) {
   };
   const dir = ICONN.sortDir === 'asc' ? 1 : -1;
   const list = firms.filter(keep).map(f => [f, sortKey(f)]).sort(ICONN.sortBy === 'firm'
-    ? (a, b) => dir * -1 * a[0].name.localeCompare(b[0].name, 'en', { sensitivity: 'base' })
+    ? (a, b) => dir * a[0].name.localeCompare(b[0].name, 'en', { sensitivity: 'base' })
     : (a, b) => (ICONN_TIER[a[0].bucket] - ICONN_TIER[b[0].bucket]) || (a[1][0] - b[1][0]) || dir * (a[1][1] - b[1][1])
                 || a[0].name.localeCompare(b[0].name, 'en', { sensitivity: 'base' })).map(x => x[0]);
 

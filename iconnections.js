@@ -398,7 +398,15 @@
     if ((m = RE_PLAIN.exec(s))) { const v = n(m[1]) * mult; return { low: v, high: v, ok: isFinite(v) }; }
     if (/%/.test(s)) return { low: null, high: null, ok: false };
     if ((m = RE_RANGE.exec(s))) {
-      const a = n(m[1]) * UNIT[m[2] || m[4]], b = n(m[3]) * UNIT[m[4]];
+      const b = n(m[3]) * UNIT[m[4]];
+      let a = n(m[1]) * UNIT[m[2] || m[4]];
+      // "500 - 1bn" is 500m to 1bn: a left side with no unit of its own, too
+      // big in the right side's unit, is in the next unit down. If that does
+      // not fit either, the range is not read rather than read wrong.
+      if (!m[2] && a > b) {
+        a = a / 1000;
+        if (a > b) return { low: null, high: null, ok: false };
+      }
       return { low: Math.min(a, b), high: Math.max(a, b), ok: true };
     }
     if ((m = RE_OVER.exec(s))) return { low: n(m[1]) * UNIT[m[2]], high: null, ok: true };
@@ -454,11 +462,23 @@
   }
   // Country cell -> ISO-2 ("United States" -> "US", "UK" -> "GB",
   // "New York, United States" -> "US"), or null when it cannot tell.
+  // A two-letter code after a city ("Boston, MA") is a US state far more
+  // often than a country. Codes that are only states read as the US; codes
+  // that are also countries (MA Morocco, IL Israel, IN India, CA Canada, DE
+  // Germany...) are left unread, so the file's warnings show them rather
+  // than the matcher reporting a false country conflict.
+  const US_STATES = new Set(('AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT '
+    + 'NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC').split(' '));
   function parseCountry(value) {
     if (value === null || value === undefined) return null;
     const raw = String(value).trim();
     if (!raw) return null;
     const parts = raw.split(/[,;|/]/).map(s => s.trim()).filter(Boolean);
+    const tail = parts.length > 1 ? parts[parts.length - 1] : '';
+    if (/^[A-Za-z]{2}$/.test(tail) && US_STATES.has(tail.toUpperCase())) {
+      countryNames();
+      return COUNTRY_CODES.has(tail.toUpperCase()) ? null : 'US';
+    }
     for (const part of [raw, parts[parts.length - 1], parts[0]]) {
       if (!part) continue;
       if (/^[A-Za-z]{2}$/.test(part)) {
