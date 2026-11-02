@@ -408,7 +408,9 @@ function cleanText(s) {
     return (c > 0 && c < 1114112) ? String.fromCodePoint(c) : m;
   });
 
-  t = t.replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]{1,80}>/g, '');
+  // Only things shaped like HTML tags go ("<b>", "</p>", "<a href=...>"):
+  // "AUM < $500m and returns > 8%" is text, and used to lose its middle.
+  t = t.replace(/<br\s*\/?>/gi, ' ').replace(/<\/?[a-z][a-z0-9-]*(?:\s[^<>]{0,200})?\/?>/gi, '');
 
   t = t.replace(/[ \t\u00A0]+/g, ' ').trim();
 
@@ -1163,12 +1165,15 @@ function sigText(m) {
     m.investor_type].join(' ').toLowerCase().replace(RE_NO_APPETITE, ' ');
 }
 const RE_HEDGE = /hedge|alternative|absolute return|liquid alt/;
-const RE_STRONG = /long short|long\/short|long-short|l\/s|equity hedge|equity long|quant|systematic/;
+// "equity long" is the start of "equity long/short" or "equity long-short",
+// never of "equity long-only" (the opposite); "quant" is a word, not the start
+// of "quantitative easing". Same rule as WI 01.
+const RE_STRONG = /long short|long\/short|long-short|l\/s|equity hedge|equity long(?![ -]?only)|\bquant(?!itative (?:easing|tightening))|systematic/;
 // "systematic" alone is not long/short or quant: "systematic trend following"
 // is a CTA. It only counts when the text has no CTA, macro or market-neutral
 // wording. A strong word inside a refusal ("avoiding any systematic or quant
 // strategies") is dropped before matching. Same rule as WI 01.
-const RE_STRONG_CORE = /long short|long\/short|long-short|l\/s|equity hedge|equity long|quant/;
+const RE_STRONG_CORE = /long short|long\/short|long-short|l\/s|equity hedge|equity long(?![ -]?only)|\bquant(?!itative (?:easing|tightening))/;
 const RE_NEGATED = /(avoid[a-z]*|exclud[a-z]*|without|\bnot\b|\bno\b)\s[^.;,]{0,40}(systematic|quant[a-z]*|long.?short|l\/s)/g;
 // Technology as whole words, so biotech, techniques and technician do not
 // count. Before matching, the text loses any clause that turns tech away
@@ -1179,7 +1184,12 @@ const RE_NEGATED = /(avoid[a-z]*|exclud[a-z]*|without|\bnot\b|\bno\b)\s[^.;,]{0,
 // Mcube Investment Technologies), so it only counts as "emerging/innovative/...
 // technologies". Same rule as WI 01 and the gateway's technology topic.
 const RE_TECH = /\b(?:tech|technology|software|semiconductors?|tmt|internet|saas|fintech)\b/;
-const RE_TECH_OFF = /\b(?:avoid[a-z]*|exclud[a-z]*|low on|away from|otherwise be)\b[^.;]*/g;
+// A tech word inside a clause that turns it away does not count. The clause
+// runs to the end of the sentence ("excluding energy, tobacco and technology"
+// is one list), but stops at a comma that opens a positive clause
+// ("excluding tobacco, focus on technology"; "..., and instead looks for
+// essential software"). Same rule as WI 01.
+const RE_TECH_OFF = /\b(?:avoid[a-z]*|exclud[a-z]*|low on|away from|otherwise be)\b(?:(?!,\s*(?:and\s+)?(?:instead|but|while|whereas|rather|focus\w*|prefer\w*|seek\w*|look\w*|interest\w*|keen|target\w*|want\w*|lik\w*)\b)[^.;])*/g;
 const RE_TECH_NAME = /\b(?:information )?technology industry\b|\b[a-z]+ tech (?:foundation|university)\b/g;
 const RE_TECH_PLURAL = /\b(?:emerging|innovative|new|disruptive|digital|climate|clean|financial|advanced) technologies\b/g;
 function isTech(t) {
@@ -1211,6 +1221,9 @@ function isStrong(m, t) {
 // news too, unless it has an investor type or speaks of placing money; "search"
 // counts only as "search for" / "manager search", so a new executive-search
 // firm stays manager news. Same as WI 01.
+// Words that make a People item an allocator's: whole words, so a manager's
+// "head of quant research", "investment committee" or "seedling" is not one.
+const RE_PEOPLE_PLACES = /third.party|allocat|\bcommit(s|ted|ting|ment|ments)?\b|\bsearch(es|ing)?\b|\bseed(s|ed|er|ers|ing)?\b/;
 const RE_HFA_PLACES = /third.party|allocat|commit|\bsearch(es|ing)? for\b|manager search|\bseed(s|ed|er|ers|ing)?\b/;
 function isManagerNews(m, t) {
   const tag = String(m.investor_tag || '').trim().toLowerCase();
@@ -1218,7 +1231,7 @@ function isManagerNews(m, t) {
   if (typ === 'hedge fund' || tag === 'shutter' || tag === 'manager information') return true;
   if (tag === 'hedge fund alert') return !typ && !RE_HFA_PLACES.test(t.replace(RE_NEGATED, ' '));
   return tag === 'people' && !typ
-    && !/third.party|allocat|commit|search|seed/.test(t.replace(RE_NEGATED, ' '));
+    && !RE_PEOPLE_PLACES.test(t.replace(RE_NEGATED, ' '));
 }
 
 /* EDIT 4 — critOf computes the four new signals. */

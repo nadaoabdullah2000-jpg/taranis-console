@@ -127,3 +127,49 @@ test('a malformed LinkedIn address does not throw; handles compare exactly', () 
   assert.equal(ctx.liHandle('https://linkedin.com/in/John-Smith/'), 'john-smith');
   assert.notEqual(ctx.liHandle('https://linkedin.com/in/john-smith-4a2b1c'), 'john-smith');
 });
+
+const rules = sandbox([
+  grab('const RE_STRONG =', '\n// "systematic" alone'),
+  grab('const RE_STRONG_CORE', '\n'),
+  grab('const RE_TECH =', '\n// Strategy tags as words'),
+  grab('// Words that make a People item', '\nfunction isManagerNews'),
+  'this.RE_STRONG_CORE = RE_STRONG_CORE; this.isTech = isTech; this.RE_PEOPLE_PLACES = RE_PEOPLE_PLACES;'
+].join('\n'));
+
+test('long-only and quantitative easing are not long/short or quant', () => {
+  const strong = (t) => rules.RE_STRONG_CORE.test(t);
+  assert.equal(strong('global equity long only mandate'), false);
+  assert.equal(strong('equity long-only managers'), false);
+  assert.equal(strong('worried about quantitative easing ending'), false);
+  assert.equal(strong('equity long/short'), true);
+  assert.equal(strong('equity long short and event driven'), true);
+  assert.equal(strong('seeks quant managers'), true);
+  assert.equal(strong('quantitative strategies'), true);
+});
+
+test('a tech exclusion stops at a positive clause, not at a list comma', () => {
+  assert.equal(rules.isTech('excluding tobacco, focus on technology and software managers'), true);
+  assert.equal(rules.isTech('excluding energy, tobacco and technology'), false);
+  assert.equal(rules.isTech('avoid funds overly exposed to software and technology'), false);
+  assert.equal(rules.isTech('avoids excessive concentration, particularly in it and ai, and instead looks for essential software'), true);
+  assert.equal(rules.isTech('wants technology exposure'), true);
+});
+
+test('People items: "research", "committee", "seedling" do not make a manager an allocator', () => {
+  const placesMoney = (t) => rules.RE_PEOPLE_PLACES.test(t);
+  assert.equal(placesMoney('hires head of quant research'), false);
+  assert.equal(placesMoney('joins the investment committee'), false);
+  assert.equal(placesMoney('seedling fund'), false);
+  assert.equal(placesMoney('to lead manager search'), true);
+  assert.equal(placesMoney('will seed new managers'), true);
+  assert.equal(placesMoney('commitments to hedge funds'), true);
+  assert.equal(placesMoney('head of third-party allocations'), true);
+});
+
+test('text with "<" and ">" keeps its middle; real tags still go', () => {
+  const ctx = sandbox(grab('function cleanText', '\nfunction deMojibake') + '\nthis.cleanText = cleanText;', {
+    ENTITIES: { amp: '&' }, String });
+  assert.equal(ctx.cleanText('AUM < $500m and target returns > 8% net'), 'AUM < $500m and target returns > 8% net');
+  assert.equal(ctx.cleanText('<p>Seeks <b>quant</b> managers</p>'), 'Seeks quant managers');
+  assert.equal(ctx.cleanText('see <a href="https://x">this</a>'), 'see this');
+});
