@@ -177,7 +177,11 @@ then the enrichment's evidence-based `is_tech_investor = true`):
 - **Not set** clears the person's answer.
 
 **Technology** is also an option in the Strategy filter of Opportunities and
-Find, and a chip in Rejected; it filters on the same `techOf` signal.
+Find, and a chip in Rejected; it filters on the same `techOf` signal. Ask
+agent's "technology" topic (the `wi_mandates` tool in CONSOLE 01) reads the
+same signal in SQL: a person's answer, then the enrichment flag, then the
+scored text with the same exclusion rule; its long/short topic ignores
+"long-only" and "quantitative easing" as the console does.
 
 ### Hedge funds in the alerts
 
