@@ -1,0 +1,95 @@
+-- Repair 4 Nov 2026: apply the Space criterion to stored verdicts (approved by
+-- the user the same day). Only rows whose result changes because of Space,
+-- that a person has not decided by hand (verdict_source <> 'manual'), and
+-- whose tab (Opportunities / Rejected) stays the same. Each change is logged
+-- in wi_fill_log (field "Verdict (Space)", old -> new) for the UNDO below.
+with v(id, nq, ns) as (values
+(1324,'matched',1),
+(2311,'uncertain',0.65),
+(2508,'matched',1),
+(2326,'uncertain',0.65),
+(323,'matched',1),
+(1069,'uncertain',0.65),
+(2477,'uncertain',0.65),
+(2475,'uncertain',0.65),
+(2284,'uncertain',0.65),
+(132,'matched',1),
+(943,'uncertain',0.65),
+(1001,'uncertain',0.65),
+(2507,'matched',1),
+(1284,'uncertain',0.65),
+(2241,'uncertain',0.65),
+(2239,'uncertain',0.65),
+(2492,'uncertain',0.65),
+(2474,'uncertain',0.65),
+(2282,'uncertain',0.65),
+(2293,'uncertain',0.65),
+(2291,'uncertain',0.65),
+(1310,'uncertain',0.65),
+(1319,'uncertain',0.65),
+(1621,'matched',1),
+(1892,'uncertain',0.65),
+(2476,'uncertain',0.65),
+(2215,'matched',1),
+(2229,'matched',1),
+(2242,'matched',1),
+(2283,'uncertain',0.65),
+(2288,'matched',1),
+(2292,'uncertain',0.65),
+(2672,'uncertain',0.65),
+(315,'matched',1),
+(213,'uncertain',0.6),
+(537,'matched',1),
+(492,'matched',1),
+(281,'matched',1),
+(430,'matched',1),
+(1316,'uncertain',0.65),
+(1356,'uncertain',0.65),
+(1362,'uncertain',0.65),
+(1374,'uncertain',0.65),
+(1357,'uncertain',0.65),
+(774,'uncertain',0.65),
+(1380,'uncertain',0.65),
+(776,'uncertain',0.65),
+(771,'uncertain',0.65),
+(772,'uncertain',0.65),
+(1311,'uncertain',0.65),
+(448,'matched',1),
+(1318,'uncertain',0.65),
+(1317,'uncertain',0.65),
+(417,'uncertain',0.65),
+(1354,'uncertain',0.65),
+(1353,'uncertain',0.65),
+(770,'uncertain',0.65),
+(765,'uncertain',0.65),
+(282,'uncertain',0.65),
+(292,'matched',1),
+(1876,'uncertain',0.65),
+(1893,'uncertain',0.65),
+(1901,'uncertain',0.65),
+(2614,'matched',1),
+(2542,'matched',1),
+(2611,'matched',1),
+(38,'uncertain',0.65),
+(359,'matched',1),
+(210,'matched',1),
+(1363,'uncertain',0.6),
+(343,'matched',1)
+),
+o as (select w.id, w.new_qualification as old_q, w.new_fit_score as old_s from wi_mandates w join v on v.id = w.id),
+u as (
+  update wi_mandates m
+     set new_qualification = v.nq, new_fit_score = v.ns,
+         qualification = case when v.nq in ('matched', 'rejected') then v.nq else 'uncertain' end,
+         rescored_at = now()
+    from v join o on o.id = v.id
+   where m.id = v.id and coalesce(m.verdict_source, '') <> 'manual'
+  returning m.id, m.investor_name, o.old_q, o.old_s, v.nq, v.ns)
+insert into wi_fill_log (mandate_id, investor_name, field, old_value, new_value, source)
+select id, investor_name, 'Verdict (Space)', coalesce(old_q, '') || ' ' || coalesce(old_s::text, ''), nq || ' ' || coalesce(ns::text, ''),
+       'Space criterion replaces "Buys hedge funds" (approved 4 Nov 2026)' from u;
+
+-- UNDO
+--   update wi_mandates m set new_qualification = split_part(l.old_value, ' ', 1),
+--     new_fit_score = nullif(split_part(l.old_value, ' ', 2), '')::numeric
+--   from wi_fill_log l where l.mandate_id = m.id and l.field = 'Verdict (Space)';
