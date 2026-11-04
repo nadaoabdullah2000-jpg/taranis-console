@@ -20,7 +20,7 @@ const ctx = { Date, Number, JSON, Intl, Array, String, isFinite,
 vm.createContext(ctx);
 vm.runInContext(grab('const LIST_SORTS = [', '// The Sort dropdown')
   + grab('function assetMatches(', '// A row\'s verdict is new_qualification')
-  + '\nthis.sortMandates = sortMandates; this.LIST_SORTS = LIST_SORTS; this.emergingOf = emergingOf; this.listPasses = listPasses;', ctx);
+  + '\nthis.sortMandates = sortMandates; this.LIST_SORTS = LIST_SORTS; this.emergingOf = emergingOf; this.listPasses = listPasses; this.assetOptsFor = assetOptsFor; this.ASSET_OPTS = ASSET_OPTS;', ctx);
 const ids = (rows) => rows.map(r => r.id);
 
 const ROWS = [
@@ -79,4 +79,29 @@ test('emerging managers: Yes / No / Unknown from the profile, never guessed', ()
   assert.equal(ctx.listPasses({ open_to_emerging_managers: null }, F), true);
   assert.equal(ctx.listPasses({ open_to_emerging_managers: true }, F), false);
   assert.equal(ctx.listPasses({ open_to_emerging_managers: true }, F, 'emerging'), true);
+});
+
+const vmArr = (x) => JSON.parse(JSON.stringify(x));
+test('strategy -> asset class: a strategy lists and selects only its own asset classes', () => {
+  const opts = vmArr(ctx.assetOptsFor('equity_long_short'));
+  assert.deepEqual(opts.map(o => o[0]), ['', 'hedge', 'equity', 'tech_equity']);
+  assert.match(opts[0][1], /^All for Equity long\/short/);
+  assert.equal(vmArr(ctx.assetOptsFor('')).length, vmArr(ctx.ASSET_OPTS).length);
+  const els = { strategies: ['equity_long_short'], asset_classes: ['Equity'] };
+  const tech = { strategies: '["equity"]', asset_classes: '["Semiconductors"]' };
+  const pe = { strategies: ['buyout'], asset_classes: ['Private Equity'] };
+  const elsPE = { strategies: ['equity_long_short'], asset_classes: ['Private Equity'] };
+  const noAssets = { strategies: ['Equity-Long/Short'], asset_classes: [] };
+  const F = (s, a) => ({ q: '', country: '', type: '', strategy: s, asset: a || '', tmin: '', emerging: '' });
+  assert.equal(ctx.listPasses(els, F('equity_long_short')), true);
+  assert.equal(ctx.listPasses(tech, F('equity_long_short')), true);
+  assert.equal(ctx.listPasses(tech, F('equity_long_short', 'equity')), false);   // one class picked
+  assert.equal(ctx.listPasses(tech, F('equity_long_short', 'tech_equity')), true);
+  assert.equal(ctx.listPasses(elsPE, F('equity_long_short')), false);            // PE is not an ELS class
+  assert.equal(ctx.listPasses(noAssets, F('equity_long_short')), true);          // nothing contradicts it
+  assert.equal(ctx.listPasses(pe, F('equity_long_short')), false);
+  assert.equal(ctx.listPasses(pe, F('private_equity')), true);
+  assert.equal(ctx.listPasses(pe, F('', 'equity')), false);                       // private equity is not listed equity
+  assert.equal(ctx.listPasses({ strategies: ['cta'], asset_classes: ['Hedge Funds'] }, F('cta')), true);
+  assert.equal(ctx.listPasses({ strategies: ['credit'], asset_classes: ['Hedge Funds'] }, F('credit')), true);
 });

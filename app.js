@@ -3764,38 +3764,115 @@ function emergingOf(m) {
 }
 const EMERGING_LABEL = { yes: 'Yes', no: 'No', unknown: 'Unknown' };
 
-const STRATEGY_OPTS = [['', 'Any strategy'], ['equity_long_short', 'Equity long/short'],
-  ['macro', 'Macro'], ['cta', 'CTA / managed futures'], ['market_neutral', 'Market neutral'],
-  ['quant', 'Quant / systematic'], ['multi_strategy', 'Multi-strategy'], ['event', 'Event driven'],
-  ['__tech', 'Technology']];
-const ASSET_OPTS = [['', 'Any asset class'], ['hedge', 'Hedge funds'], ['equit', 'Equities'],
-  ['credit', 'Credit'], ['private', 'Private markets'], ['real', 'Real assets'],
-  ['multi', 'Multi-asset']];
+// ---- Strategy -> Asset class (the mapping table approved on 4 Nov 2026) ----
+// Asset-class groups over With Intelligence's own asset-class names
+// (lower-cased). A group is a test on one name.
+const ASSET_GROUPS = [
+  ['hedge',          'Hedge funds',               a => /hedge|^hf$|fohf/.test(a)],
+  ['equity',         'Equities (listed)',         a => /equit/.test(a) && !/private equit|real estate equit|biotech/.test(a)],
+  ['tech_equity',    'Tech & biotech equity',     a => /biotech|semiconductor|^it$|technology|healthcare/.test(a)],
+  ['fixed_income',   'Fixed income',              a => /fixed.?income|bond|^debt$/.test(a)],
+  ['credit',         'Credit',                    a => /credit|high yield/.test(a) && !/private.?credit/.test(a)],
+  ['private_credit', 'Private debt / credit',     a => /private.?(debt|credit)|direct loan|real.?estate debt|natural resources debt/.test(a)],
+  ['private_equity', 'Private equity',            a => /private.?equit/.test(a)],
+  ['venture',        'Venture capital',           a => /venture/.test(a)],
+  ['real_estate',    'Real estate',               a => /real.?estate|private re\b/.test(a) && !/real.?estate debt/.test(a)],
+  ['infra_real',     'Infrastructure & real assets', a => /infrastructure|real.?assets|forest|natural resources$/.test(a)],
+  ['commodities',    'Commodities & natural resources', a => /commodit|natural resources$/.test(a)],
+  ['currency',       'Currency',                  a => /currenc/.test(a)],
+  ['multi',          'Multi-asset',               a => /multi.?asset|broadly diversified/.test(a)],
+  ['alts',           'Alternatives / liquid alts', a => /alternative|\balts\b|niche|less-correlated|special situations/.test(a)],
+  ['insurance',      'Insurance-linked',          a => /insurance/.test(a)],
+  ['cash',           'Cash',                      a => /cash/.test(a)]
+];
+const ASSET_GROUP = Object.fromEntries(ASSET_GROUPS.map(g => [g[0], g]));
+// Strategies: the With Intelligence strategy tags each covers (tags compared
+// with "_" and "-" read as spaces) and the asset classes it selects.
+const STRATEGY_MAP = [
+  ['equity_long_short', 'Equity long/short', /equity long.?short|^long short$|equity hedge|long bias equity|^equity$|^equity growth$/, ['hedge', 'equity', 'tech_equity']],
+  ['market_neutral', 'Equity market neutral', /market.?neutral|statistical arbitrage/, ['hedge', 'equity']],
+  ['macro', 'Macro', /macro|^directional$|^currency$/, ['hedge', 'fixed_income', 'currency', 'commodities']],
+  ['cta', 'CTA / managed futures', /\bcta\b|managed futures/, ['hedge', 'commodities', 'currency']],
+  ['quant', 'Quant / systematic', /^quant|systematic|alternative risk premia|^arp$|risk parity/, ['hedge', 'equity', 'multi']],
+  ['multi_strategy', 'Multi-strategy', /^multi ?strat|^multistrat|^hedge funds?$|^hf$|^hedge$|fohf|absolute return|portable alpha|liquid alts|^diversified$|broadly diversified|^alternative$/, ['hedge', 'alts', 'multi']],
+  ['relative_value', 'Relative value / arbitrage', /^relative value$|relative value arbitrage|convertible arbitrage|fixed income arbitrage|volatility arbitrage|long volatility|tail risk|low volatility|^arbitrage$/, ['hedge', 'fixed_income', 'equity']],
+  ['event', 'Event driven', /event driven|merger arbitrage|activist|special situations|^distressed$/, ['hedge', 'equity', 'credit']],
+  ['credit', 'Credit (liquid)', /^credit$|fixed income credit|multi strategy credit|relative value credit|specialty finance|structured|high yield|bonds|^fixed income$|bank loans|^clo$|rmbs|cmbs|asset backed|mortgages|semi liquid credit|specialized credit|insurance linked|distressed debt/, ['fixed_income', 'credit', 'hedge', 'insurance']],
+  ['private_credit', 'Private credit', /direct lending|private credit|mezzanine|relationship driven lending|infrastructure debt/, ['private_credit']],
+  ['private_equity', 'Private equity', /buyout|^growth$|growth capital|growth equity|private equity|secondar|co investment|late stage|pre ipo|lower middle market|closed end partnerships/, ['private_equity']],
+  ['venture', 'Venture capital', /early stage|^seed$|venture/, ['venture']],
+  ['real_estate', 'Real estate', /^core$|core plus|value add|^opportunistic$|opportunistic real estate|real estate|^development$|^land$/, ['real_estate']],
+  ['real_assets', 'Real assets / infrastructure', /^infrastructure$|^energy$|power generation|metals|agriculture|real assets|^commodities$/, ['infra_real', 'commodities']],
+  ['digital_assets', 'Digital assets', /digital assets/, ['hedge', 'alts']],
+  ['long_only', 'Long-only / multi-asset', /long only|multi asset|^blend$|^value$|^income|international|small cap emerging|long term investment|target date/, ['equity', 'fixed_income', 'multi']],
+  ['__tech', 'Technology', null, ['tech_equity', 'equity', 'venture', 'hedge']]
+];
+const STRATEGY = Object.fromEntries(STRATEGY_MAP.map(s => [s[0], s]));
+const STRATEGY_OPTS = [['', 'Any strategy']].concat(STRATEGY_MAP.map(s => [s[0], s[1]]));
+const ASSET_OPTS = [['', 'Any asset class']].concat(ASSET_GROUPS.map(g => [g[0], g[1]]));
+// The asset-class options under a strategy: only its own classes, the first
+// ("All for ...") selecting all of them at once.
+function assetOptsFor(strategy) {
+  const s = STRATEGY[strategy];
+  if (!s) return ASSET_OPTS;
+  return [['', 'All for ' + s[1]]].concat(s[3].map(k => [k, ASSET_GROUP[k][1]]));
+}
+
+// An investor's tags and asset classes, across every alert folded into its card.
+const listOf = (v) => {
+  let x = v;
+  for (let i = 0; i < 2 && typeof x === 'string'; i++) { try { x = JSON.parse(x); } catch (_) { x = []; } }
+  return Array.isArray(x) ? x.map(s => String(s).toLowerCase().trim()).filter(Boolean) : [];
+};
+const rowsOf = (m) => [m].concat(Array.isArray(m && m._intentions) ? m._intentions : []).filter(Boolean);
+const strategyTagsOf = (m) => [...new Set(rowsOf(m).flatMap(x => listOf(x.strategies)).map(t => t.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim()))];
+const assetNamesOf = (m) => [...new Set(rowsOf(m).flatMap(x => listOf(x.asset_classes)).map(a => a.replace(/_/g, ' ')))];
+// The strategies (keys of STRATEGY_MAP) an investor's tags fall under.
+function strategiesOf(m) {
+  const tags = strategyTagsOf(m);
+  return STRATEGY_MAP.filter(s => s[2] && tags.some(t => s[2].test(t))).map(s => s[0]);
+}
+function assetGroupsOf(m) {
+  const names = assetNamesOf(m);
+  return ASSET_GROUPS.filter(g => names.some(a => g[2](a))).map(g => g[0]);
+}
+function strategyPasses(m, key) {
+  if (!key) return true;
+  if (key === '__tech') return !!techOf(m);
+  return strategiesOf(m).indexOf(key) > -1;
+}
+// The asset filter: one group, or, under a strategy with no single class
+// picked, any of that strategy's classes. An investor whose profile lists no
+// asset class at all is kept (nothing contradicts the strategy).
+function assetPasses(m, key, strategy) {
+  const keys = key ? [key] : (STRATEGY[strategy] ? STRATEGY[strategy][3] : null);
+  if (!keys) return true;
+  const have = assetGroupsOf(m);
+  if (!key && !assetNamesOf(m).length) return true;
+  return keys.some(k => have.indexOf(k) > -1);
+}
 const EMERGING_OPTS = [['', 'All'], ['yes', 'Yes'], ['no', 'No'], ['unknown', 'Unknown (profile silent)']];
 
 function oppsPasses(m, skip) { return listPasses(m, oppsFilters, skip); }
 function listPasses(m, F, skip) {
-  const jarr = (v) => {
-    let x = v;
-    for (let i = 0; i < 2 && typeof x === 'string'; i++) { try { x = JSON.parse(x); } catch (_) { x = []; } }
-    return Array.isArray(x) ? x.map(s => String(s).toLowerCase()) : [];
-  };
+  const skips = String(skip || '').split('+');
   // Country and type are compared in the same form the option counts use
   // (trimmed; exact type), so "Family office (5)" shows those five and not
   // the multi-family offices as well.
-  if (skip !== 'country'  && F.country && String(m.investor_country || '').trim().toUpperCase() !== F.country) return false;
-  if (skip !== 'type'     && F.type && String(m.investor_type || '').trim().toLowerCase() !== F.type) return false;
+  if (skips.indexOf('country') < 0  && F.country && String(m.investor_country || '').trim().toUpperCase() !== F.country) return false;
+  if (skips.indexOf('type') < 0     && F.type && String(m.investor_type || '').trim().toLowerCase() !== F.type) return false;
   // "Technology" is not a strategy tag: it is the tech signal the score reads
   // (the text, the enrichment, or a person's Tech choice).
-  if (skip !== 'strategy' && F.strategy === '__tech' && !techOf(m)) return false;
-  if (skip !== 'strategy' && F.strategy && F.strategy !== '__tech' && !jarr(m.strategies).some(s => s.includes(F.strategy))) return false;
-  if (skip !== 'asset'    && F.asset && !assetMatches(jarr(m.asset_classes), F.asset)) return false;
-  if (skip !== 'emerging' && F.emerging && emergingOf(m) !== F.emerging) return false;
-  if (skip !== 'tmin'     && F.tmin) {
+  if (skips.indexOf('strategy') < 0 && !strategyPasses(m, F.strategy)) return false;
+  // Under a strategy the asset filter is that strategy's classes (all of
+  // them, or the one picked), whatever skip says about the strategy.
+  if (skips.indexOf('asset') < 0    && !assetPasses(m, F.asset, F.strategy)) return false;
+  if (skips.indexOf('emerging') < 0 && F.emerging && emergingOf(m) !== F.emerging) return false;
+  if (skips.indexOf('tmin') < 0     && F.tmin) {
     const t = Number(m.ticket_max_usd || m.ticket_min_usd || 0);
     if (!(t >= Number(F.tmin))) return false;
   }
-  if (skip !== 'q'        && F.q) {
+  if (skips.indexOf('q') < 0        && F.q) {
     const hay = [m.investor_name, m.organization_name, m.investor_city, m.investor_country,
       m.investor_type, asText(m.strategies), asText(m.intention_summary)]
       .filter(Boolean).join(' ').toLowerCase();
@@ -4038,8 +4115,16 @@ RENDER.opps = function (body) {
           v.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()) + '  (' + n + ')'));
       }
 
-      const fStrat = sel(STRATEGY_OPTS);
-      const fAsset = sel(ASSET_OPTS);
+      // Strategy and asset class are linked: picking a strategy selects its
+      // asset classes and lists only those (the mapping table above).
+      const countBy = (base, test) => base.filter(test).length;
+      const stratBase = all.filter(m => inMode(m) && oppsPasses(m, 'strategy+asset'));
+      const fStrat = sel(STRATEGY_OPTS.map(([v, l]) =>
+        [v, l + '  (' + (v ? countBy(stratBase, m => strategyPasses(m, v)) : stratBase.length) + ')']));
+      fStrat.addEventListener('change', () => { F.asset = ''; });
+      const assetBase = all.filter(m => inMode(m) && oppsPasses(m, 'asset'));
+      const fAsset = sel(assetOptsFor(F.strategy).map(([v, l]) =>
+        [v, l + '  (' + countBy(assetBase, m => assetPasses(m, v, F.strategy)) + ')']));
       const emBase = all.filter(m => inMode(m) && oppsPasses(m, 'emerging'));
       const fEm = sel(EMERGING_OPTS.map(([v, l]) =>
         [v, l + '  (' + (v ? emBase.filter(m => emergingOf(m) === v).length : emBase.length) + ')']));
@@ -4430,14 +4515,19 @@ RENDER.rejected = function (body) {
     const s = el('select', { class: 'search', 'aria-label': label });
     for (const [v, l] of opts) s.appendChild(el('option', { value: v }, l));
     s.value = rejFilters[key] || '';
-    s.addEventListener('change', () => { rejFilters[key] = s.value; paintChips(); paint(); });
+    s.addEventListener('change', () => {
+      rejFilters[key] = s.value;
+      // A new strategy selects its own asset classes (the mapping table).
+      if (key === 'strategy') rejFilters.asset = '';
+      paintChips(); paint();
+    });
     return el('label', { class: 'field', style: 'flex:1 1 200px;min-width:180px;margin:0' }, el('span', null, label), s);
   };
   const rejEm = rejSel('emerging', EMERGING_OPTS, 'Invests in emerging managers');
+  const rejStrat = rejSel('strategy', STRATEGY_OPTS, 'Strategy');
+  const rejAsset = rejSel('asset', ASSET_OPTS, 'Asset class');
   const rejFilterRow = el('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;margin:12px 0 4px;align-items:flex-end' },
-    rejSel('strategy', STRATEGY_OPTS, 'Strategy'),
-    rejSel('asset', ASSET_OPTS, 'Asset class'),
-    rejEm,
+    rejStrat, rejAsset, rejEm,
     el('button', { class: 'btn btn-sm btn-quiet', onclick: () => {
       rejFilters = NO_FILTERS();
       for (const s of rejFilterRow.querySelectorAll('select')) s.value = '';
@@ -4494,12 +4584,29 @@ RENDER.rejected = function (body) {
       // The emerging-managers counts under the other filters and the chip.
       const picked = tone === 'news' ? all.filter(notMandate)
         : all.filter(m => !notMandate(m) && effectivelyRejected(m) && passes(m, tone));
-      const base = dedupeInvestors(picked).filter(m => rejPasses(m, 'emerging'));
+      const cards = dedupeInvestors(picked);
+      const base = cards.filter(m => rejPasses(m, 'emerging'));
       const s = rejEm.querySelector('select');
       for (const o of s.options) {
         const lbl = (EMERGING_OPTS.find(([v]) => v === o.value) || [, ''])[1];
         o.textContent = lbl + '  (' + (o.value ? base.filter(m => emergingOf(m) === o.value).length : base.length) + ')';
       }
+      const F = rejFilters;
+      const sBase = cards.filter(m => rejPasses(m, 'strategy+asset'));
+      const ss = rejStrat.querySelector('select');
+      for (const o of ss.options) {
+        const lbl = (STRATEGY_OPTS.find(([v]) => v === o.value) || [, ''])[1];
+        o.textContent = lbl + '  (' + (o.value ? sBase.filter(m => strategyPasses(m, o.value)).length : sBase.length) + ')';
+      }
+      // The asset list is rebuilt for the strategy: only its classes, and
+      // "All for <strategy>" selecting every one of them.
+      const aBase = cards.filter(m => rejPasses(m, 'asset'));
+      const as = rejAsset.querySelector('select');
+      clear(as);
+      for (const [v, l] of assetOptsFor(F.strategy)) {
+        as.appendChild(el('option', { value: v }, l + '  (' + aBase.filter(m => assetPasses(m, v, F.strategy)).length + ')'));
+      }
+      as.value = F.asset || '';
     }
   }
 
