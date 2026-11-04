@@ -3891,7 +3891,7 @@ RENDER.inbox = function (body) {
 };
 
 let oppsView = 'all';
-let oppsMode = 'review';
+let oppsMode = 'matched';
 const NO_FILTERS = () => ({ q: '', country: '', type: '', strategy: '', asset: '', tmin: '', emerging: '' });
 let oppsFilters = NO_FILTERS();
 let oppsFilterOpen = true;
@@ -7418,7 +7418,10 @@ RENDER.ask = function (body) {
   body.style.padding = '0';
   body.style.display = 'flex';
   body.style.flexDirection = 'column';
-  body.style.height = '100%';
+  // Fill the panel below the header exactly: the conversation scrolls inside
+  // and the input sits at the panel's bottom edge.
+  body.style.flex = '1 1 0';
+  body.style.minHeight = '0';
 
   const log = el('div', { id: 'ask-log' });
 
@@ -7456,15 +7459,23 @@ RENDER.ask = function (body) {
   ]) chips.appendChild(el('button', { class: 'chip', onclick: () => { setMode(m); input.value = s; send(); } }, s));
 
   const input = el('textarea', { id: 'ask-in', rows: '1', placeholder: 'Ask anything you used to type into the bot…' });
-  const btn = el('button', { class: 'btn' }, 'Ask');
+  const btn = el('button', { id: 'ask-send', type: 'button', 'aria-label': 'Send', title: 'Send (Enter). Shift+Enter for a new line.', disabled: '' });
+  btn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V3"/><path d="M3.5 7.5 8 3l4.5 4.5"/></svg>';
   const bar = el('div', { id: 'ask-bar' }, modeRow, chips, el('div', { id: 'ask-row' }, input, btn));
   setMode('local');
-  body.append(log, bar);
+  body.append(el('div', { style: 'display:flex;flex-direction:column;height:100%;min-height:0' }, log, bar));
 
-  input.addEventListener('input', () => {
+  // One line to start; grows with the text up to six lines, then scrolls inside.
+  const ASK_MAX_H = 158;
+  const fitInput = () => {
+    if (!input.value) { input.style.height = ''; input.style.overflowY = ''; btn.disabled = true; return; }
     input.style.height = 'auto';
-    input.style.height = Math.min(input.scrollHeight, 150) + 'px';
-  });
+    const h = input.scrollHeight + 2;
+    input.style.height = Math.min(Math.max(h, 46), ASK_MAX_H) + 'px';
+    input.style.overflowY = h > ASK_MAX_H ? 'auto' : 'hidden';
+    btn.disabled = !input.value.trim();
+  };
+  input.addEventListener('input', fitInput);
   input.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
   });
@@ -7520,7 +7531,7 @@ RENDER.ask = function (body) {
   async function send() {
     const q = input.value.trim();
     if (!q) return;
-    input.value = ''; input.style.height = 'auto';
+    input.value = ''; fitInput();
     log.appendChild(el('div', { class: 'msg me' },
       el('div', { class: 'from' }, 'You'), el('div', { class: 'bub' }, q)));
     const history = askHistory();

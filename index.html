@@ -184,11 +184,17 @@ button,input,textarea,select{font:inherit;color:inherit}
 nav{
   scrollbar-width:thin;
   border-right:1px solid var(--rule);
-  background:#0E1113 url('./brand-pattern.svg') center center / cover no-repeat;
+  /* The cube pattern stays clear of the logo: the sidebar's own colour at the
+     top, fading into the pattern below the mark, so nothing sits behind it. */
+  background:
+    linear-gradient(to bottom, #0E1113 0, #0E1113 104px, rgba(14,17,19,0) 190px) top left / 100% 190px no-repeat,
+    url('./brand-pattern.svg') center center / cover no-repeat,
+    #0E1113;
   color:#DCE9EC;
   display:flex;flex-direction:column;overflow-y:auto}
-/* Solid behind the logo so the nav's cube pattern never sits under the mark. */
-.brand{padding:20px 18px;border-bottom:1px solid rgba(87,192,214,.18);text-align:left;background:#0E1113}
+/* No box behind the logo: it sits on the sidebar itself (the nav's top is kept
+   clear of the cube pattern, see nav above). */
+.brand{padding:20px 18px;text-align:left;background:transparent}
 .brand .wm{width:100%;max-width:none;margin:0}
 @media (display-mode:standalone){
   nav{padding-top:env(safe-area-inset-top)}
@@ -311,8 +317,19 @@ main{
 @media (prefers-reduced-motion: reduce){.is-busy::before{animation:none;background-size:100% 100%}}
 .srcs{margin-top:9px;padding-top:8px;border-top:1px solid var(--rule-2);font-family:var(--font-body);font-size:11px;color:var(--ink-3)}
 #ask-bar{border-top:1px solid var(--rule);padding:12px 28px 18px;background:var(--paper);position:sticky;bottom:0;z-index:5;box-shadow:0 -10px 18px -12px rgba(0,0,0,.35)}
-#ask-row{display:flex;gap:8px;align-items:flex-end;max-width:900px}
-#ask-in{flex:1;padding:11px 13px;border:1px solid var(--rule);border-radius:8px;background:var(--card);resize:none;max-height:150px;font-size:14.5px}
+/* The chat input: one line to start, growing with the text up to six lines and
+   then scrolling inside, full width, rounded, the send button inside it. */
+#ask-row{position:relative;display:block;width:100%}
+#ask-in{display:block;width:100%;box-sizing:border-box;margin:0;
+  padding:11px 54px 11px 18px;border:1px solid var(--rule);border-radius:24px;background:var(--card);
+  font:inherit;font-size:15px;line-height:22px;height:46px;min-height:46px;max-height:158px;
+  resize:none;overflow-y:hidden;box-shadow:0 1px 3px rgba(5,42,51,.08)}
+#ask-in::placeholder{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#ask-in:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,161,196,.14)}
+#ask-send{position:absolute;right:7px;bottom:6px;width:34px;height:34px;padding:0;border-radius:50%;
+  display:grid;place-items:center;background:var(--ink);border:0;color:var(--paper);cursor:pointer}
+#ask-send svg{width:16px;height:16px;display:block}
+#ask-send:disabled{opacity:.35;cursor:default;box-shadow:none}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:9px;max-width:900px}
 .chip{border:1px solid var(--rule);background:var(--card);border-radius:14px;padding:4px 11px;
   font-size:12.5px;cursor:pointer;color:var(--ink-2)}
