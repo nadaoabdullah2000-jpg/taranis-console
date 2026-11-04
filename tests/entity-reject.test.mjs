@@ -14,6 +14,7 @@ vm.runInContext([
   grab('const KNOWN_MANAGERS', '\n'),
   grab('const RE_NOT_ALLOCATOR', '\n'),
   grab('function wiReasonsOf', 'function isNotMandate'),
+  grab('function isHedgeFundType', '\n// Words that make'),
   grab('const RE_ENTITY_REJECT', 'function isSwiss'),
   'this.entityRejected = entityRejected;'
 ].join('\n'), ctx);
@@ -27,6 +28,7 @@ test('a reject about the investor itself hides the investor', () => {
   assert.equal(rej([], { investor_name: 'Bridgewater Associates' }), true);
   assert.equal(rej(['Asset class excludes hedge funds'], { investor_type: 'Venture Capital' }), true);
   assert.equal(rej([], { investor_type: 'hedge fund' }), true);
+  assert.equal(rej([], { investor_type: 'startup hedge fund' }), true);
 });
 
 test('a reject of one mandate or item does not hide the investor', () => {
@@ -37,4 +39,9 @@ test('a reject of one mandate or item does not hide the investor', () => {
   assert.equal(rej(['Asset class excludes hedge funds', 'No eligible strategy', 'Ineligible type: venture capital'],
     { investor_type: 'Wealth Manager' }), false);
   assert.equal(rej(['Criteria mismatch - wants $500m+ AuM and a 10-year record']), false);
+});
+
+test('a fund of hedge funds is an investor, not a hedge fund', () => {
+  assert.equal(rej([], { investor_type: 'Fund of Hedge Funds' }), false);
+  assert.equal(rej([], { investor_type: 'Fund of Funds' }), false);
 });

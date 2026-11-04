@@ -1275,6 +1275,14 @@ function isStrong(m, t) {
 // news too, unless it has an investor type or speaks of placing money; "search"
 // counts only as "search for" / "manager search", so a new executive-search
 // firm stays manager news. Same as WI 01.
+// A type that makes the firm a hedge fund itself: "hedge fund", "startup
+// hedge fund", "hedge fund manager". A fund *of* hedge funds buys them, and is
+// an investor. ("startup hedge fund" was in Review, 2 Nov 2026.)
+function isHedgeFundType(typ) {
+  const t = String(typ || '').trim().toLowerCase();
+  return /\bhedge funds?\b/.test(t) && !/\b(funds?|fund-of) of hedge funds?\b|\bfund of funds\b/.test(t);
+}
+
 // Words that make a People item an allocator's: whole words, so a manager's
 // "head of quant research", "investment committee" or "seedling" is not one.
 const RE_PEOPLE_PLACES = /third.party|allocat|\bcommit(s|ted|ting|ment|ments)?\b|\bsearch(es|ing)?\b|\bseed(s|ed|er|ers|ing)?\b/;
@@ -1282,7 +1290,7 @@ const RE_HFA_PLACES = /third.party|allocat|commit|\bsearch(es|ing)? for\b|manage
 function isManagerNews(m, t) {
   const tag = String(m.investor_tag || '').trim().toLowerCase();
   const typ = String(m.investor_type || '').trim().toLowerCase();
-  if (typ === 'hedge fund' || tag === 'shutter' || tag === 'manager information') return true;
+  if (isHedgeFundType(typ) || tag === 'shutter' || tag === 'manager information') return true;
   if (tag === 'hedge fund alert') return !typ && !RE_HFA_PLACES.test(t.replace(RE_NEGATED, ' '));
   return tag === 'people' && !typ
     && !RE_PEOPLE_PLACES.test(t.replace(RE_NEGATED, ' '));
@@ -1374,7 +1382,7 @@ function entityRejected(m) {
   if (RE_ENTITY_REJECT.test(wiReasonsOf(m).join(' '))) return true;
   if (KNOWN_MANAGERS.test(String(m.investor_name || ''))) return true;
   const typ = String(m.investor_type || '').trim().toLowerCase();
-  return typ === 'hedge fund' || RE_NOT_ALLOCATOR.test(typ);
+  return isHedgeFundType(typ) || RE_NOT_ALLOCATOR.test(typ);
 }
 
 function isSwiss(m) {
@@ -1531,7 +1539,7 @@ function verdictReason(m) {
     let s;
     if (isNotMandate(m)) s = 'Not an investor mandate' + (m.investor_tag ? ': With Intelligence filed it under ' + m.investor_tag : '');
     else if (KNOWN_MANAGERS.test(String(m.investor_name || ''))) s = 'A hedge-fund manager, not an allocator';
-    else if (typ.toLowerCase() === 'hedge fund' || RE_NOT_ALLOCATOR.test(typ.toLowerCase())) s = 'Not an allocator (' + typ + ')';
+    else if (isHedgeFundType(typ) || RE_NOT_ALLOCATOR.test(typ.toLowerCase())) s = 'Not an allocator (' + typ + ')';
     else if (fails.length) s = fails.map((f, i) => i ? f.charAt(0).toLowerCase() + f.slice(1) : f).join('; ');
     else s = 'No hedge-fund mandate found';
     return lead + s.replace(/[.\s]+$/, '') + '.';
