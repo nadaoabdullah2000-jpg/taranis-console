@@ -1064,10 +1064,11 @@ const TARANIS_CRITERIA = [
 ];
 
 /* Whether the allocator's "Investor page" link was checked against
-   With Intelligence: Correct / Fixed / Not found / No link, with the reason. */
+   With Intelligence: Correct / Fixed / Linked / Not found / No link, with the reason. */
 const WI_MATCH_TEXT = {
   'Correct': 'With Intelligence profile checked: the link opens this organisation.',
   'Fixed': 'With Intelligence link corrected.',
+  'Linked': 'With Intelligence profile found by name and linked.',
   'Not found': 'With Intelligence profile not found. The old link was removed.',
   'No link': 'No With Intelligence profile linked.'
 };
