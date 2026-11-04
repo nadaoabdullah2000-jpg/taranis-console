@@ -1175,8 +1175,7 @@ function geoText(m) {
   return city || 'not stated';
 }
 function emergingText(m) {
-  return m.open_to_emerging_managers === true ? 'Yes'
-       : m.open_to_emerging_managers === false ? 'No' : 'not stated';
+  return EMERGING_LABEL[emergingOf(m)];
 }
 function contextLines(m) {
   return [['Geography', geoText(m)], ['Emerging managers', emergingText(m)]];
@@ -1962,10 +1961,18 @@ function dedupeInvestors(rows) {
 // applied to the rows already filtered for display. Each tab remembers its own
 // choice in this browser; nothing is written to the database.
 const LIST_SORTS = [
-  ['best',   'Best match first'],
-  ['latest', 'Latest first'],
-  ['ticket', 'Biggest ticket first'],
-  ['unread', 'Unread first']
+  ['best',       'Score: best match first'],
+  ['score_asc',  'Score: lowest first'],
+  ['latest',     'Date: newest first'],
+  ['oldest',     'Date: oldest first'],
+  ['ticket',     'Ticket: biggest first'],
+  ['ticket_asc', 'Ticket: smallest first'],
+  ['aum',        'AUM: largest first'],
+  ['aum_asc',    'AUM: smallest first'],
+  ['name',       'Name: A–Z'],
+  ['name_desc',  'Name: Z–A'],
+  ['country',    'Country: A–Z'],
+  ['unread',     'Unread first']
 ];
 const SORT_KEY = 'taranis.listSort';
 let listSort = {};
@@ -1976,28 +1983,75 @@ function setSortMode(tab, mode) {
   try { localStorage.setItem(SORT_KEY, JSON.stringify(listSort)); } catch (_) {}
 }
 
+// Every sort key is a number or a string, or null when the row has no value.
+// Numbers are compared as numbers ("9" before "10"), dates as times and names
+// as text, ignoring case and accents. Empty values go to the bottom in both
+// directions.
 const numOrNull = (v) => {
-  if (v === null || v === undefined || v === '') return null;
-  const n = Number(v);
+  if (v === null || v === undefined || v === '' || typeof v === 'boolean') return null;
+  const n = typeof v === 'number' ? v : Number(String(v).replace(/[,\s]/g, ''));
   return isFinite(n) ? n : null;
 };
-const sortFit = (m) => { const a = numOrNull(m && m.new_fit_score); return a !== null ? a : numOrNull(m && m.fit_score); };
+// The score the card shows: the DB re-score once a verdict is set (no score
+// there means none, not the intake's old fit_score), the old score otherwise.
+const sortFit = (m) => {
+  if (!m) return null;
+  if (m.new_qualification) return numOrNull(m.new_fit_score);
+  return numOrNull(m.fit_score);
+};
 const sortTicket = (m) => {
   const hi = numOrNull(m && m.ticket_max_usd);
   if (hi !== null && hi > 0) return hi;
   const lo = numOrNull(m && m.ticket_min_usd);
   return lo !== null && lo > 0 ? lo : null;
 };
-const sortDate = (m) => (m && m.alert_date) ? String(m.alert_date) : null;
-const descNullsLast = (a, b) => a === b ? 0 : a === null ? 1 : b === null ? -1 : (a > b ? -1 : 1);
+const sortAum = (m) => { const a = numOrNull(m && m.aum_usd); return a !== null && a > 0 ? a : null; };
+const timeOf = (v) => { if (!v) return null; const t = Date.parse(String(v)); return isFinite(t) ? t : null; };
+// An investor's card folds several alerts: its date is the newest of them.
+const sortDate = (m) => {
+  if (!m) return null;
+  let best = timeOf(m.alert_date) ?? timeOf(m.created_at);
+  for (const x of (Array.isArray(m._intentions) ? m._intentions : [])) {
+    const t = timeOf(x && x.alert_date) ?? timeOf(x && x.created_at);
+    if (t !== null && (best === null || t > best)) best = t;
+  }
+  return best;
+};
+const sortText = (v) => { const s = String(v == null ? '' : v).trim(); return s ? s : null; };
+const sortName = (m) => sortText(m && (m.investor_name || m.organization_name));
+const sortCountry = (m) => { const c = sortText(m && m.investor_country); return c ? (OPPS_COUNTRY_NAMES[c.toUpperCase()] || c) : null; };
+const TEXT_ORDER = (typeof Intl !== 'undefined' && Intl.Collator)
+  ? new Intl.Collator('en', { sensitivity: 'base', numeric: true }).compare
+  : (a, b) => a.toLowerCase() < b.toLowerCase() ? -1 : a.toLowerCase() > b.toLowerCase() ? 1 : 0;
+const keyCmp = (a, b) => typeof a === 'string' ? TEXT_ORDER(a, b) : (a < b ? -1 : a > b ? 1 : 0);
+// dir 1 = ascending, -1 = descending; null always last.
+const orderBy = (key, dir) => (x, y) => {
+  const a = key(x), b = key(y);
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return dir * keyCmp(a, b);
+};
 
 function sortMandates(rows, mode) {
   const byId = (x, y) => (Number(y && y.id) || 0) - (Number(x && x.id) || 0);
-  const best = (x, y) => descNullsLast(sortFit(x), sortFit(y)) || byId(x, y);
-  const cmp = mode === 'latest' ? (x, y) => descNullsLast(sortDate(x), sortDate(y)) || byId(x, y)
-            : mode === 'ticket' ? (x, y) => descNullsLast(sortTicket(x), sortTicket(y)) || best(x, y)
-            : mode === 'unread' ? (x, y) => ((x && x.seen_at) ? 1 : 0) - ((y && y.seen_at) ? 1 : 0) || best(x, y)
-            : best;
+  const then = (...cs) => (x, y) => { for (const c of cs) { const r = c(x, y); if (r) return r; } return 0; };
+  const best = then(orderBy(sortFit, -1), byId);
+  const byName = orderBy(sortName, 1);
+  const cmp = {
+    best:       best,
+    score_asc:  then(orderBy(sortFit, 1), byName, byId),
+    latest:     then(orderBy(sortDate, -1), byId),
+    oldest:     then(orderBy(sortDate, 1), byId),
+    ticket:     then(orderBy(sortTicket, -1), best),
+    ticket_asc: then(orderBy(sortTicket, 1), best),
+    aum:        then(orderBy(sortAum, -1), best),
+    aum_asc:    then(orderBy(sortAum, 1), best),
+    name:       then(byName, byId),
+    name_desc:  then(orderBy(sortName, -1), byId),
+    country:    then(orderBy(sortCountry, 1), byName, byId),
+    unread:     then((x, y) => ((x && x.seen_at) ? 1 : 0) - ((y && y.seen_at) ? 1 : 0), best)
+  }[mode] || best;
   return (rows || []).slice().sort(cmp);
 }
 
@@ -3679,7 +3733,8 @@ RENDER.inbox = function (body) {
 
 let oppsView = 'all';
 let oppsMode = 'review';
-let oppsFilters = { q: '', country: '', type: '', strategy: '', asset: '', tmin: '' };
+const NO_FILTERS = () => ({ q: '', country: '', type: '', strategy: '', asset: '', tmin: '', emerging: '' });
+let oppsFilters = NO_FILTERS();
 let oppsFilterOpen = true;
 
 const OPPS_COUNTRY_NAMES = { GB: 'United Kingdom', US: 'United States', CH: 'Switzerland',
@@ -3696,8 +3751,30 @@ function assetMatches(list, key) {
   return list.some(a => a.includes(key));
 }
 
-function oppsPasses(m, skip) {
-  const F = oppsFilters;
+// Does the investor invest in emerging managers? Read from With Intelligence's
+// profile (open_to_emerging_managers): Yes when any of the investor's rows says
+// so, No when a row says no and none says yes, Unknown when the profile is
+// silent. Never guessed.
+function emergingOf(m) {
+  if (!m) return 'unknown';
+  const all = [m].concat(Array.isArray(m._intentions) ? m._intentions : []);
+  if (all.some(x => x && x.open_to_emerging_managers === true)) return 'yes';
+  if (all.some(x => x && x.open_to_emerging_managers === false)) return 'no';
+  return 'unknown';
+}
+const EMERGING_LABEL = { yes: 'Yes', no: 'No', unknown: 'Unknown' };
+
+const STRATEGY_OPTS = [['', 'Any strategy'], ['equity_long_short', 'Equity long/short'],
+  ['macro', 'Macro'], ['cta', 'CTA / managed futures'], ['market_neutral', 'Market neutral'],
+  ['quant', 'Quant / systematic'], ['multi_strategy', 'Multi-strategy'], ['event', 'Event driven'],
+  ['__tech', 'Technology']];
+const ASSET_OPTS = [['', 'Any asset class'], ['hedge', 'Hedge funds'], ['equit', 'Equities'],
+  ['credit', 'Credit'], ['private', 'Private markets'], ['real', 'Real assets'],
+  ['multi', 'Multi-asset']];
+const EMERGING_OPTS = [['', 'All'], ['yes', 'Yes'], ['no', 'No'], ['unknown', 'Unknown (profile silent)']];
+
+function oppsPasses(m, skip) { return listPasses(m, oppsFilters, skip); }
+function listPasses(m, F, skip) {
   const jarr = (v) => {
     let x = v;
     for (let i = 0; i < 2 && typeof x === 'string'; i++) { try { x = JSON.parse(x); } catch (_) { x = []; } }
@@ -3713,6 +3790,7 @@ function oppsPasses(m, skip) {
   if (skip !== 'strategy' && F.strategy === '__tech' && !techOf(m)) return false;
   if (skip !== 'strategy' && F.strategy && F.strategy !== '__tech' && !jarr(m.strategies).some(s => s.includes(F.strategy))) return false;
   if (skip !== 'asset'    && F.asset && !assetMatches(jarr(m.asset_classes), F.asset)) return false;
+  if (skip !== 'emerging' && F.emerging && emergingOf(m) !== F.emerging) return false;
   if (skip !== 'tmin'     && F.tmin) {
     const t = Number(m.ticket_max_usd || m.ticket_min_usd || 0);
     if (!(t >= Number(F.tmin))) return false;
@@ -3772,11 +3850,11 @@ async function fullMandate(m) {
 // and the nav badge both count this list, so the badge always equals Matched +
 // Waiting.
 async function openOpportunities(read) {
-  const main = await read(VERDICT_OPEN, 1000);
+  const main = await read(VERDICT_OPEN, 5000);
   let reclaimed = [];
   const rejectedKeys = new Set();
   try {
-    const rejList = (await read(VERDICT_REJECTED, 500)) || [];
+    const rejList = (await read(VERDICT_REJECTED, 5000)) || [];
     reclaimed = rejList.filter(reclaimedOpportunity);
     for (const m of rejList) {
       if (effectivelyRejected(m) && entityRejected(m)) {
@@ -3810,8 +3888,8 @@ async function openOpportunityCount() {
   if (OPPS_LOADING) return (await OPPS_LOADING).length;
   if (OPPS_ROWS && Date.now() - OPPS_AT < 60000) return OPPS_ROWS.length;
   const rows = await openOpportunities(async (verdict, limit) => {
-    const q = (sel, extra) => supaSelect('wi_mandates',
-      'select=' + sel + '&' + verdict + extra + '&order=id.desc&limit=' + limit);
+    const q = (sel, extra) => readAllRows('wi_mandates',
+      'select=' + sel + '&' + verdict + extra + '&order=id.desc', 'wi.mandates.list', {}, limit);
     const [scored, unscored] = await Promise.all([
       q(OPPS_COUNT_COLS, '&new_qualification=not.is.null'),
       q(MANDATE_LIST_COLS, '&new_qualification=is.null')
@@ -3830,8 +3908,8 @@ let OPPS_ROWS = null, OPPS_AT = 0, OPPS_LOADING = null, oppsReuse = false;
 function loadOpportunities() {
   if (OPPS_LOADING) return OPPS_LOADING;
   OPPS_LOADING = openOpportunities(
-    (verdict, limit) => readRows('wi_mandates',
-      'select=' + MANDATE_LIST_COLS + '&' + verdict + '&order=id.desc&limit=' + limit, 'wi.mandates.list', { limit: limit })
+    (verdict, limit) => readAllRows('wi_mandates',
+      'select=' + MANDATE_LIST_COLS + '&' + verdict + '&order=id.desc', 'wi.mandates.list', { limit: limit }, limit)
   ).then(rows => { OPPS_ROWS = rows; OPPS_AT = Date.now(); return rows; })
    .finally(() => { OPPS_LOADING = null; });
   return OPPS_LOADING;
@@ -3897,7 +3975,7 @@ RENDER.opps = function (body) {
       bigBtn('review',  'Waiting for decision', nReview,  'signal'));
 
     const F = oppsFilters;
-    const anyFilter = !!(F.q || F.country || F.type || F.strategy || F.asset || F.tmin);
+    const anyFilter = !!(F.q || F.country || F.type || F.strategy || F.asset || F.tmin || F.emerging);
     const toggle = el('button', { class: 'btn btn-sm btn-quiet',
       onclick: () => { oppsFilterOpen = !oppsFilterOpen; redrawOpps(); } },
       (oppsFilterOpen ? '\u25BE ' : '\u25B8 ') + 'Filters' + (anyFilter ? '  \u00B7  on' : ''));
@@ -3960,13 +4038,11 @@ RENDER.opps = function (body) {
           v.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()) + '  (' + n + ')'));
       }
 
-      const fStrat = sel([['', 'Any strategy'], ['equity_long_short', 'Equity long/short'],
-        ['macro', 'Macro'], ['cta', 'CTA / managed futures'], ['market_neutral', 'Market neutral'],
-        ['quant', 'Quant / systematic'], ['multi_strategy', 'Multi-strategy'], ['event', 'Event driven'],
-        ['__tech', 'Technology']]);
-      const fAsset = sel([['', 'Any asset class'], ['hedge', 'Hedge funds'], ['equit', 'Equities'],
-        ['credit', 'Credit'], ['private', 'Private markets'], ['real', 'Real assets'],
-        ['multi', 'Multi-asset']]);
+      const fStrat = sel(STRATEGY_OPTS);
+      const fAsset = sel(ASSET_OPTS);
+      const emBase = all.filter(m => inMode(m) && oppsPasses(m, 'emerging'));
+      const fEm = sel(EMERGING_OPTS.map(([v, l]) =>
+        [v, l + '  (' + (v ? emBase.filter(m => emergingOf(m) === v).length : emBase.length) + ')']));
       const fTick = sel([['', 'Any ticket'], ['100000', 'USD 100k and up'],
         ['1000000', 'USD 1m and up'], ['5000000', 'USD 5m and up'], ['10000000', 'USD 10m and up']]);
       const fQ = el('input', { class: 'search', type: 'search',
@@ -3976,11 +4052,11 @@ RENDER.opps = function (body) {
         mk('Search', fQ, 'q'),
         el('div', { class: 'grid2' }, mk('Geography', fGeo, 'country'), mk('Investor type', fType, 'type')),
         el('div', { class: 'grid2' }, mk('Strategy', fStrat, 'strategy'), mk('Asset class', fAsset, 'asset')),
-        mk('Minimum ticket', fTick, 'tmin'));
+        el('div', { class: 'grid2' }, mk('Minimum ticket', fTick, 'tmin'), mk('Invests in emerging managers', fEm, 'emerging')));
 
       const clearBtn = el('button', { class: 'btn btn-sm btn-quiet', style: 'margin-top:10px' }, 'Clear filters');
       clearBtn.addEventListener('click', () => {
-        oppsFilters = { q: '', country: '', type: '', strategy: '', asset: '', tmin: '' };
+        oppsFilters = NO_FILTERS();
         redrawOpps();
       });
       panel.appendChild(clearBtn);
@@ -4001,7 +4077,7 @@ RENDER.opps = function (body) {
     }
 
     sortBar.appendChild(sortControl('opps', () => redrawOpps(),
-      'Sorts the ' + all.length + ' loaded \u2014 the newest 1,000 live mandates, not the whole table'));
+      'Sorts all ' + all.length + ' investors in Opportunities, after the filters'));
     const rows = sortMandates(scoped.filter(m => inView(m, oppsView)), sortModeOf('opps'));
     if (!rows.length) {
       return list.appendChild(all.length
@@ -4338,6 +4414,7 @@ function verdictActions(m, after) {
   return acts;
 }
 
+let rejFilters = NO_FILTERS();
 RENDER.rejected = function (body) {
   clear(body);
 
@@ -4346,6 +4423,27 @@ RENDER.rejected = function (body) {
   const find = el('input', { class: 'search', type: 'search',
     placeholder: 'Name, firm, country or reason\u2026' });
   find.addEventListener('input', () => { clearTimeout(find._t); find._t = setTimeout(paint, 250); });
+
+  // Strategy, asset class and emerging managers, the same filters as
+  // Opportunities, applied with the chips, the search and the sort.
+  const rejSel = (key, opts, label) => {
+    const s = el('select', { class: 'search', 'aria-label': label });
+    for (const [v, l] of opts) s.appendChild(el('option', { value: v }, l));
+    s.value = rejFilters[key] || '';
+    s.addEventListener('change', () => { rejFilters[key] = s.value; paintChips(); paint(); });
+    return el('label', { class: 'field', style: 'flex:1 1 200px;min-width:180px;margin:0' }, el('span', null, label), s);
+  };
+  const rejEm = rejSel('emerging', EMERGING_OPTS, 'Invests in emerging managers');
+  const rejFilterRow = el('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;margin:12px 0 4px;align-items:flex-end' },
+    rejSel('strategy', STRATEGY_OPTS, 'Strategy'),
+    rejSel('asset', ASSET_OPTS, 'Asset class'),
+    rejEm,
+    el('button', { class: 'btn btn-sm btn-quiet', onclick: () => {
+      rejFilters = NO_FILTERS();
+      for (const s of rejFilterRow.querySelectorAll('select')) s.value = '';
+      paintChips(); paint();
+    } }, 'Clear filters'));
+  const rejPasses = (m, skip) => listPasses(m, rejFilters, skip);
 
   const CHIPS = [
     ['all',       'Everything',            'x'],
@@ -4382,20 +4480,32 @@ RENDER.rejected = function (body) {
         // Rows are folded to one card per investor after they are picked, as
         // paint() does, so the counts are the cards each filter shows.
         const mand = all.filter(m => !notMandate(m) && effectivelyRejected(m));
-        const n = k === 'news' ? dedupeInvestors(all.filter(notMandate)).length
-                : k === 'all'  ? dedupeInvestors(mand).length
-                : dedupeInvestors(mand.filter(m => passes(m, k))).length;
+        const kept = (rows) => dedupeInvestors(rows).filter(m => rejPasses(m)).length;
+        const n = k === 'news' ? kept(all.filter(notMandate))
+                : k === 'all'  ? kept(mand)
+                : kept(mand.filter(m => passes(m, k)));
         b.textContent = lbl + '  ' + n;
         b.style.opacity = n ? '' : '.45';
       } else {
         b.textContent = lbl;
       }
     }
+    if (all) {
+      // The emerging-managers counts under the other filters and the chip.
+      const picked = tone === 'news' ? all.filter(notMandate)
+        : all.filter(m => !notMandate(m) && effectivelyRejected(m) && passes(m, tone));
+      const base = dedupeInvestors(picked).filter(m => rejPasses(m, 'emerging'));
+      const s = rejEm.querySelector('select');
+      for (const o of s.options) {
+        const lbl = (EMERGING_OPTS.find(([v]) => v === o.value) || [, ''])[1];
+        o.textContent = lbl + '  (' + (o.value ? base.filter(m => emergingOf(m) === o.value).length : base.length) + ')';
+      }
+    }
   }
 
   const sortBar = sortControl('rejected', () => paint(),
-    'Sorts every rejected mandate (up to 5,000)');
-  body.append(el('div', { class: 'toolbar' }, find), chips, sortBar, out);
+    'Sorts every rejected investor, after the filters');
+  body.append(el('div', { class: 'toolbar' }, find), rejFilterRow, chips, sortBar, out);
   paintChips();
 
   const reasons = (m) => {
@@ -4469,7 +4579,7 @@ RENDER.rejected = function (body) {
     const picked = (tone === 'news') ? all.filter(notMandate)
                                      : all.filter(m => !notMandate(m) && effectivelyRejected(m));
     const pool = dedupeInvestors(picked);
-    let rows = dedupeInvestors(picked.filter(m => passes(m, tone)));
+    let rows = dedupeInvestors(picked.filter(m => passes(m, tone))).filter(m => rejPasses(m));
 
     if (q) {
       rows = rows.filter(m => [m.investor_name, m.organization_name, m.investor_country,
