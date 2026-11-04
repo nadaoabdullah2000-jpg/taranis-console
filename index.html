@@ -254,17 +254,21 @@ main{
 .ev div{margin-bottom:1px}
 .ev .k{color:var(--ink-3)}
 .ev .gold{color:var(--signal);font-weight:700}
-.ev .k{font-weight:600;color:var(--ink-3)}
+.ev .k{font-weight:600;color:var(--ink-3);display:inline-block;min-width:150px;margin-right:12px;vertical-align:top}
+@media (max-width:560px){.ev .k{min-width:0;display:block;margin:6px 0 0}}
+/* Labels that used to be set in capitals: sentence case, first letter up. */
+.tag{display:inline-block}.tag::first-letter,.callout-k::first-letter,.vcard-tag::first-letter{text-transform:uppercase}
+[style*="--lbl"]::first-letter{text-transform:uppercase}
 /* The raw record from With Intelligence. Its labels carry the deep ink so
    they read as a field list rather than as more prose. */
-.rec-head{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink);
+.rec-head{font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink);
   font-weight:600;margin:28px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--rule)}
 .ev.rec{border-left:0;padding-left:0}
 .ev.rec .k{color:var(--ink);font-weight:700;opacity:1}
 .ev.rec>div{color:var(--ink);line-height:1.75}
 .callout{display:flex;gap:10px;align-items:baseline;margin:9px 0 4px;padding:9px 13px;
   border:1px solid var(--rule);border-left-width:3px;border-radius:5px;background:var(--card)}
-.callout-k{font-family:var(--font-body);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+.callout-k{font-family:var(--font-body);font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;
   color:var(--ink-3);white-space:nowrap}
 .callout-v{font-size:14.5px;font-weight:600;line-height:1.45}
 .callout.signal{border-left-color:var(--signal);background:var(--signal-soft)}
@@ -276,7 +280,7 @@ main{
 .entry.bad .ev .k{color:var(--bad);opacity:.8}
 .entry.bad .ev{border-left-color:var(--bad)}
 .acts{display:flex;gap:6px;margin-top:11px;flex-wrap:wrap}
-.tag{font-family:var(--font-body);font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:3px;background:var(--rule-2);color:var(--ink-2);font-weight:500}
+.tag{font-family:var(--font-body);font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;padding:2px 7px;border-radius:3px;background:var(--rule-2);color:var(--ink-2);font-weight:500}
 .tag.good{background:var(--good-soft);color:var(--good)}
 .tag.signal{background:var(--signal-soft);color:var(--signal)}
 .tag.bad{background:var(--bad-soft);color:var(--bad)}
@@ -291,7 +295,7 @@ main{
 #ask-wrap{display:flex;flex-direction:column;height:100%}
 #ask-log{flex:1;overflow-y:auto;padding:20px 28px 34px}
 .msg{max-width:78ch;margin-bottom:18px}
-.msg .from{font-family:var(--font-body);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:5px}
+.msg .from{font-family:var(--font-body);font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3);margin-bottom:5px}
 .msg.me{margin-left:auto}
 .msg.me .bub{background:var(--accent-soft);border-color:transparent}
 .bub{background:var(--card);border:1px solid var(--rule);border-radius:8px;padding:13px 15px;white-space:pre-wrap;word-wrap:break-word;font-size:14.5px;line-height:1.6}
@@ -387,10 +391,10 @@ main{
 .vgroup-body{padding:4px 0 20px}
 .vcard-x{margin-top:14px;display:flex;flex-direction:column;gap:10px}
 .vcard-tags{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
-.vcard-tag{font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;color:var(--accent);background:var(--accent-soft);border-radius:999px;padding:3px 9px}
+.vcard-tag{font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;font-weight:600;color:var(--accent);background:var(--accent-soft);border-radius:999px;padding:3px 9px}
 .vcard-who{font-size:12px;color:var(--ink-3)}
 .vcard-q{margin:0;padding:10px 12px;border-left:2px solid var(--rule);background:rgba(0,161,196,.04);border-radius:0 8px 8px 0;font-size:12.5px;line-height:1.5;color:var(--ink-2)}
-.vcard-q>span{display:block;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px}
+.vcard-q>span{display:block;font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3);margin-bottom:3px}
 .vcard-kvs{display:flex;flex-direction:column;gap:3px;font-size:12.5px;line-height:1.45}
 .vcard-kv span{color:var(--ink-3);margin-right:8px}.vcard-kv b{font-weight:500;color:var(--ink-2)}
 .picked{display:flex;align-items:center;gap:10px;background:var(--accent-soft);border-radius:7px;padding:9px 13px;margin-top:10px;font-size:13.5px}

@@ -73,7 +73,7 @@ function ensureCardStyle() {
   + ".entry .acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}"
   + ".entry .acts:has(.tag){margin:0 0 12px}"
   + ".entry .acts:has(.btn){margin:14px 0 0}"
-  + ".entry .acts .tag{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;padding:3px 9px;border-radius:999px;background:rgba(0,168,208,.10);color:#0a6f8a;border:0}"
+  + ".entry .acts .tag{font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;padding:3px 9px;border-radius:999px;background:rgba(0,168,208,.10);color:#0a6f8a;border:0}"
   + ".entry .acts .tag.signal{background:rgba(216,162,39,.16);color:#946200}"
   + ".entry .acts .tag.bad{background:#FBEAE5;color:#C1402A}"
   + ".entry .acts .tag.good{background:#E7F6EE;color:#147A50}"
@@ -103,7 +103,7 @@ function ensureEntrySkin() {
   + "#pg-body .entry:hover{box-shadow:0 2px 4px rgba(16,35,58,.05),0 18px 40px rgba(0,120,160,.09)}"
   + "#pg-body .entry .entry-rail{position:absolute;top:14px;right:16px;left:auto;width:auto;min-width:0;padding:0}"
   + "#pg-body .entry .entry-rail .dot{display:none}"
-  + "#pg-body .entry .entry-rail .rail-n{opacity:.32;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase}"
+  + "#pg-body .entry .entry-rail .rail-n{opacity:.32;font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1}"
   + "#pg-body .entry .entry-act{font-size:16.5px;font-weight:500;color:var(--ink,#10233A);margin:0 0 2px;line-height:1.28}"
   + "#pg-body .entry .entry-who{font-size:12.5px;color:var(--ink-3,#7A8EA0);margin:0 0 2px}"
   + "#pg-body .entry .ev{margin-top:13px;display:flex;flex-direction:column;gap:7px}"
@@ -111,7 +111,7 @@ function ensureEntrySkin() {
   + "#pg-body .entry .ev .k{color:var(--ink-3,#7A8EA0);display:inline-block;min-width:78px}"
   + "#pg-body .entry .callout{border-radius:10px;padding:13px 16px}"
   + "#pg-body .entry .acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px}"
-  + "#pg-body .entry .tag{border-radius:999px;padding:3px 10px;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;font-weight:600}"
+  + "#pg-body .entry .tag{border-radius:999px;padding:3px 10px;font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;font-weight:600}"
   + "#pg-body .entry .btn{border-radius:9px;padding:9px 15px;font-weight:500;letter-spacing:.01em}";
   document.head.appendChild(s);
 }
@@ -224,7 +224,7 @@ function scoreText(v) {
   if (v === null || v === undefined || v === '') return '';
   const n = Number(v);
   if (!isFinite(n)) return String(v);
-  return parseFloat(n.toFixed(2)) + ' / 1';
+  return (n * 100).toFixed(1) + '%';
 }
 
 /* ---- full legal names ---- */
@@ -269,7 +269,7 @@ function resolvedInvestor(m) {
 }
 
 function investorLabel(m) {
-  return resolvedInvestor(m).name || ('Mandate #' + (m && m.id));
+  return resolvedInvestor(m).name || 'Unnamed investor';
 }
 
 function orgLabel(m) {
@@ -309,9 +309,9 @@ function scoreChip(v, m) {
         + 'gap:14px;padding:0 0 7px;border-bottom:1px solid var(--rule)' },
         el('span', null, ''),
         el('span', { class: 'mono', style: 'font-size:10px;letter-spacing:.14em;'
-          + 'text-transform:uppercase;color:var(--ink-3)' }, a),
+          + 'text-transform:none;--lbl:1;color:var(--ink-3)' }, a),
         el('span', { class: 'mono', style: 'font-size:10px;letter-spacing:.14em;'
-          + 'text-transform:uppercase;color:var(--ink-3)' }, bb));
+          + 'text-transform:none;--lbl:1;color:var(--ink-3)' }, bb));
       box.appendChild(head('What Taranis needs', 'What this investor is'));
 
       for (const row of taranisScorecard(m)) {
@@ -343,7 +343,7 @@ function scoreChip(v, m) {
     }
 
     box.appendChild(el('p', { class: 'mono', style: 'font-size:10px;letter-spacing:.14em;'
-      + 'text-transform:uppercase;color:var(--ink-3);margin:22px 0 8px' }, 'What the number means'));
+      + 'text-transform:none;--lbl:1;color:var(--ink-3);margin:22px 0 8px' }, 'What the number means'));
     for (const [k, d] of [
       ['Matched',       '0.75 and up. Long/short equity or quant stated.'],
       ['Review',        '0.30 to 0.74. Technology interest, strategy not stated. A person decides.'],
@@ -362,16 +362,125 @@ function scoreChip(v, m) {
   return b;
 }
 
+// ---- How values read on screen. Presentation only: nothing here changes data.
+// Money as $35M, $2.4bn or $500K; whole dollars below a thousand.
 function money(v) {
   if (v === null || v === undefined || v === '') return '';
   const n = Number(String(v).replace(/[^0-9.-]/g, ''));
   if (!isFinite(n) || n === 0) return String(v);
-  const grouped = Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  const short = n >= 1e9 ? (n / 1e9).toFixed(n % 1e9 ? 1 : 0) + 'bn'
-              : n >= 1e6 ? (n / 1e6).toFixed(n % 1e6 ? 1 : 0) + 'm'
-              : n >= 1e3 ? Math.round(n / 1e3) + 'k'
-              : '';
-  return 'USD ' + grouped + (short ? '   (' + short + ')' : '');
+  const a = Math.abs(n), sign = n < 0 ? '-' : '';
+  const one = (x) => { const s = x.toFixed(1); return s.endsWith('.0') ? s.slice(0, -2) : s; };
+  if (a >= 1e9) return sign + '$' + one(a / 1e9) + 'bn';
+  if (a >= 1e6) return sign + '$' + one(a / 1e6) + 'M';
+  if (a >= 1e3) return sign + '$' + one(a / 1e3) + 'K';
+  return sign + '$' + Math.round(a);
+}
+// A 0..1 share as a percentage with one decimal: 0.65 -> 65.0%.
+function pct(v) {
+  if (v === null || v === undefined || v === '') return '';
+  const n = Number(v);
+  return isFinite(n) ? (n * 100).toFixed(1) + '%' : '';
+}
+// A country code as its English name (US -> United States).
+const REGION_NAMES = (typeof Intl !== 'undefined' && Intl.DisplayNames)
+  ? (() => { try { return new Intl.DisplayNames(['en'], { type: 'region' }); } catch (_) { return null; } })() : null;
+function countryName(c) {
+  const s = String(c == null ? '' : c).trim();
+  if (!s) return '';
+  const up = s.toUpperCase();
+  if (up === 'UK') return 'United Kingdom';
+  if (/^[A-Z]{2}$/.test(up) && REGION_NAMES) { try { const n = REGION_NAMES.of(up); if (n && n !== up) return n; } catch (_) {} }
+  return s;
+}
+// WI's tags and types as words: "equity_long_short" -> "Equity long/short",
+// "public pension fund" -> "Public pension fund".
+const TAG_WORDS = { 'equity long short': 'Equity long/short', 'long short': 'Long/short', cta: 'CTA',
+  'em macro': 'EM macro', fohf: 'Fund of hedge funds', hf: 'Hedge funds', arp: 'Alternative risk premia',
+  clo: 'CLO', rmbs: 'RMBS', cmbs: 'CMBS', esg: 'ESG', 'pre ipo': 'Pre-IPO', it: 'IT', 'us': 'US' };
+function tagLabel(t) {
+  let s = cleanText(String(t == null ? '' : t)).replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!s || /^(null|undefined|n\/?a|unknown|unspecified|none)$/i.test(s)) return '';
+  const k = s.toLowerCase().replace(/-/g, ' ');
+  if (TAG_WORDS[k]) return TAG_WORDS[k];
+  // Keep acronyms and names as written; lower-case shouting.
+  if (s === s.toUpperCase() && s.length > 4) s = s.toLowerCase();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+function tagList(v) {
+  const seen = {}, out = [];
+  for (const x of jsonArr(v)) {
+    const t = tagLabel(x && typeof x === 'object' ? (x.name || x.label || x.value) : x);
+    if (t && !seen[t.toLowerCase()]) { seen[t.toLowerCase()] = 1; out.push(t); }
+  }
+  return out.join(', ');
+}
+const typeLabel = (t) => tagLabel(t);
+// The record's fields in plain words.
+const FIELD_LABELS = {
+  investor_name: 'Investor', organization_name: 'Organisation', contact_name: 'Contact person',
+  investor_country: 'Country', investor_city: 'City', investor_type: 'Investor type',
+  asset_classes: 'Asset classes', strategies: 'Strategies', ticket_min_usd: 'Minimum ticket',
+  ticket_max_usd: 'Maximum ticket', ticket_currency: 'Ticket currency', aum_usd: 'Assets under management',
+  aum_band: 'AUM range', open_to_emerging_managers: 'Invests in emerging managers',
+  emerging_managers: 'Invests in emerging managers', open_to_new_relationships: 'Open to new relationships',
+  open_to_emerging_markets: 'Invests in emerging markets', emerging_markets: 'Invests in emerging markets',
+  allocation_timing: 'Timing', intention_summary: 'Summary', requirements_raw: 'Looking for',
+  appetite_raw: 'Appetite', hard_fail_reasons: 'Why it was turned away', missing_hard_fields: 'Not stated yet',
+  fit_score: 'Fit score at intake', new_fit_score: 'Fit score', fit_reason: 'Note at intake',
+  positive_signals: 'Signals', risks: 'Risks', missing_information: 'Missing information',
+  recommended_next_action: 'Suggested next step', investor_tag: 'Filed by With Intelligence as',
+  alert_type: 'Alert type', alert_date: 'Alert date', published_at: 'Published', approved_at: 'Approved',
+  approved_by: 'Approved by', seen_at: 'Read', seen_by: 'Read by', commercial_status: 'Commercial status',
+  compliance_status: 'Compliance status', intake_stage: 'Intake stage', required_documents: 'Documents required',
+  documents_received: 'Documents received', compliance_checks: 'Compliance checks',
+  compliance_reviewer: 'Compliance reviewer', compliance_approved_by: 'Compliance approved by',
+  compliance_approval_date: 'Compliance approved on', excluded_reason: 'Excluded because',
+  excluded_at: 'Excluded on', source_kind: 'Source', source_subject: 'Source email',
+  source_page: 'Page in the report', wi_enriched_at: 'Profile read from With Intelligence',
+  is_tech_investor: 'Technology investor', tech_signal: 'Technology note', ticket: 'Ticket', location: 'Location',
+  strategy: 'Strategy', investor_type_: 'Investor type', validated_by: 'Confirmed by', validated_at: 'Confirmed on',
+  verdict_set_by: 'Decision by', verdict_set_at: 'Decision on', rescored_at: 'Scored on',
+  published_via: 'Published via', entity_class: 'Kind of firm', cleanup_notes: 'Notes'
+};
+function fieldLabel(k) {
+  const key = String(k || '').trim();
+  return FIELD_LABELS[key] || tagLabel(key);
+}
+// A stored reason as a sentence a person would write.
+function humanReason(s) {
+  let t = cleanText(String(s == null ? '' : s)).trim();
+  if (!t || /^hard criteria failure$/i.test(t)) return '';
+  t = t.replace(/\bWI\b/g, 'With Intelligence')
+       .replace(/Asset class excludes hedge funds:\s*(.+)$/i, (m0, x) => 'Invests in ' + tagList(x.split(/\s*,\s*/)).toLowerCase() + ', not hedge funds')
+       .replace(/No eligible strategy:\s*(.+)$/i, (m0, x) => 'No eligible strategy (' + tagList(x.split(/\s*,\s*/)).toLowerCase() + ')')
+       .replace(/Ticket below USD 100k floor/i, 'Ticket below the $100K minimum')
+       .replace(/\s+-\s+/g, ': ')
+       .replace(/\(With Intelligence filed it under ([^)]+)\)/i, '— With Intelligence filed it under “$1”')
+       .replace(/_/g, ' ');
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+// Any stored value, formatted for reading. '' when there is nothing to show.
+function displayValue(k, v) {
+  if (v === null || v === undefined || v === '') return '';
+  const key = String(k || '');
+  if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+  if (/_usd$/.test(key)) return money(v);
+  if (/fit_score/.test(key)) return pct(v);
+  if (/(_at|_date)$/.test(key)) return fmtDate(v);
+  if (key === 'investor_country') return countryName(v);
+  if (/^(strategies|asset_classes|positive_signals|risks|missing_information|required_documents|documents_received)$/.test(key)) return tagList(v);
+  if (key === 'missing_hard_fields' || key === 'intake_missing') return jsonArr(v).map(fieldLabel).filter(Boolean).join(', ');
+  if (key === 'hard_fail_reasons') return jsonArr(v).map(humanReason).filter(Boolean).join('; ');
+  if (/^(investor_type|entity_class|investor_tag|alert_type|source_kind|commercial_status|compliance_status|intake_stage)$/.test(key)) return tagLabel(v);
+  let x = v;
+  if (typeof x === 'string' && /^[\[{]/.test(x.trim())) { try { x = JSON.parse(x); } catch (_) {} }
+  if (Array.isArray(x)) return x.map(i => (i && typeof i === 'object') ? displayValue(key, i) : tagLabel(i)).filter(Boolean).join(', ');
+  if (x && typeof x === 'object') {
+    return Object.keys(x).map(kk => { const vv = displayValue(kk, x[kk]); return vv ? fieldLabel(kk) + ': ' + vv : ''; })
+      .filter(Boolean).join('; ');
+  }
+  const s = cleanText(String(x));
+  return /^(null|undefined|n\/?a|unknown|none|nan)$/i.test(s) ? '' : s;
 }
 
 const ENTITIES = {
@@ -475,7 +584,10 @@ function fmtDate(v) {
   if (!v) return '\u2014';
   const d = new Date(v);
   if (isNaN(d)) return String(v);
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  // DD/MM/YYYY. A plain date ("2026-11-03") is read as that day, not shifted by the time zone.
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v).trim());
+  if (ymd) return ymd[3] + '/' + ymd[2] + '/' + ymd[1];
+  return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear();
 }
 function daysSince(v) {
   if (!v) return null;
@@ -1027,7 +1139,7 @@ function buildNav() {
     if (t.archived || t.hidden) continue;
     if (t.group && t.group !== openGroup) {
       list.appendChild(el('p', { class: 'mono',
-        style: 'font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;'
+        style: 'font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;'
              + 'color:var(--ink-3);margin:20px 0 6px;padding-left:12px' },
         GROUPS[t.group]));
       openGroup = t.group;
@@ -1170,8 +1282,9 @@ const GEO_NAMES = { GB: 'United Kingdom', UK: 'United Kingdom', CH: 'Switzerland
 function geoText(m) {
   const city = String(m.investor_city || '').trim();
   const c = String(m.investor_country || '').trim();
-  if (city && c) return city + ', ' + c;
-  if (c) return GEO_NAMES[c.toUpperCase()] || c;
+  const name = countryName(c);
+  if (city && name) return city.toLowerCase() === name.toLowerCase() ? name : city + ', ' + name;
+  if (name) return name;
   return city || 'not stated';
 }
 function emergingText(m) {
@@ -1600,8 +1713,8 @@ function ensureMatchCss() {
   + ".mcard.signal{box-shadow:inset 3px 0 0 var(--signal),0 1px 2px rgba(16,35,58,.04)}"
   + ".mcard.bad{box-shadow:inset 3px 0 0 var(--bad),0 1px 2px rgba(16,35,58,.04)}"
   + ".mcard-h{font-family:var(--font-display);font-size:16px;font-weight:400;color:var(--ink);margin:0 0 3px;line-height:1.28}"
-  + ".mcard-sub{font-size:11.5px;color:var(--ink-3);margin-bottom:14px;letter-spacing:.03em;text-transform:uppercase}"
-  + ".mcard-score{display:flex;justify-content:space-between;align-items:baseline;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}"
+  + ".mcard-sub{font-size:11.5px;color:var(--ink-3);margin-bottom:14px;letter-spacing:.01em;text-transform:none;--lbl:1}"
+  + ".mcard-score{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3);margin-bottom:8px}"
   + ".mcard-score b{font-family:var(--font-display);font-size:15px;color:var(--ink-2)}"
   + ".mcard-seg{display:flex;gap:4px;margin-bottom:15px}"
   + ".mcard-seg .seg{height:8px;flex:1;border-radius:3px;background:var(--rule-2,#E9EFF3)}"
@@ -1613,18 +1726,18 @@ function ensureMatchCss() {
   + ".mcard-c .mk.yes{background:rgba(30,158,99,.14);color:var(--good)}"
   + ".mcard-c .mk.no{background:rgba(198,64,43,.12);color:var(--bad)}"
   + ".mcard-c .mk.unk{background:rgba(90,110,130,.14);color:var(--ink-3)}"
-  + ".mcard-unk{margin-left:auto;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);background:var(--rule-2,#E9EFF3);padding:1px 7px;border-radius:10px;flex:none}"
+  + ".mcard-unk{margin-left:auto;font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3);background:var(--rule-2,#E9EFF3);padding:1px 7px;border-radius:10px;flex:none}"
   + ".mcard .acts{display:flex;gap:8px;flex-wrap:wrap}"
   + ".mcard-reason{margin-top:13px;padding:10px 12px;border-radius:8px;font-size:12.5px;line-height:1.45;background:rgba(198,64,43,.07);border:1px solid rgba(198,64,43,.18)}"
   + ".mcard-reason.signal{background:rgba(200,144,0,.08);border-color:rgba(200,144,0,.25)}"
-  + ".mcard-reason-k{display:block;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px}"
+  + ".mcard-reason-k{display:block;font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3);margin-bottom:3px}"
   + ".mcard-reason-v{color:var(--ink-2)}"
   + ".mcard-ints{margin-top:13px;border-top:1px solid var(--rule);padding-top:11px}"
-  + ".mcard-ints-h{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}"
+  + ".mcard-ints-h{font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3);margin-bottom:8px}"
   + ".mcard-int{display:block;font-size:12.5px;color:var(--ink-2);padding:7px 0 7px 11px;border-left:2px solid var(--rule-2,#E9EFF3)}"
   + ".mcard-int.mcard-int-matched{border-left-color:var(--good)}.mcard-int.mcard-int-rejected{border-left-color:var(--bad)}.mcard-int.mcard-int-uncertain{border-left-color:var(--signal)}"
   + ".mcard-int-top{display:flex;justify-content:space-between;gap:10px;margin-bottom:2px}"
-  + ".mcard-int-d{font-size:10.5px;letter-spacing:.03em;text-transform:uppercase;color:var(--ink-3)}"
+  + ".mcard-int-d{font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3)}"
   + ".mcard-int-t{font-variant-numeric:tabular-nums;color:var(--ink-3);font-size:11.5px;white-space:nowrap}"
   + ".mcard-int-s{display:block;line-height:1.5;overflow-wrap:break-word;word-break:normal}";
   document.head.appendChild(s);
@@ -1648,10 +1761,11 @@ function critMeter(m) {
   const crit  = critOf(m);
   const score = crit.filter(Boolean).length;
   const q     = bandOf(m);
-  const qLabel = (q === 'rejected') ? 'RECLAIMED' : (BAND_LABEL[q] || q.replace(/_/g, ' ')).toUpperCase();
+  const ql = (q === 'rejected') ? 'reclaimed' : (BAND_LABEL[q] || q.replace(/_/g, ' '));
+  const qLabel = ql.charAt(0).toUpperCase() + ql.slice(1);
   const seg = el('div', { class: 'mcard-seg' });
   for (let i = 0; i < crit.length; i++) seg.appendChild(el('div', { class: 'seg' + (i < score ? ' on' : '') }));
-  return [el('div', { class: 'mcard-score' }, el('span', null, qLabel), el('b', null, score + '/' + crit.length)), seg];
+  return [el('div', { class: 'mcard-score' }, el('span', null, qLabel), el('b', null, score + ' of ' + crit.length + ' criteria met')), seg];
 }
 // The three criteria, each met (\u2713), not stated (?) or contradicted (\u2717).
 function critRows(m) {
@@ -1665,7 +1779,7 @@ function critRows(m) {
     const cls  = st === 'yes' ? 'yes' : st === 'unknown' ? 'unk' : 'no';
     const row  = el('div', { class: 'mcard-c' },
       el('span', { class: 'mk ' + cls }, mark), el('span', null, name));
-    if (st === 'unknown') row.appendChild(el('span', { class: 'mcard-unk' }, 'unknown'));
+    if (st === 'unknown') row.appendChild(el('span', { class: 'mcard-unk' }, 'Not stated'));
     cr.appendChild(row);
   });
   return cr;
@@ -1683,7 +1797,9 @@ function matchCard(m, opts) {
   const card = el('div', { class: 'mcard ' + tone });
   card.appendChild(el('h4', { class: 'mcard-h' }, investorLabel(m)));
   card.appendChild(el('div', { class: 'mcard-sub' },
-    [m.investor_country, m.aum_band].filter(Boolean).join('  \u00B7  ') || '\u00A0'));
+    [typeLabel(m.investor_type), countryName(m.investor_country),
+     numOrNull(m.aum_usd) > 0 ? 'AUM ' + money(m.aum_usd) : (m.aum_band ? 'AUM ' + cleanText(m.aum_band) : '')]
+      .filter(Boolean).join('  \u00B7  ') || '\u00A0'));
 
   const rejected = rej0;
   if (rejected) {
@@ -1691,15 +1807,15 @@ function matchCard(m, opts) {
     if (!fails.length) fails = [isNotMandate(m) ? 'Not an investor mandate' : 'Rejected'];
     const n = fails.length;
     card.appendChild(el('div', { class: 'mcard-score' },
-      el('span', { style: 'color:var(--bad)' }, 'REJECTED'),
+      el('span', { style: 'color:var(--bad)' }, 'Rejected'),
       el('b', { style: 'color:var(--bad);font-family:var(--font-body);font-weight:600;font-size:12.5px;letter-spacing:.01em;text-transform:none' },
-        isNotMandate(m) ? 'not an investor mandate'
-          : n + (n === 1 ? ' criterion contradicts Taranis' : ' criteria contradict Taranis'))));
+        isNotMandate(m) ? 'Not an investor mandate'
+          : (n === 1 ? 'Fails one Taranis criterion' : 'Fails ' + n + ' Taranis criteria'))));
     const seg = el('div', { class: 'mcard-seg' });
     for (let i = 0; i < n; i++) seg.appendChild(el('div', { class: 'seg miss' }));
     card.appendChild(seg);
     const cr = el('div', { class: 'mcard-crit' });
-    fails.forEach((name) => cr.appendChild(el('div', { class: 'mcard-c' },
+    fails.map(humanReason).filter(Boolean).forEach((name) => cr.appendChild(el('div', { class: 'mcard-c' },
       el('span', { class: 'mk no' }, '\u2717'), el('span', null, name))));
     contextRows(cr, m);
     card.appendChild(cr);
@@ -1732,7 +1848,7 @@ function matchCard(m, opts) {
     }
     if (ints.length > 1) {
       const box = el('div', { class: 'mcard-ints' });
-      box.appendChild(el('div', { class: 'mcard-ints-h' }, 'Intentions (' + ints.length + ')'));
+      box.appendChild(el('div', { class: 'mcard-ints-h' }, ints.length + ' intentions'));
       for (const row of ints.slice(0, 10)) {
         const it = row.it;
         let sum = row.sum;
@@ -1742,7 +1858,7 @@ function matchCard(m, opts) {
         const line = el('div', { class: 'mcard-int mcard-int-' + String(it.qualification || 'uncertain'),
           style: 'cursor:pointer', title: 'Open this intention' },
           el('div', { class: 'mcard-int-top' }, dt, tk),
-          el('div', { class: 'mcard-int-s' }, sum || '(no summary)'));
+          el('div', { class: 'mcard-int-s' }, sum || '\u2013'));
         line.addEventListener('click', (ev) => { ev.stopPropagation(); openMandate(it); });
         box.appendChild(line);
       }
@@ -1907,7 +2023,7 @@ function ensureTodayCss() {
   + ".drop-t{display:flex;flex-direction:column;min-width:0;flex:1}"
   + ".drop-name{font-family:var(--font-display);font-size:15px;font-weight:400;color:var(--ink);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}"
   + ".drop-co{font-size:12px;color:var(--ink-3);margin-top:2px;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}"
-  + ".drop-when{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3);flex:none}"
+  + ".drop-when{font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3);flex:none}"
   + ".drop-chev{flex:none;color:var(--ink-3);font-size:19px;line-height:1;transform:rotate(90deg)}"
   + ".drop.open .drop-chev{transform:rotate(270deg);color:var(--sky,#00A8D0)}"
   + ".drop-p{max-height:0;overflow:hidden;padding:0 18px 0 36px}"
@@ -2063,7 +2179,7 @@ function sortControl(tab, onChange, scope) {
   s.value = sortModeOf(tab);
   s.addEventListener('change', () => { setSortMode(tab, s.value); onChange(s.value); });
   return el('div', { class: 'toolbar', style: 'margin-bottom:12px' },
-    el('span', { class: 'mono', style: 'font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)' }, 'Sort'),
+    el('span', { class: 'mono', style: 'font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3)' }, 'Sort'),
     s,
     scope ? el('span', { class: 'mono', style: 'font-size:11.5px;color:var(--ink-3)' }, scope) : null);
 }
@@ -2090,7 +2206,8 @@ function entry(o) {
     } else {
       node = document.createTextNode(String(v));
     }
-    ev.appendChild(el('div', null, el('span', { class: 'k' }, k + '  '), node));
+    const kl = String(k).trim();
+    ev.appendChild(el('div', null, el('span', { class: 'k' }, kl.charAt(0).toUpperCase() + kl.slice(1)), node));
   }
 
   const call = o.callout
@@ -2414,7 +2531,7 @@ RENDER.intake = function (body) {
         rail: '#' + m.id,
         action: investorLabel(m),
         who: [orgLabel(m), m.investor_country, m.investor_city].filter(Boolean).join('  \u00B7  '),
-        callout: g.join(', ').replace(/_/g, ' '),
+        callout: g.map(fieldLabel).join(', '),
         calloutLabel: g.length === 1 ? 'One field missing' : g.length + ' fields missing',
         calloutTone: 'signal',
         record: m,
@@ -2422,8 +2539,8 @@ RENDER.intake = function (body) {
           ['score     ', scoreText(m.new_fit_score)],
           ['published ', m.published_at ? fmtDate(m.published_at) : null],
           ['ticket    ', money(m.ticket_min_usd)],
-          ['strategy  ', asText(m.strategies)],
-          ['WI filed as', asText(m.investor_tag)]
+          ['strategy  ', tagList(m.strategies)],
+          ['WI filed as', tagLabel(m.investor_tag)]
         ],
         tags: [['published', 'good'], [g.length + (g.length === 1 ? ' gap' : ' gaps'), 'signal']],
         actions: [
@@ -2469,7 +2586,7 @@ RENDER.intake = function (body) {
 
       if (view !== 'all' && view !== 'unread') {
         list.appendChild(el('p', { class: 'mono',
-          style: 'font-size:10px;letter-spacing:.12em;text-transform:uppercase;'
+          style: 'font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;'
                + 'color:var(--ink-3);margin:24px 0 9px' },
           (cleanText(e.subject) || 'No subject') + '  \u00B7  ' + count));
       } else {
@@ -2507,10 +2624,10 @@ RENDER.intake = function (body) {
           who: asText(m.intention_summary),
           record: m,
           evidence: [
-            ['WI filed as', asText(m.investor_tag)],
+            ['WI filed as', tagLabel(m.investor_tag)],
             ['country    ', asText(m.investor_country)],
-            ['type       ', asText(m.investor_type)],
-            ['strategy   ', asText(m.strategies)],
+            ['type       ', tagLabel(m.investor_type)],
+            ['strategy   ', tagList(m.strategies)],
             ['ticket     ', money(m.ticket_min_usd)],
             ['score      ', scoreText(m.new_fit_score)]
           ],
@@ -2628,7 +2745,7 @@ RENDER.approvals = function (body) {
           record: r,
           evidence: [
             ['country  ', asText(r.investor_country)],
-            ['type     ', asText(r.investor_type)],
+            ['type     ', tagLabel(r.investor_type)],
             ['ticket   ', money(r.ticket_min_usd)],
             ['score    ', scoreText(r.new_fit_score)],
             ['approved ', r.approved_at ? fmtDate(r.approved_at) : null],
@@ -2680,7 +2797,7 @@ function tcReqEditor(r) {
 
   const heading = (t, note) => el('div', { style: 'margin:22px 0 8px' },
     el('p', { class: 'mono', style: 'font-size:10px;letter-spacing:.14em;'
-      + 'text-transform:uppercase;color:var(--ink-3);margin:0' }, t),
+      + 'text-transform:none;--lbl:1;color:var(--ink-3);margin:0' }, t),
     note ? el('p', { style: 'font-size:12.5px;color:var(--ink-3);margin:4px 0 0' }, note) : null);
 
   const docList = el('div');
@@ -2823,7 +2940,7 @@ function toolSheet(r) {
     + 'recorded under "Record a decision", which is also what the database requires.');
 
   inner.append(
-    el('p', { class: 'mono', style: 'font-size:10px;letter-spacing:.14em;text-transform:uppercase;'
+    el('p', { class: 'mono', style: 'font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;'
       + 'color:var(--ink-3);margin:22px 0 8px' }, 'Where it stands'),
     el('div', { class: 'grid2' }, tcRow('Status', stat), tcRow('Reviewer', rev)),
     gate,
@@ -2912,7 +3029,7 @@ function decisionSheet(r) {
 
   if (reviewed.length) {
     inner.append(
-      el('p', { class: 'mono', style: 'font-size:10px;letter-spacing:.14em;text-transform:uppercase;'
+      el('p', { class: 'mono', style: 'font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;'
         + 'color:var(--ink-3);margin:20px 0 8px' }, 'What you are confirming you reviewed'),
       el('div', { class: 'ev' }, ...reviewed.map(x => el('div', null,
         el('span', { class: 'k' }, (x.kind === 'check' ? 'check    ' : 'document ')),
@@ -2974,7 +3091,7 @@ function historySheet(r) {
   }, (d) => {
     if (d.revs.length) {
       host.appendChild(el('p', { class: 'mono', style: 'font-size:10px;letter-spacing:.14em;'
-        + 'text-transform:uppercase;color:var(--ink-3);margin:0 0 8px' }, 'Decisions'));
+        + 'text-transform:none;--lbl:1;color:var(--ink-3);margin:0 0 8px' }, 'Decisions'));
       for (const v of d.revs) {
         host.appendChild(entry({
           tone: v.decision === 'approved' ? 'good' : v.decision === 'rejected' ? 'bad' : 'signal',
@@ -2990,7 +3107,7 @@ function historySheet(r) {
       }
     }
     host.appendChild(el('p', { class: 'mono', style: 'font-size:10px;letter-spacing:.14em;'
-      + 'text-transform:uppercase;color:var(--ink-3);margin:22px 0 8px' }, 'Changes'));
+      + 'text-transform:none;--lbl:1;color:var(--ink-3);margin:22px 0 8px' }, 'Changes'));
     if (!d.log.length) {
       return host.appendChild(empty('Nothing recorded', 'Changes appear here as they are made.'));
     }
@@ -3370,7 +3487,7 @@ RENDER.email = function (body) {
       + '&status=eq.pending_approval&order=created_at.desc&limit=25'), (rows) => {
       if (!rows.length) return;
       drafts.appendChild(el('p', { class: 'mono',
-        style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:22px 0 8px' },
+        style: 'color:var(--ink-3);font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;margin:22px 0 8px' },
         rows.length === 1 ? 'One draft waiting' : rows.length + ' drafts waiting'));
       for (const d of rows) {
         drafts.appendChild(entry({
@@ -3482,7 +3599,7 @@ RENDER.email = function (body) {
   const list = el('div');
   body.append(
     el('p', { class: 'mono',
-      style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:26px 0 8px' },
+      style: 'color:var(--ink-3);font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;margin:26px 0 8px' },
       'Who to write to'),
     el('div', { class: 'toolbar' }, find, addToggle),
     addForm, sideChips, list);
@@ -4551,7 +4668,7 @@ RENDER.rejected = function (body) {
   const chips = el('div');
   const btns = {};
   const groupLabel = (t) => el('p', { class: 'mono',
-    style: 'font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:10px 0 5px' }, t);
+    style: 'font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3);margin:10px 0 5px' }, t);
 
   const rowX = el('div', { class: 'chips' });
   const rowR = el('div', { class: 'chips' });
@@ -5134,7 +5251,7 @@ RENDER.meetings = function (body) {
     let draftBox = null;
     if (message) {
       issued.appendChild(el('p', { style: 'margin:18px 0 6px;font-size:11px;letter-spacing:.14em;'
-        + 'text-transform:uppercase;color:var(--ink-3)' },
+        + 'text-transform:none;--lbl:1;color:var(--ink-3)' },
         invited ? 'Sent to ' + invited : 'The invitation \u2014 edit it, then send or copy'));
       draftBox = el('textarea', { style: 'width:100%;min-height:220px;padding:13px 15px;'
         + 'font:inherit;font-size:13.5px;line-height:1.6;border:1px solid var(--rule);'
@@ -6034,7 +6151,7 @@ RENDER.hfn = function (body) {
     });
 
     const heading = (t) => el('p', { class: 'mono',
-      style: 'font-size:10px;letter-spacing:.14em;text-transform:uppercase;'
+      style: 'font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;'
            + 'color:var(--ink-3);margin:20px 0 8px' }, t);
     const bullets = (arr) => {
       const d = el('div', { class: 'ev' });
@@ -6253,11 +6370,11 @@ const RPT_CSS = `
 .rpt-kpis{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin:2px 0 6px}
 .rpt-kpi{padding:15px 15px 13px;border-left:1px solid var(--rule)}
 .rpt-kpi:first-child{border-left:0}
-.rpt-kpi .l{font-size:9.5px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-3)}
+.rpt-kpi .l{font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3)}
 .rpt-kpi .v{font-size:26px;font-weight:600;color:var(--ink);line-height:1.05;margin-top:8px;letter-spacing:.01em}
 .rpt-kpi .d{font-size:11px;margin-top:5px;color:var(--ink-3)}
 .rpt-kpi .d.up{color:var(--good)} .rpt-kpi .d.down{color:var(--bad)}
-.rpt-h{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);margin:28px 0 12px;display:flex;align-items:center;gap:12px}
+.rpt-h{font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3);margin:28px 0 12px;display:flex;align-items:center;gap:12px}
 .rpt-h::after{content:"";flex:1;height:1px;background:var(--rule)}
 .rpt-funnel{display:flex;flex-direction:column;gap:9px}
 .rpt-stage{display:flex;align-items:center;gap:13px}
@@ -6269,7 +6386,7 @@ const RPT_CSS = `
 .rpt-bar .t{background:rgba(0,161,196,.10);border-radius:5px;height:18px;overflow:hidden}
 .rpt-bar .f{height:100%;border-radius:5px}
 .rpt-bar .n{font-size:12.5px;color:var(--ink);text-align:right;font-weight:600}
-.rpt-tag{font-size:9px;letter-spacing:.07em;text-transform:uppercase;padding:2px 6px;border-radius:4px;background:rgba(0,161,196,.14);color:var(--accent);margin-left:6px}
+.rpt-tag{font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;padding:2px 6px;border-radius:4px;background:rgba(0,161,196,.14);color:var(--accent);margin-left:6px}
 .rpt-rows{border-top:1px solid var(--rule)}
 .rpt-row{display:flex;justify-content:space-between;gap:16px;padding:10px 2px;border-bottom:1px solid var(--rule);font-size:13px}
 .rpt-row .k{color:var(--ink-3)} .rpt-row .v{color:var(--ink);font-weight:500}
@@ -6278,7 +6395,7 @@ const RPT_CSS = `
 .rpt-oc:nth-child(3n){border-right:0}
 .rpt-oc h4{margin:0 0 3px;font-size:15px;font-weight:500;color:var(--ink);line-height:1.28}
 .rpt-oc .sub{font-size:11.5px;color:var(--ink-3);margin-bottom:13px}
-.rpt-oc .sc{display:flex;justify-content:space-between;align-items:baseline;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:7px}
+.rpt-oc .sc{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3);margin-bottom:7px}
 .rpt-oc .sc b{font-size:14px;color:var(--accent)}
 .rpt-oc .seg{display:flex;gap:4px;margin-bottom:14px}
 .rpt-oc .seg i{height:8px;flex:1;border-radius:3px;background:rgba(0,168,208,.14)}
@@ -6345,7 +6462,7 @@ function renderOpenOpps(host) {
           el('span', { class: 'mk ' + cls, style: st === 'unknown' ? 'background:rgba(90,110,130,.14);color:var(--ink-3)' : '' }, mark),
           el('span', null, name));
         if (st === 'unknown') row.appendChild(el('span', {
-          style: 'margin-left:auto;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)' }, 'unknown'));
+          style: 'margin-left:auto;font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3)' }, 'unknown'));
         cr.appendChild(row);
       });
       for (const [k, v] of contextLines(m)) {
@@ -6963,9 +7080,9 @@ RENDER.find = function (body) {
                .filter(Boolean).join('  \u00B7  '),
         record: m,
         evidence: [
-          ['type    ', asText(m.investor_type)],
-          ['strategy', asText(m.strategies)],
-          ['asset   ', asText(m.asset_classes)],
+          ['type    ', tagLabel(m.investor_type)],
+          ['strategy', tagList(m.strategies)],
+          ['asset   ', tagList(m.asset_classes)],
           ['ticket  ', money(m.ticket_max_usd || m.ticket_min_usd)]
         ],
         tags: [[BAND_LABEL[q] || q.replace(/_/g, ' '), tone]]
@@ -7045,7 +7162,7 @@ function ensureSearchCss() {
   + ".srch-opt .kd{font-size:11px;color:var(--ink-3);white-space:nowrap}"
   + ".srch-status{font-size:12.5px;color:var(--ink-3);margin:8px 2px 0;min-height:1.2em}"
   + ".srch-h{font-family:var(--font-display);font-size:22px;font-weight:400;margin:22px 0 4px;color:var(--ink)}"
-  + ".srch-sec{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:22px 0 8px}"
+  + ".srch-sec{font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3);margin:22px 0 8px}"
   + ".srch-none{font-size:13px;color:var(--ink-3);margin:0}";
   document.head.appendChild(s);
 }
@@ -7491,7 +7608,7 @@ function invitationSheet(m) {
   area.value = original;
 
   const head = el('div', { style: 'margin-bottom:10px' },
-    el('div', { style: 'font-size:11px;letter-spacing:.14em;text-transform:uppercase;'
+    el('div', { style: 'font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;'
       + 'color:var(--ink-3);margin-bottom:3px' }, 'Subject'),
     el('div', { style: 'font-size:15px;font-weight:600' }, subject));
 
@@ -7566,7 +7683,7 @@ function attachmentBlock(m) {
   }
   const wrap = el('div', { style: 'margin-top:12px' },
     el('p', { class: 'mono',
-      style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:0 0 6px' },
+      style: 'color:var(--ink-3);font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;margin:0 0 6px' },
       list.length === 1 ? 'One attachment' : list.length + ' attachments'));
   for (const f of list) {
     const kb = f.bytes ? (f.bytes > 1048576
@@ -7690,7 +7807,7 @@ async function localDossier(host, person) {
   }
 
   host.appendChild(el('p', { class: 'mono',
-    style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:16px 0 6px' },
+    style: 'color:var(--ink-3);font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;margin:16px 0 6px' },
     'Every exchange on record'));
 
   for (const m of mail) {
@@ -7734,8 +7851,9 @@ function investorView(full, m) {
     el('span', { style: 'color:var(--ink-3)' }, label + ' \u2014 '), text) : null;
 
   // Who they are: the summary the alert gives, then what stands out.
-  const who = [asText(full.investor_type), geoText(full) !== 'not stated' ? geoText(full) : '',
-    full.aum_band ? 'AUM ' + asText(full.aum_band) : ''].filter(Boolean).join('  \u00B7  ');
+  const who = [typeLabel(full.investor_type), geoText(full) !== 'not stated' ? geoText(full) : '',
+    numOrNull(full.aum_usd) > 0 ? 'AUM ' + money(full.aum_usd) : (full.aum_band ? 'AUM ' + cleanText(full.aum_band) : '')]
+    .filter(Boolean).join('  \u00B7  ');
   const summary = asText(full.intention_summary);
   let ev = full.evidence;
   for (let i = 0; i < 2 && typeof ev === 'string'; i++) { try { ev = JSON.parse(ev); } catch (_) { ev = {}; } }
@@ -7744,7 +7862,7 @@ function investorView(full, m) {
   box.appendChild(section('Summary',
     who ? para(who, true) : null,
     summary ? para(summary) : para('The alert gave no summary.', true),
-    profile && profile !== summary ? para('WI profile: ' + profile, true) : null));
+    profile && profile !== summary ? para('With Intelligence profile: ' + profile, true) : null));
 
   // Intentions: every distinct intention when the investor has several,
   // otherwise what this one asks for.
@@ -7759,14 +7877,14 @@ function investorView(full, m) {
     line('Timing', asText(full.allocation_timing))].filter(Boolean);
   box.appendChild(section('Intentions',
     ints.length > 1
-      ? list(ints.map(([d, t, tk]) => [d, t, tk ? 'ticket ' + tk : ''].filter(Boolean).join('  \u00B7  ')))
+      ? list(ints.map(([d, t, tk]) => [d, t, tk ? 'Ticket ' + tk : ''].filter(Boolean).join('  \u00B7  ')))
       : (detail.length ? el('div', null, ...detail) : para('Only the summary above was stated.', true))));
 
   // Contact person.
   const emails = jsonArr(full.emails).map(String).filter(Boolean);
   const links = jsonArr(full.linkedin_urls).map(String).filter(Boolean);
   box.appendChild(section('Contact person',
-    para(asText(full.contact_name) || 'not stated', !asText(full.contact_name)),
+    para(asText(full.contact_name) || 'No contact named in the alert.', !asText(full.contact_name)),
     emails.length ? line('Email', emails.join(', ')) : null,
     links.length ? line('LinkedIn', links.join(', ')) : null));
   return box;
@@ -7884,7 +8002,7 @@ async function openMandate(m) {
       if (!t) return null;
       return el('div', { style: 'margin-bottom:' + (big ? '14px' : '11px') },
         el('div', { class: 'mono',
-          style: 'font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px' },
+          style: 'font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3);margin-bottom:3px' },
           label),
         el('div', { style: 'font-size:' + (big ? '16px' : '14.5px')
           + ';font-weight:' + (big ? '600' : '500') + ';line-height:1.5' }, t));
@@ -7903,29 +8021,33 @@ async function openMandate(m) {
             + ' as the investor. That firm receives allocations rather than making them, '
             + 'so the organisation is shown as the investor instead.')
         : null,
-      field('Where', [full.investor_city, full.investor_country].filter(Boolean).join(', '), true),
-      field('Type', full.investor_type),
-      field('Strategies', full.strategies)
+      field('Location', geoText(full) !== 'not stated' ? geoText(full) : '\u2013', true),
+      field('Investor type', typeLabel(full.investor_type) || '\u2013'),
+      field('Strategies', tagList(full.strategies) || '\u2013'),
+      field('Asset classes', tagList(full.asset_classes) || '\u2013'),
+      field('Assets under management', numOrNull(full.aum_usd) > 0 ? money(full.aum_usd) : (cleanText(full.aum_band || '') || '\u2013')),
+      field('Invests in emerging managers', EMERGING_LABEL[emergingOf(full)])
     ].filter(Boolean));
     c2.append(...[
-      field('Minimum ticket', money(full.ticket_min_usd), true),
+      field('Minimum ticket', money(full.ticket_min_usd) || '\u2013', true),
+      numOrNull(full.ticket_max_usd) > 0 ? field('Maximum ticket', money(full.ticket_max_usd)) : null,
       el('div', { style: 'margin-bottom:14px' },
-        el('div', { style: 'font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;'
+        el('div', { style: 'font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;'
           + 'color:var(--ink-3);margin-bottom:3px' }, 'Fit score'),
         el('div', { style: 'font-size:16px;font-weight:600;line-height:1.5' },
           scoreChip(matchScore(full), full))),
       el('div', { style: 'margin-bottom:14px' }, qualificationControl(full, (to) => routeAfterQualification(full, to))),
       field('Approved', full.approved_at
         ? (fmtDate(full.approved_at) + (full.approved_by ? '  by ' + full.approved_by : ''))
-        : 'not approved yet'),
-      field('Not stated', full.missing_hard_fields),
-      field('Hard failures', full.hard_fail_reasons),
-      field('Published', full.published_at ? fmtDate(full.published_at) : 'not published')
+        : 'Not approved yet'),
+      field('Not stated yet', displayValue('missing_hard_fields', full.missing_hard_fields)),
+      field('Why it was turned away', displayValue('hard_fail_reasons', full.hard_fail_reasons)),
+      field('Published', full.published_at ? fmtDate(full.published_at) : 'Not published')
     ].filter(Boolean));
     host.appendChild(grid);
 
     const shown = ['id','investor_name','organization_name','investor_city','investor_country',
-      'investor_type','strategies','ticket_min_usd','fit_score','fit_reason','qualification',
+      'investor_type','strategies','asset_classes','aum_usd','open_to_emerging_managers','ticket_max_usd','ticket_min_usd','fit_score','fit_reason','qualification',
       'missing_hard_fields','hard_fail_reasons','published_at','linkedin_url',
       'approved_at','approved_by','source_page',
       'view_article_url','view_intention_url','view_investor_url',
@@ -7937,11 +8059,15 @@ async function openMandate(m) {
 
     const HIDE = ['record_key','raw_email_id','source_message_id','block_index',
       'source_email_date','created_at','updated_at','field_sources','soft_flags',
-      'hard_notes','content_hash','embedding'].concat(HIDDEN_FIELDS);
+      'hard_notes','content_hash','embedding',
+      // bookkeeping and the scoring machinery: not for reading
+      'raw_block','evidence','hard_status','matched','contact_id','source_links','source_report_id',
+      'dupe_of_id','cleanup_status','qualification_old','fit_score_old','new_qualification',
+      'validation_status','verdict_source','name_reparsed_at','_intentions'].concat(HIDDEN_FIELDS);
     const prov = fillProvenance(full);
     if (prov.length) {
       host.appendChild(el('p', { class: 'mono',
-        style: 'font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);'
+        style: 'font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3);'
              + 'margin:28px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--rule)' },
         'Filled in by hand'));
       const ev = el('div', { class: 'ev' });
@@ -7950,14 +8076,14 @@ async function openMandate(m) {
     }
 
     const rest = Object.keys(full).filter(k =>
-      shown.indexOf(k) < 0 && HIDE.indexOf(k) < 0 && asText(full[k]));
+      shown.indexOf(k) < 0 && HIDE.indexOf(k) < 0 && k.charAt(0) !== '_' && displayValue(k, full[k]));
     if (rest.length) {
-      host.appendChild(el('p', { class: 'mono rec-head' }, 'Everything else on the record'));
+      host.appendChild(el('p', { class: 'rec-head' }, 'Other details'));
       const ev = el('div', { class: 'ev rec' });
       for (const k of rest) {
-        ev.appendChild(el('div', null,
-          el('span', { class: 'k' }, k.replace(/_/g, ' ').padEnd(20, ' ') + '  '),
-          asText(full[k]).slice(0, 400)));
+        let v = displayValue(k, full[k]);
+        if (v.length > 400) v = v.slice(0, 398) + '\u2026';
+        ev.appendChild(el('div', null, el('span', { class: 'k' }, fieldLabel(k)), v));
       }
       host.appendChild(ev);
     }
@@ -8199,13 +8325,13 @@ async function openProfile(c) {
       if (!t) return null;
       return el('div', { style: 'margin-bottom:' + (big ? '14px' : '11px') },
         el('div', { class: 'mono',
-          style: 'font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px' },
+          style: 'font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3);margin-bottom:3px' },
           label),
         el('div', { style: 'font-size:' + (big ? '16px' : '14.5px')
           + ';font-weight:' + (big ? '600' : '500') + ';line-height:1.5' }, t));
     };
     const head = (t) => el('p', { class: 'mono',
-      style: 'font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);'
+      style: 'font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3);'
            + 'margin:28px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--rule)' }, t);
 
     const dq = daysSince(c.last_contact_at || c.last_interaction);
@@ -8494,7 +8620,7 @@ async function answerTechWaiting(host) {
     return;
   }
   host.appendChild(el('p', { class: 'mono',
-    style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:0 0 6px' },
+    style: 'color:var(--ink-3);font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;margin:0 0 6px' },
     rows.length + ' waiting on a decision \u00B7 technology angle, no long/short stated'));
   for (const x of rows) {
     host.appendChild(entry({
@@ -8540,12 +8666,12 @@ async function answerLocally(host, question) {
     }
     if (!m.length) { host.appendChild(el('p', null, 'Nothing is waiting on a decision.')); return; }
     host.appendChild(el('p', { class: 'mono',
-      style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:0 0 6px' },
+      style: 'color:var(--ink-3);font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;margin:0 0 6px' },
       m.length + ' waiting on a decision'));
     for (const x of m) {
       host.appendChild(entry({
-        tone: 'signal', rail: scoreText(x.new_fit_score).replace(' / 1', ''),
-        action: x.investor_name || x.organization_name || ('Mandate #' + x.id),
+        tone: 'signal', rail: scoreText(x.new_fit_score),
+        action: x.investor_name || x.organization_name || 'Unnamed investor',
         who: [x.organization_name, asText(x.investor_country), asText(x.investor_type)].filter(Boolean).join('  \u00B7  '),
         evidence: [['why  ', verdictReason(x)]],
         actions: [
@@ -8612,7 +8738,7 @@ async function answerLocally(host, question) {
       }
 
       host.appendChild(el('p', { class: 'mono',
-        style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:0 0 8px' },
+        style: 'color:var(--ink-3);font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;margin:0 0 8px' },
         show.length === 1
           ? (wantsLatest && total > 1 ? 'The latest one' : 'One document')
           : show.length + ' documents'));
@@ -8665,7 +8791,7 @@ async function answerLocally(host, question) {
     }
     if (people.length) {
       host.appendChild(el('p', { class: 'mono',
-        style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:0 0 8px' },
+        style: 'color:var(--ink-3);font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;margin:0 0 8px' },
         (groupLabel || (people.length + ' match \u201C' + t + '\u201D'))
         + (wantsKnown ? ', who already know us' : '')));
 
@@ -8726,7 +8852,7 @@ async function answerLocally(host, question) {
 
   if (mail.length) {
     host.appendChild(el('p', { class: 'mono',
-      style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:0 0 6px' },
+      style: 'color:var(--ink-3);font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;margin:0 0 6px' },
       'Email mentioning that'));
     for (const m of mail) {
       host.appendChild(entry({
@@ -8741,11 +8867,11 @@ async function answerLocally(host, question) {
 
   if (mandates.length) {
     host.appendChild(el('p', { class: 'mono',
-      style: 'color:var(--ink-3);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:16px 0 6px' },
+      style: 'color:var(--ink-3);font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;margin:16px 0 6px' },
       'Opportunities'));
     for (const m of mandates) {
       host.appendChild(entry({
-        tone: 'accent', rail: scoreText(m.new_fit_score).replace(' / 1', ''),
+        tone: 'accent', rail: scoreText(m.new_fit_score),
         action: investorLabel(m),
         who: [orgLabel(m), m.investor_country, m.investor_type].filter(Boolean).join('  \u00B7  '),
         evidence: [['why  ', verdictReason(m)]]
@@ -8868,7 +8994,7 @@ function fillSheetOn(m, listRow) {
   const grid = el('div', { style: 'min-width:min(720px,74vw)' });
   if (emptyCount) {
     grid.appendChild(el('p', { class: 'mono',
-      style: 'font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px' },
+      style: 'font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3);margin:0 0 8px' },
       'To update'));
   }
   grid.appendChild(gapGrid);
@@ -9095,7 +9221,7 @@ function importSheet() {
       const show = (title, names, tone) => {
         if (!names || !names.length) return;
         note.appendChild(el('p', { style: 'margin:14px 0 4px;font-size:11px;'
-          + 'letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)' }, title));
+          + 'letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3)' }, title));
         note.appendChild(el('div', { class: 'chips' },
           ...names.map(n => el('span', { class: 'tag ' + tone }, n))));
       };
@@ -9154,7 +9280,7 @@ function ensureIconnCss() {
     ".ic-map{display:grid;grid-template-columns:minmax(120px,180px) minmax(0,1fr);gap:8px 14px;align-items:center;max-width:620px;margin:14px 0}"
   + ".ic-map label{font-size:13px;color:var(--ink-2)}"
   + ".ic-map select{width:100%;box-sizing:border-box}"
-  + ".ic-sec{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:26px 0 8px}"
+  + ".ic-sec{font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3);margin:26px 0 8px}"
   + ".ic-notes{font-size:12.5px;color:var(--ink-2);line-height:1.6;margin:10px 0 0;padding-left:18px}"
   + ".ic-rn{font-size:11px;color:var(--ink-3);min-width:52px}"
   + ".ic-row{border-top:1px solid var(--rule);padding:12px 2px}"
@@ -9162,7 +9288,7 @@ function ensureIconnCss() {
   + ".ic-nm{color:var(--ink)}"
   + ".ic-wrap{overflow-x:auto;border:1px solid var(--rule);border-radius:8px;background:var(--card)}"
   + ".ic-table{width:100%;border-collapse:collapse;font-size:13.5px;min-width:720px}"
-  + ".ic-table th{text-align:left;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);font-weight:500;padding:10px 14px;border-bottom:2px solid var(--rule);white-space:nowrap}"
+  + ".ic-table th{text-align:left;font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3);font-weight:500;padding:10px 14px;border-bottom:2px solid var(--rule);white-space:nowrap}"
   + ".ic-table td{padding:10px 14px;border-bottom:1px solid var(--rule);vertical-align:top}"
   + ".ic-table td+td,.ic-table th+th{border-left:1px solid var(--rule)}"
   + ".ic-table tbody tr:last-child td{border-bottom:0}"
@@ -9183,7 +9309,7 @@ function ensureIconnCss() {
   + ".ic-fitbtn .mcard-score{margin-bottom:5px}.ic-fitbtn .mcard-seg{margin-bottom:4px}"
   + ".ic-fitbox{margin-top:8px;padding:10px 12px;border:1px solid var(--rule);border-radius:6px;background:var(--card);font-size:12.5px;line-height:1.55;color:var(--ink-2);white-space:normal}"
   + ".ic-fitbox .mcard-crit{margin:4px 0 0}"
-  + ".ic-fitk{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px}"
+  + ".ic-fitk{font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3);margin-bottom:3px}"
   + ".ic-fitnote{font-style:italic}"
   + ".ic-sub{font-size:12px;color:var(--ink-2);margin-top:4px;line-height:1.5}"
   + ".ic-flags{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:5px}"
@@ -9192,18 +9318,18 @@ function ensureIconnCss() {
   + ".ic-cand{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;margin:3px 0}"
   + ".ic-dash{color:var(--ink-3)}"
   + ".ic-score{font-variant-numeric:tabular-nums;font-weight:600;color:var(--ink)}"
-  + ".ic-meth{margin-left:8px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}"
+  + ".ic-meth{margin-left:8px;font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3)}"
   + "tr.ic-rej td{background:var(--bad-soft)}"
   + "tr.ic-rej td:first-child{box-shadow:inset 4px 0 0 var(--bad)}"
   + "tr.ic-rej .ic-nm{color:var(--bad);font-weight:600}"
   + ".ic-rej-tag{font-weight:700}"
-  + ".ic-chips{align-items:center}.ic-chipk{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin:0 2px 0 8px}"
+  + ".ic-chips{align-items:center}.ic-chipk{font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3);margin:0 2px 0 8px}"
   + "tr.ic-rev td{background:var(--signal-soft)}"
   + "tr.ic-rev td:first-child{box-shadow:inset 4px 0 0 var(--signal)}"
   + "tr.ic-none td{color:var(--ink-3)}"
   + "tr.ic-none .ic-nm{color:var(--ink-3)}"
   + ".ic-find{max-width:620px;margin:0 0 18px}"
-  + ".ic-find label{display:block;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 6px}"
+  + ".ic-find label{display:block;font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3);margin:0 0 6px}"
   + ".ic-find-row{display:flex;gap:8px}"
   + ".ic-find-row .search{flex:1;min-width:0;box-sizing:border-box}";
   document.head.appendChild(s);

@@ -9,12 +9,13 @@ import vm from 'node:vm';
 
 const src = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
 const grab = (a, b) => src.slice(src.indexOf(a), src.indexOf(b, src.indexOf(a)));
-const ctx = { el: () => ({}), htmlToText: (s) => String(s || ''), cleanText: String, session: null };
+const ctx = { Intl, el: () => ({}), htmlToText: (s) => String(s || ''), cleanText: String, session: null };
 vm.createContext(ctx);
 vm.runInContext([
   grab('const jsonArr', '\n};') + '\n};',
   grab('function scoreText', '\n}') + '\n}',
   grab('const KNOWN_MANAGERS', '\n'),
+  grab('const REGION_NAMES', '// WI\'s tags and types as words'),
   grab('const MATCH_CRITERIA', 'function ensureMatchCss'),
   'this.verdictReason = verdictReason; this.aiOpinion = aiOpinion;'
 ].join('\n'), ctx);
