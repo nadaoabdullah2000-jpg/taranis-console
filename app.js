@@ -257,7 +257,7 @@ function legalName(v) {
   return LEGAL_NAMES[s.toLowerCase().replace(/[.,]/g, '')] || s;
 }
 
-const KNOWN_MANAGERS = /(^|\b)(bridgewater|citadel|millennium management|point ?72|two sigma|renaissance technologies|d\.? ?e\.? shaw|aqr capital|man group|brevan howard|elliott management|baupost|pershing square|third point|tiger global|coatue|marshall wace|capula|winton|bluecrest|balyasny|exodus ?point|schonfeld|\bkkr\b|blackstone|apollo global|carlyle|\btpg\b|ares management|plettenberg|hippocampus)(\b|$)/i;
+const KNOWN_MANAGERS = /(^|\b)(bridgewater|citadel|millennium management|point ?72|two sigma|renaissance technologies|d\.? ?e\.? shaw|aqr capital|man group|brevan howard|elliott management|baupost|pershing square|third point|tiger global|coatue|marshall wace|capula|winton|bluecrest|balyasny|exodus ?point|schonfeld|\bkkr\b|blackstone|apollo global|carlyle|\btpg\b|ares management|plettenberg|hippocampus|mirabaud)(\b|$)/i;
 
 function resolvedInvestor(m) {
   const inv = legalName(m && m.investor_name);
