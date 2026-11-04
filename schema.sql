@@ -1884,3 +1884,14 @@ create table if not exists public.wi_fill_log (
   wi_investor_id text, filled_at timestamptz not null default now());
 alter table public.wi_profile_reads enable row level security;
 alter table public.wi_fill_log enable row level security;
+
+-- =====================================================================
+-- 4 Nov 2026 data check and the Space criterion (repair-wi-check-2026-11-04.sql)
+-- =====================================================================
+alter table public.wi_mandates add column if not exists is_space boolean, add column if not exists space_signal text;
+comment on column public.wi_mandates.is_space is 'Space theme: true / false from With Intelligence profile and alert text (see space_signal); null = no information.';
+comment on column public.wi_mandates.space_signal is 'Where is_space came from.';
+create table if not exists public.wi_space_reads (
+  wi_id text primary key, status text not null, sectors jsonb, industries jsonb, attributes jsonb, summary text,
+  read_at timestamptz not null default now());
+alter table public.wi_space_reads enable row level security;

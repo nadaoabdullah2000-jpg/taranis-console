@@ -1052,15 +1052,15 @@ function signOut() {
    in MATCH_CRITERIA / critStatus order. Geography and emerging managers follow
    as context rows. */
 const TARANIS_CRITERIA = [
-  { wants: 'Buys hedge funds \u2014 the only hard requirement',
-    no: 'Not a hedge-fund allocator, so it is rejected',
-    has: (m) => [jsonArr(m.asset_classes).join(', '), m.investor_type].filter(Boolean).join(' \u00B7 ') },
   { wants: 'Long/short equity or quant / systematic \u2014 the strongest fit',
     no: 'Another strategy is stated',
     has: (m) => jsonArr(m.strategies).join(', ').replace(/_/g, ' ') },
-  { wants: 'Technology focus \u2014 a weaker positive that keeps it in review',
+  { wants: 'Technology focus \u2014 a positive that keeps it in review',
     no: null,
-    has: () => '' }
+    has: () => '' },
+  { wants: 'Space \u2014 invests in or shows interest in the space theme',
+    no: null,
+    has: (m) => String((m && m.space_signal) || '') }
 ];
 
 function taranisScorecard(m) {
@@ -1276,7 +1276,11 @@ async function doRefresh() {
 /* EDIT 3 — criteria constants redefined to the new mandate. */
 // The three scored criteria. Geography and openness to emerging managers are
 // context (contextLines): shown on every card, never a fail, never counted.
-const MATCH_CRITERIA = ['Buys hedge funds', 'Long/short or quant', 'Technology focus'];
+// The three points scored (4 Nov 2026): buying hedge funds is no longer one of
+// them (every allocator in Opportunities does); it stays the hard rule that
+// sends an allocator whose asset classes exclude hedge funds to Rejected
+// (hedgeStatus). Space replaces it.
+const MATCH_CRITERIA = ['Long/short or quant', 'Technology focus', 'Space'];
 
 const GEO_NAMES = { GB: 'United Kingdom', UK: 'United Kingdom', CH: 'Switzerland', US: 'United States' };
 function geoText(m) {
@@ -1362,6 +1366,27 @@ function techOf(m, t) {
   if (techSetByPerson(m) && typeof m.is_tech_investor === 'boolean') return m.is_tech_investor;
   return isTech(t === undefined ? sigText(m) : t) || (m && m.is_tech_investor === true);
 }
+// Space: investing in, or interest in, the space theme. is_space is set from
+// the With Intelligence profile (its Aerospace industry, or space wording in
+// the profile) and the alert text, with space_signal saying where; true /
+// false / null (no information). The alert text alone can also say yes.
+// "Space" on its own is not enough ("office space", "in the AI space").
+const RE_SPACE = /\b(space (economy|technology|technologies|tech|sector|industry|exploration|infrastructure|companies|startups?|ventures?|investing|investments?|theme)|spacetech|new space|outer space|satellite (operators?|compan(y|ies)|communications|constellations?|launch(es)?|imagery|broadband|internet|networks?)|aerospace|orbital|launch vehicles?|space-related|space and defen[cs]e)\b/i;
+function spaceOf(m, t) {
+  if (m && typeof m.is_space === 'boolean' && m.is_space) return true;
+  return RE_SPACE.test(t === undefined ? sigText(m) : t);
+}
+function spaceStatus(m, t) {
+  if (spaceOf(m, t)) return 'yes';
+  return m && m.is_space === false ? 'no' : 'unknown';
+}
+// The hard rule: does the allocator buy hedge funds? yes / no / unknown.
+function hedgeStatus(m, t) {
+  const assets = jsonArr(m.asset_classes);
+  const u = t === undefined ? sigText(m) : t;
+  return assets.length ? (assets.some(a => RE_HEDGE.test(String(a).toLowerCase())) ? 'yes' : 'no')
+                       : (RE_HEDGE.test(u) ? 'yes' : 'unknown');
+}
 
 // Strategy tags as words: "equity_long_short" -> "equity long short", so
 // RE_STRONG can read them. A long/short or quant tag only counts when the
@@ -1413,9 +1438,9 @@ function critOf(m) {
   const t = sigText(m);
   const assets = jsonArr(m.asset_classes).map(s => String(s).toLowerCase());
   return [
-    assets.some(a => RE_HEDGE.test(a)) || RE_HEDGE.test(t),  // buys hedge funds
     isStrong(m, t),                                          // long/short or quant
-    techOf(m, t)                                             // technology
+    techOf(m, t),                                            // technology
+    spaceOf(m, t)                                            // space
   ];
 }
 
@@ -1426,10 +1451,9 @@ function critStatus(m) {
   const strats = jsonArr(m.strategies);
   const cc = String(m.investor_country || '').trim().toUpperCase().slice(0, 2);
   return [
-    assets.length ? (assets.some(a => RE_HEDGE.test(String(a).toLowerCase())) ? 'yes' : 'no')
-                  : (RE_HEDGE.test(t) ? 'yes' : 'unknown'),
     isStrong(m, t) ? 'yes' : (strats.length ? 'no' : 'unknown'),
-    techOf(m, t) ? 'yes' : (techSetByPerson(m) ? 'no' : 'unknown')
+    techOf(m, t) ? 'yes' : (techSetByPerson(m) ? 'no' : 'unknown'),
+    spaceStatus(m, t)
   ];
 }
 
@@ -1460,8 +1484,9 @@ function rejectFails(m) {
     if (!seen[k]) { seen[k] = true; out.push(s); }
   };
   const st = critStatus(m);
-  const noLabel = ['Does not buy hedge funds', 'No long/short or quant', 'No technology focus'];
-  for (let i = 0; i < st.length; i++) if (st[i] === 'no' && noLabel[i]) add(noLabel[i]);
+  if (hedgeStatus(m) === 'no') add('Does not buy hedge funds');
+  if (st[0] === 'no') add('No long/short or quant');
+  if (st[1] === 'no') add('No technology focus');
   const tmax = Number(m.ticket_max_usd || m.ticket_min_usd || 0);
   if (tmax > 0 && tmax < 100000) add('Ticket below USD 100k floor');
   let w = m.hard_fail_reasons;
@@ -1557,7 +1582,7 @@ function rescore(m) {
       || (assets.length && !RE_HEDGE.test(assets.join(' ')) && !RE_HEDGE.test(t))) {
     return { band: 'rejected', q: 'rejected', s: 0 };
   }
-  const strong = isStrong(m, t), tech = techOf(m, t);
+  const strong = isStrong(m, t), tech = techOf(m, t) || spaceOf(m, t);
   let band = strong ? (tech ? 'strong_tech' : 'strong') : tech ? 'tech' : RE_EXCL.test(t) ? 'low' : 'needs_data';
   // An allocator's hire is worth a look, never an automatic match.
   if (band.indexOf('strong') === 0 && /^people$/i.test(String(m.investor_tag || '').trim())) band = 'hire';
@@ -1656,25 +1681,26 @@ function verdictReason(m) {
     else s = 'No hedge-fund mandate found';
     return lead + s.replace(/[.\s]+$/, '') + '.';
   }
-  const st = critStatus(m);   // buys hedge funds, long/short or quant, technology
-  const strong = st[1] === 'yes', tech = st[2] === 'yes';
-  const hedge = st[0] === 'yes' ? 'buys hedge funds' : st[0] === 'no' ? 'asset class stated without hedge funds' : 'hedge-fund appetite not stated';
+  const st = critStatus(m);   // long/short or quant, technology, space
+  const hs = hedgeStatus(m, t);
+  const strong = st[0] === 'yes', tech = st[1] === 'yes', space = st[2] === 'yes';
+  const hedge = hs === 'yes' ? 'buys hedge funds' : hs === 'no' ? 'asset class stated without hedge funds' : 'hedge-fund appetite not stated';
   const strongBit = strong ? capFirst(strongTerm(m, t)) + ' stated' : '';
-  const techBit = tech ? 'technology interest' : '';
+  const techBit = [tech ? 'technology interest' : '', space ? 'space interest' : ''].filter(Boolean).join(', ');
   let s;
   if (band === 'matched') {
-    s = strong || tech ? [strongBit, techBit, st[0] === 'yes' ? hedge : ''].filter(Boolean).join(', ')
+    s = strong || tech || space ? [strongBit, techBit, hs === 'yes' ? hedge : ''].filter(Boolean).join(', ')
       : 'Matched by the re-score, though the stored fields no longer show a long/short, quant or technology signal';
   } else if (band === 'uncertain') {
     if (strong && /^people$/i.test(String(m.investor_tag || '').trim())) s = 'An allocator\u2019s hire: worth a look, never an automatic match';
-    else if (tech && !strong) s = 'Technology interest, but no long/short or quant stated: worth a look';
+    else if ((tech || space) && !strong) s = capFirst(techBit) + ', but no long/short or quant stated: worth a look';
     else s = 'Held for a person to look at: ' + [strongBit, techBit, hedge].filter(Boolean).join(', ');
   } else if (band === 'low') {
     const x = t.match(RE_EXCL);
     s = 'Only ' + (x ? x[0] : 'CTA, macro or market-neutral') + ' stated, no long/short, quant or technology signal: the wrong fit for a long-biased L/S equity fund';
   } else {
     const w = stratWords(m);
-    s = capFirst(hedge) + (st[0] === 'yes' ? ', but ' : '; ') + (w.length ? 'its strategy (' + w.slice(0, 3).join(', ') + ') is not long/short, quant or technology'
+    s = capFirst(hedge) + (hs === 'yes' ? ', but ' : '; ') + (w.length ? 'its strategy (' + w.slice(0, 3).join(', ') + ') is not long/short, quant or technology'
       : 'no strategy or technology stated') + ': needs data';
   }
   const where = geoText(m);
@@ -4019,7 +4045,7 @@ const VERDICT_REJECTED = NOT_PENDING + '&or=(new_qualification.eq.rejected,'
 const MANDATE_LIST_COLS = [
   'id', 'investor_name', 'organization_name', 'contact_name', 'investor_country', 'investor_city',
   'investor_type', 'investor_tag', 'asset_classes', 'strategies', 'ticket_min_usd', 'ticket_max_usd',
-  'aum_usd', 'aum_band', 'min_manager_aum_usd', 'open_to_emerging_managers', 'allocation_timing', 'intention_summary',
+  'aum_usd', 'aum_band', 'min_manager_aum_usd', 'open_to_emerging_managers', 'is_space', 'space_signal', 'allocation_timing', 'intention_summary',
   'requirements_raw', 'appetite_raw', 'evidence:evidence_scored', 'hard_fail_reasons',
   'missing_hard_fields', 'qualification', 'new_qualification', 'fit_score', 'new_fit_score',
   'fit_reason', 'positive_signals', 'view_intention_url', 'view_investor_url', 'view_article_url',
