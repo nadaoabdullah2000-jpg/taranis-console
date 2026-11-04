@@ -35,3 +35,24 @@ where id in (391, 392);
 --          hard_fail_reasons = '["Failed parse: no country, type or asset class"]'::jsonb,
 --          verdict_source = null, verdict_set_by = null, verdict_set_at = null where id = 392;
 --   (hard_status was not recorded before; it is display-only.)
+
+-- ---------------------------------------------------------------------
+-- Same day, also checked from the Matched list (a person's verdict each):
+--   #2509 Montgomery County (Md.) ERS (MCERP): matched 0.95 on "interested in
+--         quantitative", but the alert says it is not adding long/short
+--         equity and opportunistic allocations are paused -> Review, 0.60.
+--         (#2477, the same 27 Oct alert, stays Needs data under the card.)
+--   #1369 The Rotary Foundation of Rotary International: a profile from an
+--         investor data export (no alert, no intention), matched 0.95 on the
+--         strategies its profile lists -> Needs data until an alert says
+--         what it wants now.
+-- ---------------------------------------------------------------------
+update wi_mandates set qualification = 'uncertain', new_qualification = 'uncertain', new_fit_score = 0.6,
+  verdict_source = 'manual', verdict_set_by = 'research@taranis.net', verdict_set_at = now() where id = 2509;
+update wi_mandates set qualification = 'uncertain', new_qualification = 'needs_data', new_fit_score = null,
+  verdict_source = 'manual', verdict_set_by = 'research@taranis.net', verdict_set_at = now() where id = 1369;
+-- UNDO
+--   update wi_mandates set qualification = 'uncertain', new_qualification = 'matched', new_fit_score = 0.95,
+--          verdict_source = null, verdict_set_by = null, verdict_set_at = null where id = 2509;
+--   update wi_mandates set qualification = 'matched', new_qualification = 'matched', new_fit_score = 0.95,
+--          verdict_source = null, verdict_set_by = null, verdict_set_at = null where id = 1369;
