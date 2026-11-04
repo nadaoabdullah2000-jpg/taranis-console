@@ -41,3 +41,9 @@ update wi_mandates set investor_country = 'SI' where id = 2364;
 --          verdict_source = null, verdict_set_by = null, verdict_set_at = null where id in (1384, 1385, 261);
 --   update wi_mandates set investor_name = 'Slovenian multi' where id in (2325, 2329);
 --   update wi_mandates set investor_country = 'SL' where id = 2364;
+
+-- Country codes found while exporting (4 Nov): Korean Teachers' Credit Union
+-- was "SO" (Somalia) -> KR; KGI Life Insurance was "TA" (no such code) -> TW.
+update wi_mandates set investor_country = 'KR' where id = 2363 and investor_country = 'SO';
+update wi_mandates set investor_country = 'TW' where id = 32 and investor_country = 'TA';
+-- UNDO: set them back to 'SO' / 'TA'.
