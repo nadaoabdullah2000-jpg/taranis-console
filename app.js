@@ -421,7 +421,7 @@ const FIELD_LABELS = {
   investor_country: 'Country', investor_city: 'City', investor_type: 'Investor type',
   asset_classes: 'Asset classes', strategies: 'Strategies', ticket_min_usd: 'Minimum ticket',
   ticket_max_usd: 'Maximum ticket', ticket_currency: 'Ticket currency', aum_usd: 'Assets under management',
-  aum_band: 'AUM range', open_to_emerging_managers: 'Invests in emerging managers',
+  aum_band: 'AUM range', min_manager_aum_usd: 'Minimum manager AUM', open_to_emerging_managers: 'Invests in emerging managers',
   emerging_managers: 'Invests in emerging managers', open_to_new_relationships: 'Open to new relationships',
   open_to_emerging_markets: 'Invests in emerging markets', emerging_markets: 'Invests in emerging markets',
   allocation_timing: 'Timing', intention_summary: 'Summary', requirements_raw: 'Looking for',
@@ -3906,22 +3906,22 @@ const ASSET_GROUP = Object.fromEntries(ASSET_GROUPS.map(g => [g[0], g]));
 // Strategies: the With Intelligence strategy tags each covers (tags compared
 // with "_" and "-" read as spaces) and the asset classes it selects.
 const STRATEGY_MAP = [
-  ['equity_long_short', 'Equity long/short', /equity long.?short|^long short$|equity hedge|long bias equity|^equity$|^equity growth$/, ['hedge', 'equity', 'tech_equity']],
+  ['equity_long_short', 'Equity long/short', /equity long.?short|long.?short equity|^long.?short$|equity hedge|long bias equity|^equity$|^equity growth$|short bias|small.?micro.?cap/, ['hedge', 'equity', 'tech_equity']],
   ['market_neutral', 'Equity market neutral', /market.?neutral|statistical arbitrage/, ['hedge', 'equity']],
   ['macro', 'Macro', /macro|^directional$|^currency$/, ['hedge', 'fixed_income', 'currency', 'commodities']],
-  ['cta', 'CTA / managed futures', /\bcta\b|managed futures/, ['hedge', 'commodities', 'currency']],
+  ['cta', 'CTA / managed futures', /\bcta\b|managed futures|trend.?following/, ['hedge', 'commodities', 'currency']],
   ['quant', 'Quant / systematic', /^quant|systematic|alternative risk premia|^arp$|risk parity/, ['hedge', 'equity', 'multi']],
   ['multi_strategy', 'Multi-strategy', /^multi ?strat|^multistrat|^hedge funds?$|^hf$|^hedge$|fohf|absolute return|portable alpha|liquid alts|^diversified$|broadly diversified|^alternative$/, ['hedge', 'alts', 'multi']],
-  ['relative_value', 'Relative value / arbitrage', /^relative value$|relative value arbitrage|convertible arbitrage|fixed income arbitrage|volatility arbitrage|long volatility|tail risk|low volatility|^arbitrage$/, ['hedge', 'fixed_income', 'equity']],
+  ['relative_value', 'Relative value / arbitrage', /^relative value$|relative value arbitrage|convertible arbitrage|fixed income arbitrage|volatility arbitrage|long volatility|short volatility|tail risk|low volatility|^arbitrage$|^convertibles$|^derivatives$/, ['hedge', 'fixed_income', 'equity']],
   ['event', 'Event driven', /event driven|merger arbitrage|activist|special situations|^distressed$/, ['hedge', 'equity', 'credit']],
-  ['credit', 'Credit (liquid)', /^credit$|fixed income credit|multi strategy credit|relative value credit|specialty finance|structured|high yield|bonds|^fixed income$|bank loans|^clo$|rmbs|cmbs|asset backed|mortgages|semi liquid credit|specialized credit|insurance linked|distressed debt/, ['fixed_income', 'credit', 'hedge', 'insurance']],
-  ['private_credit', 'Private credit', /direct lending|private credit|mezzanine|relationship driven lending|infrastructure debt/, ['private_credit']],
-  ['private_equity', 'Private equity', /buyout|^growth$|growth capital|growth equity|private equity|secondar|co investment|late stage|pre ipo|lower middle market|closed end partnerships/, ['private_equity']],
-  ['venture', 'Venture capital', /early stage|^seed$|venture/, ['venture']],
+  ['credit', 'Credit (liquid)', /^credit$|fixed income.?credit|multi strategy credit|multi asset credit|relative value credit|long.?short credit|specialty finance|structured|high yield|investment grade|bonds|^fixed income$|bank loans|^clo$|rmbs|cmbs|asset backed|mortgages|semi liquid credit|specialized credit|insurance linked|distressed debt|emerging markets debt/, ['fixed_income', 'credit', 'hedge', 'insurance']],
+  ['private_credit', 'Private credit', /direct lending|private credit|mezzanine|relationship driven lending|infrastructure debt|asset based lending|venture debt|trade finance|transportation finance|litigation finance/, ['private_credit']],
+  ['private_equity', 'Private equity', /buyout|^growth$|growth capital|growth equity|private equity|secondar|co investment|late stage|pre ipo|lower middle market|closed end partnerships|turnaround|expansion/, ['private_equity']],
+  ['venture', 'Venture capital', /early stage|seed$|venture(?! debt)|^series [a-z]/, ['venture']],
   ['real_estate', 'Real estate', /^core$|core plus|value add|^opportunistic$|opportunistic real estate|real estate|^development$|^land$/, ['real_estate']],
-  ['real_assets', 'Real assets / infrastructure', /^infrastructure$|^energy$|power generation|metals|agriculture|real assets|^commodities$/, ['infra_real', 'commodities']],
+  ['real_assets', 'Real assets / infrastructure', /^infrastructure$|^energy$|power generation|metals|agriculture|real assets|^commodities$|timberland|natural gas|^water$/, ['infra_real', 'commodities']],
   ['digital_assets', 'Digital assets', /digital assets/, ['hedge', 'alts']],
-  ['long_only', 'Long-only / multi-asset', /long only|multi asset|^blend$|^value$|^income|international|small cap emerging|long term investment|target date/, ['equity', 'fixed_income', 'multi']],
+  ['long_only', 'Long-only / multi-asset', /long only|multi asset(?! credit)|^blend$|^value$|^income|international|small cap emerging|long term investment|target date|^balanced$|tactical asset allocation/, ['equity', 'fixed_income', 'multi']],
   ['__tech', 'Technology', null, ['tech_equity', 'equity', 'venture', 'hedge']]
 ];
 const STRATEGY = Object.fromEntries(STRATEGY_MAP.map(s => [s[0], s]));
@@ -4019,7 +4019,7 @@ const VERDICT_REJECTED = NOT_PENDING + '&or=(new_qualification.eq.rejected,'
 const MANDATE_LIST_COLS = [
   'id', 'investor_name', 'organization_name', 'contact_name', 'investor_country', 'investor_city',
   'investor_type', 'investor_tag', 'asset_classes', 'strategies', 'ticket_min_usd', 'ticket_max_usd',
-  'aum_usd', 'aum_band', 'open_to_emerging_managers', 'allocation_timing', 'intention_summary',
+  'aum_usd', 'aum_band', 'min_manager_aum_usd', 'open_to_emerging_managers', 'allocation_timing', 'intention_summary',
   'requirements_raw', 'appetite_raw', 'evidence:evidence_scored', 'hard_fail_reasons',
   'missing_hard_fields', 'qualification', 'new_qualification', 'fit_score', 'new_fit_score',
   'fit_reason', 'positive_signals', 'view_intention_url', 'view_investor_url', 'view_article_url',
@@ -8031,6 +8031,7 @@ async function openMandate(m) {
     c2.append(...[
       field('Minimum ticket', money(full.ticket_min_usd) || '\u2013', true),
       numOrNull(full.ticket_max_usd) > 0 ? field('Maximum ticket', money(full.ticket_max_usd)) : null,
+      numOrNull(full.min_manager_aum_usd) > 0 ? field('Minimum manager AUM', money(full.min_manager_aum_usd)) : null,
       el('div', { style: 'margin-bottom:14px' },
         el('div', { style: 'font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;'
           + 'color:var(--ink-3);margin-bottom:3px' }, 'Fit score'),
@@ -8047,7 +8048,7 @@ async function openMandate(m) {
     host.appendChild(grid);
 
     const shown = ['id','investor_name','organization_name','investor_city','investor_country',
-      'investor_type','strategies','asset_classes','aum_usd','open_to_emerging_managers','ticket_max_usd','ticket_min_usd','fit_score','fit_reason','qualification',
+      'investor_type','strategies','asset_classes','aum_usd','min_manager_aum_usd','open_to_emerging_managers','ticket_max_usd','ticket_min_usd','fit_score','fit_reason','qualification',
       'missing_hard_fields','hard_fail_reasons','published_at','linkedin_url',
       'approved_at','approved_by','source_page',
       'view_article_url','view_intention_url','view_investor_url',
