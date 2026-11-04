@@ -182,20 +182,6 @@ comment on column public.wi_mandates.is_tech_investor is
 comment on column public.wi_mandates.tech_signal is
   'Where is_tech_investor came from: "<field>: <sentence>". Set by enrich-2026-10-23.sql.';
 
--- The smallest fund size the allocator will back (With Intelligence fund-size
--- preference, in USD), and the staging tables of the 4 Nov 2026 re-read.
--- See repair-wi-reread-2026-11-04.sql.
-alter table public.wi_mandates add column if not exists min_manager_aum_usd numeric;
-create table if not exists public.wi_profile_reads (
-  id bigserial primary key, mandate_id bigint not null, mandate_ids bigint[], company_key text,
-  wi_investor_id text, status text not null, method text, payload jsonb, read_at timestamptz not null default now());
-create table if not exists public.wi_fill_log (
-  id bigserial primary key, mandate_id bigint not null, investor_name text, field text not null,
-  old_value text, new_value text, source text not null default 'With Intelligence profile',
-  wi_investor_id text, filled_at timestamptz not null default now());
-alter table public.wi_profile_reads enable row level security;
-alter table public.wi_fill_log enable row level security;
-
 -- ---------------------------------------------------------------------
 -- 2. TRIGRAM INDEXES FOR TYPE-AHEAD
 --    pg_trgm makes ILIKE '%part%' and the <% word-similarity operator
@@ -1881,3 +1867,20 @@ as $$
                order by confidence desc nulls last, name) from r), '[]'::jsonb)
   ) end
 $$;
+
+-- =====================================================================
+-- 4 Nov 2026 re-read from With Intelligence (repair-wi-reread-2026-11-04.sql)
+-- =====================================================================
+-- The smallest fund size the allocator will back (With Intelligence fund-size
+-- preference, in USD), and the staging tables of the 4 Nov 2026 re-read.
+-- See repair-wi-reread-2026-11-04.sql.
+alter table public.wi_mandates add column if not exists min_manager_aum_usd numeric;
+create table if not exists public.wi_profile_reads (
+  id bigserial primary key, mandate_id bigint not null, mandate_ids bigint[], company_key text,
+  wi_investor_id text, status text not null, method text, payload jsonb, read_at timestamptz not null default now());
+create table if not exists public.wi_fill_log (
+  id bigserial primary key, mandate_id bigint not null, investor_name text, field text not null,
+  old_value text, new_value text, source text not null default 'With Intelligence profile',
+  wi_investor_id text, filled_at timestamptz not null default now());
+alter table public.wi_profile_reads enable row level security;
+alter table public.wi_fill_log enable row level security;
