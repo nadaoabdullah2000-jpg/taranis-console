@@ -1063,6 +1063,22 @@ const TARANIS_CRITERIA = [
     has: (m) => String((m && m.space_signal) || '') }
 ];
 
+/* Whether the allocator's "Investor page" link was checked against
+   With Intelligence: Correct / Fixed / Not found / No link, with the reason. */
+const WI_MATCH_TEXT = {
+  'Correct': 'With Intelligence profile checked: the link opens this organisation.',
+  'Fixed': 'With Intelligence link corrected.',
+  'Not found': 'With Intelligence profile not found. The old link was removed.',
+  'No link': 'No With Intelligence profile linked.'
+};
+function wiMatchLine(m) {
+  const st = String((m && m.wi_match_status) || '').trim();
+  if (!st || !WI_MATCH_TEXT[st] || st === 'No link') return null;
+  const note = st === 'Correct' ? '' : String(m.wi_match_note || '').trim();
+  return el('div', { class: 'banner', style: 'margin-top:-8px' + (st === 'Not found' ? ';color:var(--ink-3)' : '') },
+    el('b', null, WI_MATCH_TEXT[st]), note ? ' ' + note + (/[.!?]$/.test(note) ? '' : '.') : '');
+}
+
 function taranisScorecard(m) {
   const st = critStatus(m);
   return TARANIS_CRITERIA.map((c, i) => ({
@@ -7965,6 +7981,8 @@ async function openMandate(m) {
       verdictReason(full)));
     const opinion = aiOpinion(full);
     if (opinion) host.appendChild(opinion);
+    const wm = wiMatchLine(full);
+    if (wm) host.appendChild(wm);
 
     if (full.linkedin_url) {
       const handle = String(full.linkedin_url)

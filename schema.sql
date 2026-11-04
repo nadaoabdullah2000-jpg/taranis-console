@@ -1895,3 +1895,17 @@ create table if not exists public.wi_space_reads (
   wi_id text primary key, status text not null, sectors jsonb, industries jsonb, attributes jsonb, summary text,
   read_at timestamptz not null default now());
 alter table public.wi_space_reads enable row level security;
+
+-- ---------------------------------------------------------------------
+-- With Intelligence link check (4 Nov 2026): each allocator's own
+-- "Investor page" link opened and compared with the organisation.
+-- ---------------------------------------------------------------------
+alter table wi_mandates add column if not exists wi_match_status text;      -- Correct / Fixed / Not found / No link
+alter table wi_mandates add column if not exists wi_match_note text;        -- why (e.g. link opened another investor)
+alter table wi_mandates add column if not exists wi_match_checked_at timestamptz;
+create table if not exists wi_link_checks (
+  mandate_id bigint primary key, url text, wi_id text, status text not null, hops jsonb,
+  wi_name text, wi_type text, wi_country text, wi_city text, checked_at timestamptz not null default now());
+create table if not exists wi_link_fix (mandate_id bigint primary key, query text, country text, err text, candidates jsonb, status text, checked_at timestamptz default now());
+create table if not exists wi_link_decision (mandate_id bigint primary key, old_url text, old_wi_id text, old_wi_name text,
+  new_wi_id text, new_wi_name text, status text, note text, decided_at timestamptz default now());
