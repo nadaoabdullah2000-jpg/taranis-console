@@ -191,6 +191,160 @@ function el(tag, attrs, ...kids) {
   return n;
 }
 const $ = (id) => document.getElementById(id);
+
+// ---- Dropdowns -------------------------------------------------------------
+// Every <select> in the app is shown as this dropdown: a field with a down
+// arrow (▾, ▴ while open) and a list that opens under it, or above it only
+// when there is no room below. A count at the end of an option's text,
+// "Equity long/short  (43)", is drawn as a badge on the right; a disabled
+// option (no results) is greyed out. The native <select> stays in the page,
+// hidden, and keeps the value and the change event, so every caller works
+// on it unchanged.
+const DD = { open: null };
+function ddParse(text) {
+  const m = /^(.*?)\s*\((\d[\d,]*)\)\s*$/.exec(String(text || ''));
+  return m ? { label: m[1], count: m[2] } : { label: String(text || ''), count: null };
+}
+function ddClose(focusBack) {
+  const o = DD.open;
+  if (!o) return;
+  DD.open = null;
+  o.panel.remove();
+  o.sel._dd.wrap.classList.remove('open');
+  o.sel._dd.btn.setAttribute('aria-expanded', 'false');
+  o.sel._dd.arrow.textContent = '▾';
+  if (focusBack) o.sel._dd.btn.focus();
+}
+function ddPlace(o) {
+  const r = o.sel._dd.btn.getBoundingClientRect();
+  const vw = document.documentElement.clientWidth, vh = window.innerHeight;
+  const p = o.panel;
+  p.style.minWidth = Math.round(r.width) + 'px';
+  p.style.maxWidth = Math.max(220, vw - 16) + 'px';
+  p.style.left = '0px'; p.style.top = '0px'; p.style.bottom = 'auto'; p.style.maxHeight = 'none';
+  const want = Math.min(p.scrollHeight, 340);
+  const below = vh - r.bottom - 10, above = r.top - 10;
+  const down = below >= Math.min(want, 180) || below >= above;
+  const w = p.offsetWidth;
+  p.style.left = Math.max(8, Math.min(r.left, vw - w - 8)) + 'px';
+  if (down) { p.style.top = (r.bottom + 4) + 'px'; p.style.maxHeight = Math.max(120, below) + 'px'; }
+  else { p.style.top = 'auto'; p.style.bottom = (vh - r.top + 4) + 'px'; p.style.maxHeight = Math.max(120, above) + 'px'; }
+  p.classList.toggle('up', !down);
+}
+function ddActive(o, i) {
+  const items = o.items;
+  if (!items.length) return;
+  o.active = Math.max(0, Math.min(items.length - 1, i));
+  items.forEach((x, k) => x.classList.toggle('act', k === o.active));
+  items[o.active].scrollIntoView({ block: 'nearest' });
+}
+function ddPick(sel, value) {
+  ddClose(true);
+  if (sel.value === value) return;
+  sel.value = value;
+  sel.dispatchEvent(new Event('change', { bubbles: true }));
+}
+function ddOpen(sel) {
+  ddClose(false);
+  const d = sel._dd;
+  const panel = el('div', { class: 'dd-panel', role: 'listbox' });
+  const o = { sel, panel, items: [], active: 0 };
+  [...sel.options].forEach((op) => {
+    if (op.hidden) return;
+    const p = ddParse(op.textContent);
+    const on = op.value === sel.value;
+    const it = el('div', { class: 'dd-opt' + (on ? ' sel' : '') + (op.disabled ? ' dis' : ''), role: 'option',
+      'aria-selected': on ? 'true' : 'false', 'aria-disabled': op.disabled ? 'true' : null },
+      el('span', { class: 'dd-txt' }, p.label || ' '),
+      p.count !== null ? el('span', { class: 'dd-badge' }, p.count) : null);
+    if (!op.disabled) {
+      it.addEventListener('mousedown', (e) => e.preventDefault());
+      it.addEventListener('click', () => ddPick(sel, op.value));
+      o.items.push(it);
+      it._v = op.value;
+    }
+    panel.appendChild(it);
+  });
+  document.body.appendChild(panel);
+  DD.open = o;
+  d.wrap.classList.add('open');
+  d.btn.setAttribute('aria-expanded', 'true');
+  d.arrow.textContent = '▴';
+  ddPlace(o);
+  ddActive(o, Math.max(0, o.items.findIndex(x => x._v === sel.value)));
+}
+function ddSync(sel) {
+  const d = sel._dd;
+  if (!d) return;
+  const op = sel.options[sel.selectedIndex];
+  const p = ddParse(op ? op.textContent : '');
+  d.lab.textContent = p.label || ' ';
+  d.badge.textContent = p.count === null ? '' : p.count;
+  d.badge.hidden = p.count === null;
+  d.btn.disabled = !!sel.disabled;
+}
+function ddUpgrade(sel) {
+  if (sel._dd || sel.multiple || sel.size > 1 || (sel.dataset && sel.dataset.native) || !sel.parentNode) return;
+  const wrap = el('div', { class: 'dd' });
+  const st = sel.getAttribute('style');
+  if (st) wrap.setAttribute('style', st);
+  const lab = el('span', { class: 'dd-lab' });
+  const badge = el('span', { class: 'dd-badge' });
+  const arrow = el('span', { class: 'dd-arr', 'aria-hidden': 'true' }, '▾');
+  const btn = el('button', { type: 'button', class: 'dd-btn', 'aria-haspopup': 'listbox', 'aria-expanded': 'false',
+    'aria-label': sel.getAttribute('aria-label') || null }, lab, badge, arrow);
+  sel.parentNode.insertBefore(wrap, sel);
+  wrap.append(btn, sel);
+  sel.classList.add('dd-native');
+  sel.tabIndex = -1;
+  sel._dd = { wrap, btn, lab, badge, arrow };
+  ddSync(sel);
+  new MutationObserver(() => { ddSync(sel); if (DD.open && DD.open.sel === sel) ddOpen(sel); })
+    .observe(sel, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['disabled'] });
+  sel.addEventListener('change', () => ddSync(sel));
+  btn.addEventListener('click', () => { (DD.open && DD.open.sel === sel) ? ddClose(true) : ddOpen(sel); });
+  btn.addEventListener('keydown', (e) => {
+    const o = DD.open && DD.open.sel === sel ? DD.open : null;
+    if (!o && ['ArrowDown', 'ArrowUp', 'Enter', ' '].indexOf(e.key) > -1) { e.preventDefault(); ddOpen(sel); return; }
+    if (!o) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); ddActive(o, o.active + 1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); ddActive(o, o.active - 1); }
+    else if (e.key === 'Home') { e.preventDefault(); ddActive(o, 0); }
+    else if (e.key === 'End') { e.preventDefault(); ddActive(o, o.items.length - 1); }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const it = o.items[o.active]; if (it) ddPick(sel, it._v); }
+    else if (e.key === 'Escape') { e.preventDefault(); ddClose(true); }
+    else if (e.key === 'Tab') ddClose(false);
+  });
+}
+function ddUpgradeIn(node) {
+  if (!node || node.nodeType !== 1) return;
+  if (node.tagName === 'SELECT') ddUpgrade(node);
+  else if (node.querySelectorAll) node.querySelectorAll('select').forEach(ddUpgrade);
+}
+if (typeof window !== 'undefined' && typeof document !== 'undefined' && typeof MutationObserver !== 'undefined'
+    && typeof HTMLSelectElement !== 'undefined') {
+  // A value set in code (select.value = ..., selectedIndex = ...) shows at once.
+  for (const prop of ['value', 'selectedIndex']) {
+    const d0 = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, prop);
+    if (d0 && d0.set) Object.defineProperty(HTMLSelectElement.prototype, prop, {
+      configurable: true, enumerable: d0.enumerable,
+      get() { return d0.get.call(this); },
+      set(v) { d0.set.call(this, v); if (this._dd) ddSync(this); }
+    });
+  }
+  const start = () => {
+    ddUpgradeIn(document.body);
+    new MutationObserver((muts) => {
+      for (const m of muts) for (const n of m.addedNodes) ddUpgradeIn(n);
+    }).observe(document.body, { childList: true, subtree: true });
+  };
+  if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
+  const outside = (e) => { const o = DD.open; if (o && !o.panel.contains(e.target) && !o.sel._dd.wrap.contains(e.target)) ddClose(false); };
+  document.addEventListener('mousedown', outside, true);
+  document.addEventListener('touchstart', outside, true);
+  window.addEventListener('resize', () => { if (DD.open) ddPlace(DD.open); });
+  document.addEventListener('scroll', (e) => { const o = DD.open; if (o && !o.panel.contains(e.target)) ddPlace(o); }, true);
+}
 // The drag-and-drop area of an upload form: a label for the hidden file input.
 function upZone(forId, input, heading, text) {
   const ic = el('span', { class: 'up-ic', 'aria-hidden': 'true' });
@@ -4010,7 +4164,12 @@ function strategiesOf(m) {
 }
 function assetGroupsOf(m) {
   const names = assetNamesOf(m);
-  return ASSET_GROUPS.filter(g => names.some(a => g[2](a))).map(g => g[0]);
+  const groups = ASSET_GROUPS.filter(g => names.some(a => g[2](a))).map(g => g[0]);
+  // With Intelligence has no "technology" asset class: tech & biotech equity is
+  // a technology-focused investor (techOf, as the score reads it) that holds
+  // listed equities or hedge funds.
+  if (groups.indexOf('tech_equity') < 0 && (groups.indexOf('equity') > -1 || groups.indexOf('hedge') > -1) && techOf(m)) groups.push('tech_equity');
+  return groups;
 }
 function strategyPasses(m, key) {
   if (!key) return true;
@@ -4026,6 +4185,18 @@ function assetPasses(m, key, strategy) {
   const have = assetGroupsOf(m);
   if (!key && !assetNamesOf(m).length) return true;
   return keys.some(k => have.indexOf(k) > -1);
+}
+// A filter dropdown's options, each with the number of rows the list shows
+// when it is picked (countOf). "Any ..." keeps its count; an option with no
+// rows is greyed out (disabled) at the bottom, unless it is the one selected.
+function fillCountedSelect(node, items, current, countOf) {
+  while (node.firstChild) node.removeChild(node.firstChild);
+  const rows = items.map(([v, l]) => [v, l, countOf(v)]);
+  const live = rows.filter(([v, , n]) => !v || n > 0 || v === current);
+  const dead = rows.filter(r => live.indexOf(r) < 0);
+  for (const [v, l, n] of live) node.appendChild(el('option', { value: v }, l + '  (' + n + ')'));
+  for (const [v, l] of dead) node.appendChild(el('option', { value: v, disabled: 'disabled' }, l + '  (0)'));
+  node.value = current || '';
 }
 const EMERGING_OPTS = [['', 'All'], ['yes', 'Yes'], ['no', 'No'], ['unknown', 'Unknown (profile silent)']];
 
@@ -4259,53 +4430,42 @@ RENDER.opps = function (body) {
         return s;
       };
 
-      const geoBase  = all.filter(m => inMode(m) && oppsPasses(m, 'country'));
-      const typeBase = all.filter(m => inMode(m) && oppsPasses(m, 'type'));
+      // Every count is the number of investors the list shows if that option is
+      // picked: the same test as the list (the Matched / Waiting tab, the chip,
+      // every other filter and the search), with only this filter changed.
+      // Options with none are greyed out at the bottom.
+      const shown = all.filter(m => inMode(m) && inView(m, oppsView));
+      const countWith = (key, v) => {
+        const G = Object.assign({}, F, { [key]: v }, key === 'strategy' ? { asset: '' } : {});
+        let n = 0;
+        for (const m of shown) if (listPasses(m, G)) n++;
+        return n;
+      };
+      const counted = (key, items) => {
+        const s = el('select', { class: 'search' });
+        fillCountedSelect(s, items, F[key] || '', (v) => countWith(key, v));
+        return s;
+      };
 
-      const geoCounts = new Map();
-      for (const r of geoBase) {
-        const c = String(r.investor_country || '').trim().toUpperCase();
-        if (c) geoCounts.set(c, (geoCounts.get(c) || 0) + 1);
-      }
       const geoCodes = new Set(['GB', 'CH', 'US']);
       for (const r of all) { const c = String(r.investor_country || '').trim().toUpperCase(); if (c) geoCodes.add(c); }
-      const geos = new Map();
-      for (const c of geoCodes) geos.set(c, geoCounts.get(c) || 0);
-      const fGeo = sel([['', 'Anywhere']]);
-      for (const [v, n] of [...geos].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))) {
-        fGeo.appendChild(el('option', { value: v },
-          (OPPS_COUNTRY_NAMES[v] || v) + '  (' + n + ')'));
-      }
+      const geoItems = [...geoCodes].map(c => [c, OPPS_COUNTRY_NAMES[c] || c, countWith('country', c)])
+        .sort((a, b) => b[2] - a[2] || (a[1] < b[1] ? -1 : 1)).map(x => [x[0], x[1]]);
+      const fGeo = counted('country', [['', 'Anywhere']].concat(geoItems));
 
-      const typeCounts = new Map();
-      for (const r of typeBase) {
-        const t = String(r.investor_type || '').trim().toLowerCase();
-        if (t) typeCounts.set(t, (typeCounts.get(t) || 0) + 1);
-      }
       const typeCodes = new Set();
       for (const r of all) { const t = String(r.investor_type || '').trim().toLowerCase(); if (t) typeCodes.add(t); }
-      const types = new Map();
-      for (const t of typeCodes) types.set(t, typeCounts.get(t) || 0);
-      const fType = sel([['', 'Any investor type']]);
-      for (const [v, n] of [...types].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))) {
-        fType.appendChild(el('option', { value: v },
-          v.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()) + '  (' + n + ')'));
-      }
+      const typeItems = [...typeCodes].map(t => [t, t.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()), countWith('type', t)])
+        .sort((a, b) => b[2] - a[2] || (a[1] < b[1] ? -1 : 1)).map(x => [x[0], x[1]]);
+      const fType = counted('type', [['', 'Any investor type']].concat(typeItems));
 
       // Strategy and asset class are linked: picking a strategy selects its
       // asset classes and lists only those (the mapping table above).
-      const countBy = (base, test) => base.filter(test).length;
-      const stratBase = all.filter(m => inMode(m) && oppsPasses(m, 'strategy+asset'));
-      const fStrat = sel(STRATEGY_OPTS.map(([v, l]) =>
-        [v, l + '  (' + (v ? countBy(stratBase, m => strategyPasses(m, v)) : stratBase.length) + ')']));
+      const fStrat = counted('strategy', STRATEGY_OPTS);
       fStrat.addEventListener('change', () => { F.asset = ''; });
-      const assetBase = all.filter(m => inMode(m) && oppsPasses(m, 'asset'));
-      const fAsset = sel(assetOptsFor(F.strategy).map(([v, l]) =>
-        [v, l + '  (' + countBy(assetBase, m => assetPasses(m, v, F.strategy)) + ')']));
-      const emBase = all.filter(m => inMode(m) && oppsPasses(m, 'emerging'));
-      const fEm = sel(EMERGING_OPTS.map(([v, l]) =>
-        [v, l + '  (' + (v ? emBase.filter(m => emergingOf(m) === v).length : emBase.length) + ')']));
-      const fTick = sel([['', 'Any ticket'], ['100000', 'USD 100k and up'],
+      const fAsset = counted('asset', assetOptsFor(F.strategy));
+      const fEm = counted('emerging', EMERGING_OPTS);
+      const fTick = counted('tmin', [['', 'Any ticket'], ['100000', 'USD 100k and up'],
         ['1000000', 'USD 1m and up'], ['5000000', 'USD 5m and up'], ['10000000', 'USD 10m and up']]);
       const fQ = el('input', { class: 'search', type: 'search',
         placeholder: 'Name, organisation or what the alert said\u2026' });
@@ -4727,7 +4887,7 @@ RENDER.rejected = function (body) {
   const out = el('div');
   const find = el('input', { class: 'search', type: 'search',
     placeholder: 'Name, firm, country or reason\u2026' });
-  find.addEventListener('input', () => { clearTimeout(find._t); find._t = setTimeout(paint, 250); });
+  find.addEventListener('input', () => { clearTimeout(find._t); find._t = setTimeout(() => { paintChips(); paint(); }, 250); });
 
   // Strategy, asset class and emerging managers, the same filters as
   // Opportunities, applied with the chips, the search and the sort.
@@ -4801,32 +4961,23 @@ RENDER.rejected = function (body) {
       }
     }
     if (all) {
-      // The emerging-managers counts under the other filters and the chip.
+      // Each dropdown count is the number of cards the list shows when that
+      // option is picked: the chip, the search box and the other dropdowns
+      // applied, only this filter changed. The asset list is the strategy's
+      // own classes, "All for <strategy>" selecting every one of them.
       const picked = tone === 'news' ? all.filter(notMandate)
         : all.filter(m => !notMandate(m) && effectivelyRejected(m) && passes(m, tone));
-      const cards = dedupeInvestors(picked);
-      const base = cards.filter(m => rejPasses(m, 'emerging'));
-      const s = rejEm.querySelector('select');
-      for (const o of s.options) {
-        const lbl = (EMERGING_OPTS.find(([v]) => v === o.value) || [, ''])[1];
-        o.textContent = lbl + '  (' + (o.value ? base.filter(m => emergingOf(m) === o.value).length : base.length) + ')';
-      }
+      const cards = dedupeInvestors(picked).filter(rejQ);
       const F = rejFilters;
-      const sBase = cards.filter(m => rejPasses(m, 'strategy+asset'));
-      const ss = rejStrat.querySelector('select');
-      for (const o of ss.options) {
-        const lbl = (STRATEGY_OPTS.find(([v]) => v === o.value) || [, ''])[1];
-        o.textContent = lbl + '  (' + (o.value ? sBase.filter(m => strategyPasses(m, o.value)).length : sBase.length) + ')';
-      }
-      // The asset list is rebuilt for the strategy: only its classes, and
-      // "All for <strategy>" selecting every one of them.
-      const aBase = cards.filter(m => rejPasses(m, 'asset'));
-      const as = rejAsset.querySelector('select');
-      clear(as);
-      for (const [v, l] of assetOptsFor(F.strategy)) {
-        as.appendChild(el('option', { value: v }, l + '  (' + aBase.filter(m => assetPasses(m, v, F.strategy)).length + ')'));
-      }
-      as.value = F.asset || '';
+      const countWith = (key, v) => {
+        const G = Object.assign({}, F, { [key]: v }, key === 'strategy' ? { asset: '' } : {});
+        let n = 0;
+        for (const m of cards) if (listPasses(m, G)) n++;
+        return n;
+      };
+      fillCountedSelect(rejEm.querySelector('select'), EMERGING_OPTS, F.emerging || '', (v) => countWith('emerging', v));
+      fillCountedSelect(rejStrat.querySelector('select'), STRATEGY_OPTS, F.strategy || '', (v) => countWith('strategy', v));
+      fillCountedSelect(rejAsset.querySelector('select'), assetOptsFor(F.strategy), F.asset || '', (v) => countWith('asset', v));
     }
   }
 
@@ -4895,6 +5046,13 @@ RENDER.rejected = function (body) {
   };
 
   const passes = (m, k) => k === 'all' || (TESTS[k] ? TESTS[k](m, reasons(m)) : true);
+  // The search box, as the list applies it.
+  function rejQ(m) {
+    const q = find.value.trim().toLowerCase();
+    return !q || [m.investor_name, m.organization_name, m.investor_country,
+      m.investor_type, reasons(m).join(' '), asText(m.strategies)]
+      .filter(Boolean).join(' ').toLowerCase().indexOf(q) > -1;
+  }
 
   function paint() {
     clear(out);
@@ -4908,11 +5066,7 @@ RENDER.rejected = function (body) {
     const pool = dedupeInvestors(picked);
     let rows = dedupeInvestors(picked.filter(m => passes(m, tone))).filter(m => rejPasses(m));
 
-    if (q) {
-      rows = rows.filter(m => [m.investor_name, m.organization_name, m.investor_country,
-        m.investor_type, reasons(m).join(' '), asText(m.strategies)]
-        .filter(Boolean).join(' ').toLowerCase().indexOf(q) > -1);
-    }
+    if (q) rows = rows.filter(rejQ);
 
     rows = sortMandates(rows, sortModeOf('rejected'));
 
@@ -7060,22 +7214,39 @@ RENDER.find = function (body) {
     };
     facet(fType, 'type', typeKey, (k, raw) => raw.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()));
     facet(fGeo, 'country', geoKey, (k) => COUNTRY_NAMES[k] || k);
+    // The fixed lists, counted the same way: the investors the list shows if
+    // that option is picked, every other filter applied.
+    const countWith = (key, v) => {
+      const keep = findState[key];
+      findState[key] = v;
+      const rows = all.filter(m => matches(m));
+      findState[key] = keep;
+      return dedupeInvestors(rows).length;
+    };
+    fillCountedSelect(fAsset, FIND_ASSETS, findState.asset || '', (v) => countWith('asset', v));
+    fillCountedSelect(fStrat, FIND_STRATEGIES, findState.strategy || '', (v) => countWith('strategy', v));
+    fillCountedSelect(fTick, FIND_TICKETS, findState.tmin || '', (v) => countWith('tmin', v));
+    fillCountedSelect(fStat, FIND_OUTCOMES, findState.status || '', (v) => countWith('status', v));
   }
-  const fAsset = sel([['', 'Any asset class'], ['hedge', 'Hedge funds'], ['equit', 'Equities'],
+  const FIND_ASSETS = [['', 'Any asset class'], ['hedge', 'Hedge funds'], ['equit', 'Equities'],
     ['credit', 'Credit'], ['private', 'Private markets'], ['real', 'Real assets'],
-    ['multi', 'Multi-asset']]);
-  const fStrat = sel([['', 'Any strategy'], ['equity_long_short', 'Equity long/short'],
+    ['multi', 'Multi-asset']];
+  const FIND_STRATEGIES = [['', 'Any strategy'], ['equity_long_short', 'Equity long/short'],
     ['macro', 'Macro'], ['cta', 'CTA / managed futures'], ['market_neutral', 'Market neutral'],
     ['quant', 'Quant / systematic'], ['multi_strategy', 'Multi-strategy'], ['event', 'Event driven'],
-        ['__tech', 'Technology']]);
-  const fTick = sel([['', 'Any ticket'], ['100000', 'USD 100k and up'],
-    ['1000000', 'USD 1m and up'], ['5000000', 'USD 5m and up'], ['10000000', 'USD 10m and up']]);
+    ['__tech', 'Technology']];
+  const FIND_TICKETS = [['', 'Any ticket'], ['100000', 'USD 100k and up'],
+    ['1000000', 'USD 1m and up'], ['5000000', 'USD 5m and up'], ['10000000', 'USD 10m and up']];
   /* EDIT 9 — Outcome dropdown on the fine-grained re-score bands. */
-  const fStat = sel([['', 'Any outcome'], ['matched', 'Matched'],
+  const FIND_OUTCOMES = [['', 'Any outcome'], ['matched', 'Matched'],
     ['uncertain', 'Review / tech-only'], ['low', 'Low fit (macro / CTA)'],
     ['needs_data', 'Needs data'], ['rejected', 'Rejected'],
     ['approved', 'Approved by a person'], ['notapproved', 'Not approved yet'],
-    ['unread', 'Unread']]);
+    ['unread', 'Unread']];
+  const fAsset = sel(FIND_ASSETS);
+  const fStrat = sel(FIND_STRATEGIES);
+  const fTick = sel(FIND_TICKETS);
+  const fStat = sel(FIND_OUTCOMES);
   const fQ    = el('input', { class: 'search', type: 'search',
     placeholder: 'Name, organisation or what the alert said\u2026' });
 
