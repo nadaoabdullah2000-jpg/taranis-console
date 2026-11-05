@@ -4050,8 +4050,9 @@ function listPasses(m, F, skip) {
 // qualification column otherwise. PostgREST filters for each side of it.
 // Investors read out of a report wait in To validate until a person confirms
 // them (schema 10). Until then they are in no list, count or answer: this keeps
-// rows that are not from a report (null) and every decided one.
-const NOT_PENDING = 'and=(or(validation_status.is.null,validation_status.neq.pending))';
+// rows that are not from a report (null) and every decided one. Rows merged into
+// another row of the same investor and alert (5 Nov 2026) are left out the same way.
+const NOT_PENDING = 'and=(or(validation_status.is.null,validation_status.not.in.(pending,merged)))';
 const VERDICT_OPEN = NOT_PENDING + '&or=(new_qualification.neq.rejected,'
   + 'and(new_qualification.is.null,or(qualification.is.null,qualification.neq.rejected)))';
 const VERDICT_REJECTED = NOT_PENDING + '&or=(new_qualification.eq.rejected,'
