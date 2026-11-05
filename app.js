@@ -1606,7 +1606,12 @@ function rescore(m) {
   let s = band in BAND_SCORE ? BAND_SCORE[band] : null;
   const cc = String(m.investor_country || '').toUpperCase().replace(/[^A-Z]/g, '');
   if (s !== null && s < 1 && IN_MARKET.has(cc) && m.open_to_emerging_managers !== false) s += 0.05;
-  return { band: band, q: BAND_QUAL[band], s: s === null ? null : Math.round(s * 100) / 100 };
+  // Hedge fund hard rule: only a confirmed hedge fund investor can be matched.
+  const hf = m && m.hf_evidence ? String(m.hf_evidence) : null;
+  if (hf === 'no' || hf === 'not_allocator') return { band: 'rejected', q: 'rejected', s: 0 };
+  let q = BAND_QUAL[band];
+  if (hf !== 'confirmed' && q === 'matched') { q = 'uncertain'; if (s !== null) s = Math.min(s, 0.74); }
+  return { band: band, q: q, s: s === null ? null : Math.round(s * 100) / 100 };
 }
 
 // The coarse qualification the workflow routes on, from the fine-grained band.
@@ -4062,7 +4067,7 @@ const VERDICT_REJECTED = NOT_PENDING + '&or=(new_qualification.eq.rejected,'
 const MANDATE_LIST_COLS = [
   'id', 'investor_name', 'organization_name', 'contact_name', 'investor_country', 'investor_city',
   'investor_type', 'investor_tag', 'asset_classes', 'strategies', 'ticket_min_usd', 'ticket_max_usd',
-  'aum_usd', 'aum_band', 'min_manager_aum_usd', 'open_to_emerging_managers', 'is_space', 'space_signal', 'allocation_timing', 'intention_summary',
+  'aum_usd', 'aum_band', 'min_manager_aum_usd', 'open_to_emerging_managers', 'is_space', 'space_signal', 'hf_evidence', 'hf_evidence_note', 'hf_evidence_source', 'allocation_timing', 'intention_summary',
   'requirements_raw', 'appetite_raw', 'evidence:evidence_scored', 'hard_fail_reasons',
   'missing_hard_fields', 'qualification', 'new_qualification', 'fit_score', 'new_fit_score',
   'fit_reason', 'positive_signals', 'view_intention_url', 'view_investor_url', 'view_article_url',
@@ -4585,9 +4590,51 @@ async function markSeen(m) {
   m.seen_at = at;
 }
 
+/* The hedge fund hard rule (5 Nov 2026). An allocator can only be matched or
+   approved when it is confirmed to invest in hedge funds (hf_evidence =
+   'confirmed': With Intelligence's "Hedge Funds" asset class plus hedge fund
+   evidence from the last 24 months). The database enforces the same rule
+   (trigger zz_hf_hard_rule), so every tab shows the same result. A person who
+   has their own evidence can record it here; it is kept with their name. */
+const HF_LABEL = {
+  confirmed: 'Invests in hedge funds: confirmed',
+  unconfirmed: 'Hedge fund investing not confirmed',
+  manager_allocates: 'Manager that allocates to hedge funds: awaiting a decision',
+  no: 'Does not invest in hedge funds',
+  not_allocator: 'Not an allocator (runs its own funds)'
+};
+function hfConfirmed(m) { return String((m && m.hf_evidence) || '') === 'confirmed'; }
+async function hfGate(m) {
+  const full = await fullMandate(m);
+  if (hfConfirmed(full)) return true;
+  const cls = String(full.hf_evidence || 'unconfirmed');
+  if (cls === 'no' || cls === 'not_allocator') {
+    alert((HF_LABEL[cls] || cls) + '.\n\n' + (full.hf_evidence_note || '') + '\n\nIt cannot be matched or approved.');
+    return false;
+  }
+  const ev = prompt((HF_LABEL[cls] || 'Hedge fund investing not confirmed') + '.\n\n'
+    + (full.hf_evidence_note || 'No evidence recorded.') + '\n\n'
+    + 'It can only be approved once hedge fund investing is confirmed. If you have evidence '
+    + '(a hedge fund allocation, mandate or programme in the last 24 months), write it here to confirm it:', '');
+  if (!ev || !ev.trim()) return false;
+  const patch = { hf_evidence: 'confirmed', hf_evidence_note: 'Confirmed by a person: ' + ev.trim(),
+    hf_evidence_source: 'person: ' + ((session && session.email) || 'unknown'), hf_checked_at: new Date().toISOString() };
+  await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), patch);
+  Object.assign(m, patch);
+  return true;
+}
+function hfLine(m) {
+  const cls = String((m && m.hf_evidence) || '');
+  if (!cls || !HF_LABEL[cls]) return null;
+  const bad = cls === 'no' || cls === 'not_allocator';
+  return el('div', { class: 'banner', style: 'margin-top:-8px' + (bad ? ';border-color:var(--bad);color:var(--bad)' : cls === 'confirmed' ? '' : ';color:var(--ink-2)') },
+    el('b', null, HF_LABEL[cls] + '. '), String(m.hf_evidence_note || ''));
+}
+
 async function setApproved(m, on, after) {
   if (on && isApproved(m)) return toast('Already approved.');
   if (!on && !isApproved(m)) return toast('It is not approved.');
+  if (on) { try { if (!(await hfGate(m))) return; } catch (e) { return toast(e.message, true); } }
   const ask = on
     ? 'Approve this opportunity? It moves into Approved opportunities and stops asking for a decision.'
     : 'Take the approval back? It returns to Opportunities as not approved.';
@@ -4620,6 +4667,7 @@ async function setApproved(m, on, after) {
 async function setQualification(m, to, said, after) {
   const from = verdictGroup(m);
   if (from === to) return toast('It is already there.');
+  if (to === 'matched') { try { if (!(await hfGate(m))) return; } catch (e) { return toast(e.message, true); } }
   const ask = to === 'rejected'
     ? 'Reject this mandate? It moves to the Rejected list and you can still change your mind.'
     : to === 'matched'
@@ -7993,6 +8041,8 @@ async function openMandate(m) {
       verdictReason(full)));
     const opinion = aiOpinion(full);
     if (opinion) host.appendChild(opinion);
+    const hfl = hfLine(full);
+    if (hfl) host.appendChild(hfl);
     const wm = wiMatchLine(full);
     if (wm) host.appendChild(wm);
 
