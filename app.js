@@ -364,6 +364,17 @@ function scoreChip(v, m) {
 
 // ---- How values read on screen. Presentation only: nothing here changes data.
 // Money as $35M, $2.4bn or $500K; whole dollars below a thousand.
+// AUM as shown on cards and pages. A figure the data marks as estimated
+// (evidence.aum_estimated: the midpoint of With Intelligence's AUM range when it
+// gives no exact value) is shown as "\u2248 $3.75bn (estimated)".
+function aumText(m) {
+  const a = numOrNull(m && m.aum_usd);
+  if (!(a > 0)) return '';
+  let ev = m && (m.evidence_scored || m.evidence);
+  if (typeof ev === 'string') { try { ev = JSON.parse(ev); } catch (_) { ev = null; } }
+  const est = !!(ev && typeof ev === 'object' && ev.aum_estimated);
+  return (est ? '\u2248 ' : '') + money(a) + (est ? ' (estimated)' : '');
+}
 function money(v) {
   if (v === null || v === undefined || v === '') return '';
   const n = Number(String(v).replace(/[^0-9.-]/g, ''));
@@ -1846,7 +1857,7 @@ function matchCard(m, opts) {
   card.appendChild(el('h4', { class: 'mcard-h' }, investorLabel(m)));
   card.appendChild(el('div', { class: 'mcard-sub' },
     [typeLabel(m.investor_type), countryName(m.investor_country),
-     numOrNull(m.aum_usd) > 0 ? 'AUM ' + money(m.aum_usd) : (m.aum_band ? 'AUM ' + cleanText(m.aum_band) : '')]
+     aumText(m) ? 'AUM ' + aumText(m) : (m.aum_band ? 'AUM ' + cleanText(m.aum_band) : '')]
       .filter(Boolean).join('  \u00B7  ') || '\u00A0'));
 
   const rejected = rej0;
@@ -7955,7 +7966,7 @@ function investorView(full, m) {
 
   // Who they are: the summary the alert gives, then what stands out.
   const who = [typeLabel(full.investor_type), geoText(full) !== 'not stated' ? geoText(full) : '',
-    numOrNull(full.aum_usd) > 0 ? 'AUM ' + money(full.aum_usd) : (full.aum_band ? 'AUM ' + cleanText(full.aum_band) : '')]
+    aumText(full) ? 'AUM ' + aumText(full) : (full.aum_band ? 'AUM ' + cleanText(full.aum_band) : '')]
     .filter(Boolean).join('  \u00B7  ');
   const summary = asText(full.intention_summary);
   let ev = full.evidence;
@@ -8132,7 +8143,7 @@ async function openMandate(m) {
       field('Investor type', typeLabel(full.investor_type) || '\u2013'),
       field('Strategies', tagList(full.strategies) || '\u2013'),
       field('Asset classes', tagList(full.asset_classes) || '\u2013'),
-      field('Assets under management', numOrNull(full.aum_usd) > 0 ? money(full.aum_usd) : (cleanText(full.aum_band || '') || '\u2013')),
+      field('Assets under management', aumText(full) || cleanText(full.aum_band || '') || '\u2013'),
       field('Invests in emerging managers', EMERGING_LABEL[emergingOf(full)])
     ].filter(Boolean));
     c2.append(...[
