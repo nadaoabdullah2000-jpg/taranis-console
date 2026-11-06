@@ -1751,6 +1751,30 @@ const RE_EXCL = /\bcta\b|managed future|trend follow|global macro|macro strategy
 const RE_NOT_ALLOCATOR = /private equity|venture capital|service provider|placement agent|law firm|real estate|infrastructure|data provider/;
 const IN_MARKET = new Set(['GB', 'UK', 'GBR', 'CH', 'CHE', 'US', 'USA', 'UNITEDSTATES', 'UNITEDKINGDOM', 'ENGLAND', 'SCOTLAND', 'SWITZERLAND']);
 const BAND_SCORE = { strong_tech: 1, strong: 0.90, tech: 0.60, hire: 0.60, low: 0.20 };
+// The Taranis score (6 Nov 2026). L = long/short or quant, T = technology,
+// S = space (explicit space wording), E = invests in emerging managers
+// (open_to_emerging_managers true; unknown counts as no).
+//   L+T+E 1.00 - the only way to 100%
+//   L+T   0.90            L+S+E 0.80   L+E 0.80   L+S 0.78   L 0.75
+//   T+E   0.65   T 0.60   S+E 0.55     S 0.50     (review: no L)
+// Space instead of technology caps at 80%. The GB / CH / US bonus (+0.05,
+// not for an investor that refuses emerging managers) never lifts a row past
+// its cap: 0.95 without all three, 0.80 with L but no T, 0.70 with no L.
+// hire 0.60 and low 0.20 (each +0.05 with the bonus) and needs data (no score) are unchanged. Same rule as
+// WI 01 (Build Mandate SQL).
+function taranisScore(band, L, T, S, E, bonusOk) {
+  if (band === 'needs_data') return null;
+  let s, cap;
+  if (band === 'low')       { s = 0.20; cap = 0.25; }
+  else if (band === 'hire') { s = 0.60; cap = 0.65; }
+  else if (L && T)  { s = E ? 1.00 : 0.90; cap = E ? 1.00 : 0.95; }
+  else if (L)  { s = S ? (E ? 0.80 : 0.78) : (E ? 0.80 : 0.75); cap = 0.80; }
+  else if (T)  { s = E ? 0.65 : 0.60; cap = 0.70; }
+  else if (S)  { s = E ? 0.55 : 0.50; cap = 0.70; }
+  else return null;
+  if (bonusOk && s < cap) s = Math.min(cap, s + 0.05);
+  return Math.round(s * 100) / 100;
+}
 const BAND_QUAL  = { strong_tech: 'matched', strong: 'matched', tech: 'uncertain', hire: 'uncertain', low: 'low', needs_data: 'needs_data' };
 
 function rescore(m) {
@@ -1764,13 +1788,13 @@ function rescore(m) {
       || (assets.length && !RE_HEDGE.test(assets.join(' ')) && !RE_HEDGE.test(t))) {
     return { band: 'rejected', q: 'rejected', s: 0 };
   }
-  const strong = isStrong(m, t), tech = techOf(m, t) || spaceOf(m, t);
+  const strong = isStrong(m, t), techOnly = !!techOf(m, t), space = !!spaceOf(m, t), tech = techOnly || space;
   let band = strong ? (tech ? 'strong_tech' : 'strong') : tech ? 'tech' : RE_EXCL.test(t) ? 'low' : 'needs_data';
   // An allocator's hire is worth a look, never an automatic match.
   if (band.indexOf('strong') === 0 && /^people$/i.test(String(m.investor_tag || '').trim())) band = 'hire';
-  let s = band in BAND_SCORE ? BAND_SCORE[band] : null;
   const cc = String(m.investor_country || '').toUpperCase().replace(/[^A-Z]/g, '');
-  if (s !== null && s < 1 && IN_MARKET.has(cc) && m.open_to_emerging_managers !== false) s += 0.05;
+  let s = taranisScore(band, strong, techOnly, space, m.open_to_emerging_managers === true,
+    IN_MARKET.has(cc) && m.open_to_emerging_managers !== false);
   // Hedge fund hard rule: only a confirmed hedge fund investor can be matched.
   const hf = m && m.hf_evidence ? String(m.hf_evidence) : null;
   if (hf === 'no' || hf === 'not_allocator') return { band: 'rejected', q: 'rejected', s: 0 };
