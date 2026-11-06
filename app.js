@@ -2117,6 +2117,7 @@ function matchCard(m, opts) {
     }
     card.appendChild(row);
   }
+  if (!opts.noComments) card.appendChild(commentsBlock(m));
   return card;
 }
 
@@ -2471,6 +2472,7 @@ function entry(o) {
     }
     main.appendChild(row);
   }
+  if (o.comments) main.appendChild(commentsBlock(o.comments));
   return el('div', { class: 'entry' + (o.tone ? ' ' + o.tone : '') }, rail, main);
 }
 
@@ -4245,7 +4247,7 @@ function listPasses(m, F, skip) {
   }
   if (skips.indexOf('q') < 0        && F.q) {
     const hay = [m.investor_name, m.organization_name, m.investor_city, m.investor_country,
-      m.investor_type, asText(m.strategies), asText(m.intention_summary)]
+      m.investor_type, asText(m.strategies), asText(m.intention_summary), commentsText(m)]
       .filter(Boolean).join(' ').toLowerCase();
     if (!hay.includes(F.q.toLowerCase())) return false;
   }
@@ -4860,6 +4862,180 @@ async function setApproved(m, on, after) {
   }
 }
 
+// ---- Notes and comments on an allocator (schema 19) ------------------------
+// Comments live in allocator_comments, never on the wi_mandates row, so WI 01,
+// re-scoring and repairs cannot change them (a database guard refuses any
+// write that is not a signed-in person's). One allocator, one thread: a comment
+// shows on every card, on every tab, whose allocator has the same With
+// Intelligence id or the same name key (investorKey). Newest first; a person
+// edits and deletes only their own, and a delete is a soft delete.
+const COMMENTS = { list: [], loaded: false, at: 0, loading: null };
+const COMMENT_OPEN = new Set();
+function commentWiIds(m) {
+  const ids = new Set();
+  for (const r of [m].concat(Array.isArray(m && m._intentions) ? m._intentions : [])) {
+    let ev = r && (r.evidence_scored || r.evidence);
+    if (typeof ev === 'string') { try { ev = JSON.parse(ev); } catch (_) { ev = null; } }
+    const id = ev && typeof ev === 'object' ? String(ev.wi_investor_id || '').trim() : '';
+    if (id) ids.add(id);
+    const u = /\/investors\/(-?\d+)/.exec(String((r && r.view_investor_url) || ''));
+    if (u) ids.add(u[1]);
+  }
+  return ids;
+}
+function commentsFor(m) {
+  if (!m) return [];
+  const key = investorKey(m), wis = commentWiIds(m);
+  return COMMENTS.list.filter(c => (c.wi_investor_id && wis.has(String(c.wi_investor_id))) || (key && c.allocator_key === key));
+}
+function commentsText(m) { return commentsFor(m).map(c => c.body).join(' '); }
+async function loadComments(force) {
+  if (DEMO) { COMMENTS.loaded = true; return COMMENTS.list; }
+  if (!force && COMMENTS.loaded && Date.now() - COMMENTS.at < 60000) return COMMENTS.list;
+  if (COMMENTS.loading) return COMMENTS.loading;
+  COMMENTS.loading = (async () => {
+    try {
+      const rows = await supaSelect('allocator_comments',
+        'select=id,allocator_key,wi_investor_id,investor_name,mandate_id,body,author_email,created_at,updated_at'
+        + '&deleted_at=is.null&order=created_at.desc&limit=5000');
+      COMMENTS.list = Array.isArray(rows) ? rows : [];
+      COMMENTS.loaded = true; COMMENTS.at = Date.now();
+    } catch (_) { /* the cards still draw; the count shows once a read works */ }
+    COMMENTS.loading = null;
+    document.querySelectorAll('.cmt').forEach(n => { if (typeof n._paint === 'function') n._paint(); });
+    return COMMENTS.list;
+  })();
+  return COMMENTS.loading;
+}
+function commentWhen(c) {
+  const d = new Date(c.created_at);
+  const t = isNaN(d) ? '' : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+    + ', ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  return t + (c.updated_at ? '  ·  edited' : '');
+}
+function ensureCommentCss() {
+  if (document.getElementById('cmt-css')) return;
+  const st = document.createElement('style'); st.id = 'cmt-css';
+  st.textContent = ''
+    + '.cmt{margin-top:14px;border-top:1px solid var(--rule);padding-top:10px}'
+    + '.cmt-h{display:inline-flex;align-items:center;gap:8px;background:none;border:0;padding:4px 0;cursor:pointer;font:inherit;font-weight:600;color:var(--ink-2)}'
+    + '.cmt-h:hover{color:var(--accent)}'
+    + '.cmt-ic{width:16px;height:16px;flex:none}'
+    + '.cmt-n{box-sizing:border-box;min-width:24px;height:20px;padding:0 7px;border-radius:10px;background:#EBF1F3;color:#3D5560;font:600 11.5px/20px var(--font-data,inherit);text-align:center}'
+    + '.cmt.has .cmt-n{background:var(--accent);color:#fff}'
+    + '.cmt-arr{font-size:11px;color:var(--ink-3)}'
+    + '.cmt-body{margin-top:8px}'
+    + '.cmt-in{width:100%;box-sizing:border-box;min-height:64px;padding:9px 12px;border:1px solid var(--rule);border-radius:6px;background:var(--card);color:var(--ink);font:inherit;resize:vertical}'
+    + '.cmt-in:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}'
+    + '.cmt-list{list-style:none;margin:12px 0 0;padding:0}'
+    + '.cmt-li{padding:9px 0;border-top:1px dashed var(--rule)}'
+    + '.cmt-li:first-child{border-top:0}'
+    + '.cmt-txt{white-space:pre-wrap;word-break:break-word;font-size:14px;line-height:1.5;color:var(--ink)}'
+    + '.cmt-meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:4px;font-size:12px;color:var(--ink-3)}'
+    + '.cmt-link{background:none;border:0;padding:0;font:inherit;font-size:12px;color:var(--accent);cursor:pointer;text-decoration:underline}'
+    + '.cmt-link.bad{color:var(--bad)}'
+    + '@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .cmt-n{background:#123B46;color:#B7D3DA}'
+    + ':root:not([data-theme="light"]) .cmt.has .cmt-n{background:var(--accent);color:#032027}}';
+  document.head.appendChild(st);
+}
+// The comments box for an allocator's card or page. opts.open: start open.
+function commentsBlock(m, opts) {
+  ensureCommentCss();
+  opts = opts || {};
+  const key = investorKey(m);
+  const box = el('div', { class: 'cmt' });
+  box.addEventListener('click', (e) => e.stopPropagation());
+  const me = String((session && session.email) || '').toLowerCase();
+  if (opts.open) COMMENT_OPEN.add(key);
+  let editing = null;
+  box._paint = () => {
+    const list = commentsFor(m);
+    const open = COMMENT_OPEN.has(key);
+    clear(box);
+    box.classList.toggle('has', list.length > 0);
+    const ic = el('span', { class: 'cmt-ic', 'aria-hidden': 'true' });
+    ic.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>';
+    const head = el('button', { type: 'button', class: 'cmt-h', 'aria-expanded': open ? 'true' : 'false',
+      title: list.length ? list.length + ' comment' + (list.length === 1 ? '' : 's') : 'Add a note or comment' },
+      ic, 'Comments', el('span', { class: 'cmt-n' }, String(list.length)), el('span', { class: 'cmt-arr' }, open ? '▴' : '▾'));
+    head.addEventListener('click', () => { open ? COMMENT_OPEN.delete(key) : COMMENT_OPEN.add(key); box._paint(); });
+    box.appendChild(head);
+    if (!open) return;
+    const body = el('div', { class: 'cmt-body' });
+    const input = el('textarea', { class: 'cmt-in', placeholder: 'Write a note or comment…', maxlength: '5000', 'aria-label': 'New comment' });
+    const save = el('button', { type: 'button', class: 'btn btn-sm' }, 'Save comment');
+    save.addEventListener('click', async () => {
+      const text = input.value.trim();
+      if (!text) return toast('Write something first.');
+      if (DEMO) return toast('Comments are saved when signed in to the live console.');
+      save.disabled = true;
+      try {
+        const ids = [...commentWiIds(m)];
+        const row = await supaInsert('allocator_comments', { allocator_key: key, wi_investor_id: ids[0] || null,
+          investor_name: investorLabel(m), mandate_id: Number(m.id) || null, body: text });
+        if (row) COMMENTS.list.unshift(row);
+        input.value = '';
+        toast('Comment saved.');
+        document.querySelectorAll('.cmt').forEach(n => { if (typeof n._paint === 'function') n._paint(); });
+      } catch (e) { toast(e.message, true); save.disabled = false; }
+    });
+    body.append(input, el('div', { class: 'acts', style: 'margin-top:8px' }, save));
+    if (!COMMENTS.loaded) body.appendChild(el('p', { class: 'cmt-meta' }, 'Loading comments…'));
+    if (list.length) {
+      const ul = el('ul', { class: 'cmt-list' });
+      for (const c of list) {
+        const mine = me && String(c.author_email || '').toLowerCase() === me;
+        const li = el('li', { class: 'cmt-li' });
+        if (editing === c.id) {
+          const ed = el('textarea', { class: 'cmt-in', maxlength: '5000', 'aria-label': 'Edit comment' });
+          ed.value = c.body;
+          const ok = el('button', { type: 'button', class: 'btn btn-sm' }, 'Save');
+          ok.addEventListener('click', async () => {
+            const text = ed.value.trim();
+            if (!text) return toast('A comment cannot be empty. Delete it instead.');
+            ok.disabled = true;
+            try {
+              const back = await supaPatch('allocator_comments', 'id=eq.' + encodeURIComponent(c.id), { body: text }, { returnRows: true });
+              if (!back || !back.length) throw new Error('Only the person who wrote a comment can change it.');
+              Object.assign(c, back[0]); editing = null; toast('Comment updated.');
+              document.querySelectorAll('.cmt').forEach(n => { if (typeof n._paint === 'function') n._paint(); });
+            } catch (e) { toast(e.message, true); ok.disabled = false; }
+          });
+          const cancel = el('button', { type: 'button', class: 'btn btn-sm btn-quiet' }, 'Cancel');
+          cancel.addEventListener('click', () => { editing = null; box._paint(); });
+          li.append(ed, el('div', { class: 'acts', style: 'margin-top:6px' }, ok, cancel));
+        } else {
+          const meta = el('div', { class: 'cmt-meta' },
+            el('span', null, c.author_email || 'Unknown'), el('span', null, commentWhen(c)));
+          if (mine) {
+            const eb = el('button', { type: 'button', class: 'cmt-link' }, 'Edit');
+            eb.addEventListener('click', () => { editing = c.id; box._paint(); });
+            const db = el('button', { type: 'button', class: 'cmt-link bad' }, 'Delete');
+            db.addEventListener('click', async () => {
+              if (!confirm('Delete this comment? It disappears from every tab.')) return;
+              try {
+                const back = await supaPatch('allocator_comments', 'id=eq.' + encodeURIComponent(c.id),
+                  { deleted_at: new Date().toISOString() }, { returnRows: true });
+                if (!back || !back.length) throw new Error('Only the person who wrote a comment can delete it.');
+                COMMENTS.list = COMMENTS.list.filter(x => x.id !== c.id); toast('Comment deleted.');
+                document.querySelectorAll('.cmt').forEach(n => { if (typeof n._paint === 'function') n._paint(); });
+              } catch (e) { toast(e.message, true); }
+            });
+            meta.append(eb, db);
+          }
+          li.append(el('div', { class: 'cmt-txt' }, c.body), meta);
+        }
+        ul.appendChild(li);
+      }
+      body.appendChild(ul);
+    }
+    box.appendChild(body);
+  };
+  box._paint();
+  if (!COMMENTS.loaded) loadComments();
+  return box;
+}
+
 // A card is one investor: the rows of every alert folded into it (_intentions),
 // or the row itself. A verdict chosen on the card applies to all of them, so
 // rejecting an investor takes every one of its alerts off the list.
@@ -5091,7 +5267,7 @@ RENDER.rejected = function (body) {
   function rejQ(m) {
     const q = find.value.trim().toLowerCase();
     return !q || [m.investor_name, m.organization_name, m.investor_country,
-      m.investor_type, reasons(m).join(' '), asText(m.strategies)]
+      m.investor_type, reasons(m).join(' '), asText(m.strategies), commentsText(m)]
       .filter(Boolean).join(' ').toLowerCase().indexOf(q) > -1;
   }
 
@@ -7343,7 +7519,7 @@ RENDER.find = function (body) {
     else if (F.status && m.qualification !== F.status) return false;
     if (F.q) {
       const hay = [m.investor_name, m.organization_name, m.contact_name,
-                   m.intention_summary, m.investor_city].join(' ').toLowerCase();
+                   m.intention_summary, m.investor_city, commentsText(m)].join(' ').toLowerCase();
       if (!hay.includes(F.q.toLowerCase())) return false;
     }
     return true;
@@ -7406,7 +7582,8 @@ RENDER.find = function (body) {
                 .concat(m._intentions ? [[m._intentions.length + ' mandates', 'quiet']] : []),
         actions: [{ label: 'View the mandate', primary: true,
                     run: () => { markSeen(m).catch(() => {}); openMandate(m); } }]
-                 .concat(verdictActions(m, () => go('find')))
+                 .concat(verdictActions(m, () => go('find'))),
+        comments: m
       }));
     }
     if (rows.length > 200) {
@@ -7436,7 +7613,7 @@ RENDER.find = function (body) {
 let SEARCH_BACK = null;                    // a page to return to, when Search was opened from one
 let searchLast = '';                       // the company on screen, kept across visits
 const SEARCH_MIN = 2, SEARCH_WAIT_MS = 200, SEARCH_LIMIT = 10;
-const SEARCH_KIND = { mandate: 'WI mandate', contact: 'Contact book' };
+const SEARCH_KIND = { mandate: 'WI mandate', contact: 'Contact book', comment: 'Comments' };
 
 async function searchSuggest(q) {
   if (DEMO) {
@@ -7555,6 +7732,21 @@ RENDER.search = function (body) {
     status.textContent = 'Searching…';
     try {
       const rows = await searchSuggest(q);
+      // Allocators whose notes or comments mention the words, added to the
+      // company names (or marked on the one already listed).
+      try {
+        await loadComments();
+        const needle = q.toLowerCase(), byName = new Map();
+        for (const c of COMMENTS.list) {
+          if (String(c.body || '').toLowerCase().indexOf(needle) < 0 && String(c.investor_name || '').toLowerCase().indexOf(needle) < 0) continue;
+          byName.set(c.investor_name, (byName.get(c.investor_name) || 0) + 1);
+        }
+        for (const [nm, n] of byName) {
+          const hit = rows.find(r => String(r.name || '').toLowerCase() === String(nm).toLowerCase());
+          if (hit) hit.kind = String(hit.kind || '') + ',comment';
+          else rows.push({ name: nm, kind: 'comment', count: n });
+        }
+      } catch (_) { /* names still come back without the comments */ }
       if (my !== seq) return;              // a newer keystroke has taken over
       items = rows.slice(0, SEARCH_LIMIT);
       drawList(q);
@@ -7614,10 +7806,16 @@ RENDER.search = function (body) {
   const similar = (r) => r.match === 'partial' ? [['Similar name', 'quiet']] : [];
 
   function showCompany(name) {
-    fill(detail, () => searchCompany(name), (d) => {
+    fill(detail, async () => { await loadComments().catch(() => {}); return searchCompany(name); }, (d) => {
       const mand = d.mandates || [], cont = d.contacts || [], docs = d.documents || [], net = d.network || [];
+      const nk = String(name || '').toLowerCase().replace(/[.,]/g, '').replace(/\s+/g, ' ').trim();
+      const cmts = COMMENTS.list.filter(c => c.allocator_key === nk || String(c.investor_name || '').toLowerCase() === String(name || '').toLowerCase());
       detail.appendChild(el('h3', { class: 'srch-h' }, name));
-      if (!mand.length && !cont.length && !docs.length && !net.length) {
+      if (cmts.length) section('Comments', cmts, (c) => entry({
+        action: c.body, who: (c.author_email || 'Unknown') + '  \u00B7  ' + commentWhen(c),
+        actions: (DEMO || !c.mandate_id) ? [] : [{ label: 'Open', primary: true, run: () => openMandateById(c.mandate_id, 'search') }]
+      }));
+      if (!mand.length && !cont.length && !docs.length && !net.length && !cmts.length) {
         detail.appendChild(empty('Nothing on file', 'No mandate, contact, document or LinkedIn profile carries that name.'));
         return;
       }
@@ -8269,6 +8467,7 @@ async function openMandate(m) {
     if (hfl) host.appendChild(hfl);
     const wm = wiMatchLine(full);
     if (wm) host.appendChild(wm);
+    host.appendChild(commentsBlock(Object.assign({}, full, { _intentions: m._intentions }), { open: true }));
 
     if (full.linkedin_url) {
       const handle = String(full.linkedin_url)
