@@ -5062,6 +5062,22 @@ function cardRows(m) {
   return Array.isArray(m && m._intentions) && m._intentions.length ? m._intentions : [m];
 }
 
+// The database hides an allocator's I-Connections firms when a person rejects it
+// (schema-20, trigger zz_iconn_wi_sync) and shows them again on un-reject. Say so.
+async function iconnWiNotice(rows) {
+  const ids = rows.map(r => Number(r && r.id)).filter(Boolean);
+  if (!ids.length) return;
+  try {
+    const since = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    const got = await supaSelect('iconn_wi_rejections', 'select=firm_name,status&mandate_ids=ov.{' + ids.join(',') + '}'
+      + '&updated_at=gte.' + encodeURIComponent(since));
+    const hid = (got || []).filter(x => x.status === 'hidden').map(x => x.firm_name);
+    const back = (got || []).filter(x => x.status === 'restored').map(x => x.firm_name);
+    if (hid.length) toast('Also hidden from I-Connections: ' + hid.join(', ') + '.');
+    else if (back.length) toast('Back in I-Connections: ' + back.join(', ') + '.');
+  } catch (_) { /* schema-20 not applied, or no session: nothing to say */ }
+}
+
 async function setQualification(m, to, said, after) {
   const rows = cardRows(m).filter(r => verdictGroup(r) !== to);
   if (!rows.length) return toast('It is already there.');
@@ -5090,6 +5106,7 @@ async function setQualification(m, to, said, after) {
     }
     Object.assign(m, first);
     toast(n > 1 ? said.replace(/\.$/, '') + ' (' + n + ' alerts).' : said);
+    iconnWiNotice(rows);
     if (typeof after === 'function') after(to);
   } catch (e) {
     toast(e.message, true);
@@ -10488,6 +10505,7 @@ function iconnResults(body) {
   body.appendChild(el('p', { style: 'margin:0 0 4px;font-size:13px;color:var(--ink-2)' },
     (run.file_name || 'iConnections export') + (run.sheet_name ? ' · sheet “' + run.sheet_name + '”' : '')
     + ' · ' + (c.contacts || 0) + ' contacts at ' + firms.length + ' firms'
+    + ((res.hidden || []).length ? ' (' + res.hidden.length + ' hidden: rejected via With Intelligence)' : '')
     + (run.import_no > 1 ? ' · import ' + run.import_no + ' of this file' : '')
     + ' · nothing in Opportunities was changed'));
   if (ICONN.built && ICONN.notes && ICONN.notes.length) {
@@ -10578,6 +10596,53 @@ function iconnResults(body) {
     + Math.round(((run.thresholds && run.thresholds.review) || 0.45) * 100) + '–'
     + (Math.round(((run.thresholds && run.thresholds.auto) || 0.75) * 100) - 1) + '% needs review and is never linked on its own. '
     + 'Red rows: every opportunity behind the match is rejected.'));
+  iconnWiSections(body, res);
+}
+
+// Firms taken off the list because their allocator is rejected in With
+// Intelligence (schema-20), and uncertain links to a rejected allocator to
+// decide. Only the I-Connections side changes: the allocator, its verdict and
+// its comments stay as they are.
+function iconnWiSections(body, res) {
+  const hidden = res.hidden || [], check = res.to_check || [];
+  const set = async (f, action, btn) => {
+    if (action === 'show' && !confirm('Show ' + f.name + ' in I-Connections again? Its allocator stays rejected in With Intelligence.')) return;
+    if (btn) btn.disabled = true;
+    try {
+      await supaRpc('console_iconn_wi_set', { p_firm_key: f.firm_key, p_action: action });
+      toast(action === 'hide' ? f.name + ' is hidden from I-Connections.' : f.name + ' is back in I-Connections.');
+      iconnOpenRun(ICONN.runId);
+    } catch (e) { toast(e.message, true); if (btn) btn.disabled = false; }
+  };
+  const line = (f, buttons) => el('div', { class: 'ic-row' }, el('div', { class: 'ic-line' },
+    el('span', { class: 'ic-nm' }, f.name),
+    f.allocator ? el('span', { class: 'ic-rn' }, 'With Intelligence: ' + f.allocator
+      + (f.wi_investor_id ? ' (id ' + f.wi_investor_id + ')' : '')) : null,
+    f.rejected_at ? el('span', { class: 'ic-rn' }, (f.note || 'Rejected via With Intelligence') + ' · ' + fmtDate(f.rejected_at)) : null,
+    f.matched_id ? el('button', { class: 'ic-link', onclick: () => openMandateById(f.matched_id, 'iconn') }, 'View the allocator') : null,
+    ...buttons),
+    f.match_detail ? el('div', { class: 'ic-rn', style: 'margin-top:4px' }, 'How it was matched: ' + f.match_detail) : null);
+  if (check.length) {
+    body.appendChild(el('p', { class: 'ic-sec' }, 'To check \u2014 may be rejected in With Intelligence (' + check.length + ')'));
+    body.appendChild(el('p', { style: 'margin:0 0 6px;font-size:12px;color:var(--ink-3)' },
+      'The allocator these firms seem to be is rejected, but the match is not certain, so they are still in the list above.'));
+    for (const f of check) {
+      body.appendChild(line(f, [
+        el('button', { class: 'btn btn-sm btn-quiet', onclick: (e) => set(f, 'hide', e.currentTarget) }, 'Hide'),
+        el('button', { class: 'btn btn-sm btn-quiet', onclick: (e) => set(f, 'show', e.currentTarget) }, 'Keep')]));
+    }
+  }
+  if (hidden.length) {
+    const box = el('details', { style: 'margin-top:22px' },
+      el('summary', { class: 'ic-sec', style: 'cursor:pointer;margin:0 0 8px' },
+        'Hidden \u2014 rejected via With Intelligence (' + hidden.length + ')'));
+    box.appendChild(el('p', { style: 'margin:0 0 6px;font-size:12px;color:var(--ink-3)' },
+      'Not in the list or the counts above. Un-rejecting the allocator brings a firm back on its own; nothing is deleted.'));
+    for (const f of hidden) {
+      box.appendChild(line(f, [el('button', { class: 'btn btn-sm btn-quiet', onclick: (e) => set(f, 'show', e.currentTarget) }, 'Show again')]));
+    }
+    body.appendChild(box);
+  }
 }
 
 // Demo mode: results shaped like console_iconnections_run, made up from the
