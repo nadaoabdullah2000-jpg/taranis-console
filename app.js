@@ -1953,6 +1953,7 @@ function ensureMatchCss() {
   + ".mcard-sub{font-size:11.5px;color:var(--ink-3);margin-bottom:14px;letter-spacing:.01em;text-transform:none;--lbl:1}"
   + ".mcard-score{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3);margin-bottom:8px}"
   + ".mcard-score b{font-family:var(--font-display);font-size:15px;color:var(--ink-2)}"
+  + ".mcard-fit{font-weight:600;color:var(--ink-2);font-variant-numeric:tabular-nums}"
   + ".mcard-seg{display:flex;gap:4px;margin-bottom:15px}"
   + ".mcard-seg .seg{height:8px;flex:1;border-radius:3px;background:var(--rule-2,#E9EFF3)}"
   + ".mcard-seg .seg.on{background:linear-gradient(90deg,#00A8D0,#00A8C8)}"
@@ -2002,7 +2003,13 @@ function critMeter(m) {
   const qLabel = ql.charAt(0).toUpperCase() + ql.slice(1);
   const seg = el('div', { class: 'mcard-seg' });
   for (let i = 0; i < crit.length; i++) seg.appendChild(el('div', { class: 'seg' + (i < score ? ' on' : '') }));
-  return [el('div', { class: 'mcard-score' }, el('span', null, qLabel), el('b', null, score + ' of ' + crit.length + ' criteria met')), seg];
+  // The score the lists sort on, so "best match first" can be read off the cards.
+  const fit = sortFit(m);
+  const fitTxt = fit === null ? 'no score' : Math.round(fit * 100) + '%';
+  return [el('div', { class: 'mcard-score' },
+    el('span', null, qLabel + ' \u00B7 ',
+      el('span', { class: 'mcard-fit', title: 'Fit score, the order of "Score: best match first"' }, fitTxt)),
+    el('b', null, score + ' of ' + crit.length + ' criteria met')), seg];
 }
 // The three criteria, each met (\u2713), not stated (?) or contradicted (\u2717).
 function critRows(m) {
@@ -2348,10 +2355,18 @@ const numOrNull = (v) => {
 };
 // The score the card shows: the DB re-score once a verdict is set (no score
 // there means none, not the intake's old fit_score), the old score otherwise.
+// Rounded to 4 places so 0.74 stored by the database and 0.7400000001 worked out
+// in the browser tie, and the tie-breaks below decide between them.
 const sortFit = (m) => {
   if (!m) return null;
-  if (m.new_qualification) return numOrNull(m.new_fit_score);
-  return numOrNull(m.fit_score);
+  const n = m.new_qualification ? numOrNull(m.new_fit_score) : numOrNull(m.fit_score);
+  return n === null ? null : Math.round(n * 10000) / 10000;
+};
+// Confirmed hedge fund evidence on the card: on its own row or on any alert it folds.
+const sortHf = (m) => {
+  if (!m) return 0;
+  if (hfConfirmed(m)) return 1;
+  return (Array.isArray(m._intentions) ? m._intentions : []).some(hfConfirmed) ? 1 : 0;
 };
 const sortTicket = (m) => {
   const hi = numOrNull(m && m.ticket_max_usd);
@@ -2390,11 +2405,15 @@ const orderBy = (key, dir) => (x, y) => {
 function sortMandates(rows, mode) {
   const byId = (x, y) => (Number(y && y.id) || 0) - (Number(x && x.id) || 0);
   const then = (...cs) => (x, y) => { for (const c of cs) { const r = c(x, y); if (r) return r; } return 0; };
-  const best = then(orderBy(sortFit, -1), byId);
   const byName = orderBy(sortName, 1);
+  // Equal scores: confirmed hedge fund evidence first, then the most recent alert
+  // or intention, then name and id so the order never changes between redraws.
+  const hfFirst = (x, y) => sortHf(y) - sortHf(x);
+  const ties = [hfFirst, orderBy(sortDate, -1), byName, byId];
+  const best = then(orderBy(sortFit, -1), ...ties);
   const cmp = {
     best:       best,
-    score_asc:  then(orderBy(sortFit, 1), byName, byId),
+    score_asc:  then(orderBy(sortFit, 1), ...ties),
     latest:     then(orderBy(sortDate, -1), byId),
     oldest:     then(orderBy(sortDate, 1), byId),
     ticket:     then(orderBy(sortTicket, -1), best),
@@ -2948,14 +2967,14 @@ RENDER.intake = function (body) {
 
 RENDER.approvals = function (body) {
   fill(body, async () => {
-    const rows = await readRows('wi_mandates',
-      'select=id,investor_name,organization_name,investor_country,investor_type,'
+    const rows = await readAllRows('wi_mandates',
+      'select=id,investor_name,organization_name,investor_country,investor_type,hf_evidence,created_at,'
       + 'ticket_min_usd,ticket_max_usd,alert_date,fit_score,fit_reason,approved_at,approved_by,seen_at,qualification,new_qualification,new_fit_score,'
       + 'intention_summary,requirements_raw,appetite_raw,evidence,strategies,asset_classes,investor_city,open_to_emerging_managers,'
       + 'investor_tag,hard_fail_reasons,verdict_source,positive_signals,risks,missing_information'
       + '&approved_at=not.is.null&' + VERDICT_OPEN
-      + '&order=approved_at.desc.nullslast&limit=200',
-      'wi.reviews.pending', {});
+      + '&order=approved_at.desc.nullslast,id.desc',
+      'wi.reviews.pending', {}, 5000);
     return { rows: rows.map(r => Object.assign({}, r, {
       review_id: String(r.id),
       contact_name: r.investor_name,
@@ -2971,7 +2990,7 @@ RENDER.approvals = function (body) {
     }
     const grid = el('div', { class: 'matchgrid' });
     body.append(sortControl('approvals', () => paintApproved(),
-      'Sorts the ' + rows.length + ' loaded \u2014 the 200 most recently approved, not the whole table'), grid);
+      'Sorts all ' + rows.length + ' approved'), grid);
     paintApproved();
     function paintApproved() {
       clear(grid);
@@ -7571,6 +7590,7 @@ RENDER.find = function (body) {
                .filter(Boolean).join('  \u00B7  '),
         record: m,
         evidence: [
+          ['score   ', sortFit(m) === null ? 'no score' : sortFit(m)],
           ['type    ', tagLabel(m.investor_type)],
           ['strategy', tagList(m.strategies)],
           ['asset   ', tagList(m.asset_classes)],
