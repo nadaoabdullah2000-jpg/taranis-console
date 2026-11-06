@@ -4860,24 +4860,41 @@ async function setApproved(m, on, after) {
   }
 }
 
+// A card is one investor: the rows of every alert folded into it (_intentions),
+// or the row itself. A verdict chosen on the card applies to all of them, so
+// rejecting an investor takes every one of its alerts off the list.
+function cardRows(m) {
+  return Array.isArray(m && m._intentions) && m._intentions.length ? m._intentions : [m];
+}
+
 async function setQualification(m, to, said, after) {
-  const from = verdictGroup(m);
-  if (from === to) return toast('It is already there.');
+  const rows = cardRows(m).filter(r => verdictGroup(r) !== to);
+  if (!rows.length) return toast('It is already there.');
   if (to === 'matched') { try { if (!(await hfGate(m))) return; } catch (e) { return toast(e.message, true); } }
+  const who = String(m.investor_name || m.organization_name || 'this investor').trim();
+  const n = rows.length;
   const ask = to === 'rejected'
-    ? 'Reject this mandate? It moves to the Rejected list and you can still change your mind.'
+    ? (n > 1 ? 'Reject ' + who + '? All ' + n + ' of its alerts move to the Rejected list. You can still change your mind.'
+             : 'Reject this mandate? It moves to the Rejected list and you can still change your mind.')
     : to === 'matched'
-      ? 'Approve this mandate? It is marked matched, leaves your approvals queue, '
-        + 'and stops asking for a decision.'
-      : 'Move this back to Opportunities for a decision?';
+      ? (n > 1 ? 'Mark ' + who + ' as matched? All ' + n + ' of its alerts are marked matched and stop asking for a decision.'
+               : 'Approve this mandate? It is marked matched, leaves your approvals queue, '
+                 + 'and stops asking for a decision.')
+      : (n > 1 ? 'Move ' + who + ' back to Opportunities for a decision? All ' + n + ' of its alerts move.'
+               : 'Move this back to Opportunities for a decision?');
   if (!confirm(ask)) return;
   try {
-    const full = await fullMandate(m);
-    const patch = Object.assign({ qualification: to }, verdictPatch(full, to), manualVerdict());
-    if (to === 'rejected') { patch.approved_at = null; patch.approved_by = null; }
-    await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), patch);
-    Object.assign(m, patch);
-    toast(said);
+    let first = null;
+    for (const r of rows) {
+      const full = await fullMandate(r);
+      const patch = Object.assign({ qualification: to }, verdictPatch(full, to), manualVerdict());
+      if (to === 'rejected') { patch.approved_at = null; patch.approved_by = null; }
+      await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(r.id), patch);
+      Object.assign(r, patch);
+      if (!first || String(r.id) === String(m.id)) first = patch;
+    }
+    Object.assign(m, first);
+    toast(n > 1 ? said.replace(/\.$/, '') + ' (' + n + ' alerts).' : said);
     if (typeof after === 'function') after(to);
   } catch (e) {
     toast(e.message, true);
