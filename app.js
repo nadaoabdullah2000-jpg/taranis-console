@@ -1500,10 +1500,22 @@ function evidenceText(ev) {
   for (const k of Object.keys(x)) if (EVIDENCE_NOT_SCORED.indexOf(k) < 0) own[k] = x[k];
   return JSON.stringify(own);
 }
+// Strategy tags are read as words ("equity_long_short" -> "equity long short",
+// stratWords below), so a tag says long/short however With Intelligence spells it.
 function sigText(m) {
   return [m.intention_summary, m.requirements_raw, m.appetite_raw, evidenceText(m.evidence),
-    JSON.stringify(jsonArr(m.strategies)), JSON.stringify(jsonArr(m.asset_classes)),
+    JSON.stringify(stratWords(m)), JSON.stringify(jsonArr(m.asset_classes)),
     m.investor_type].join(' ').toLowerCase().replace(RE_NO_APPETITE, ' ');
+}
+// What the mandate itself says, for the CTA / macro / market-neutral test: its
+// own text, and its strategy tags only when there are 3 or fewer (the same
+// threshold isStrong uses). A long tag list is the investor's whole With
+// Intelligence menu, so one "cta" or "global macro" among many does not make
+// the mandate a macro or CTA mandate (decided 9 Nov 2026).
+function mandateText(m) {
+  const w = stratWords(m);
+  return [m.intention_summary, m.requirements_raw, m.appetite_raw, evidenceText(m.evidence),
+    w.length <= 3 ? JSON.stringify(w) : ''].join(' ').toLowerCase().replace(RE_NO_APPETITE, ' ');
 }
 const RE_HEDGE = /hedge|alternative|absolute return|liquid alt/;
 // "equity long" is the start of "equity long/short" or "equity long-short",
@@ -1789,7 +1801,7 @@ function rescore(m) {
     return { band: 'rejected', q: 'rejected', s: 0 };
   }
   const strong = isStrong(m, t), techOnly = !!techOf(m, t), space = !!spaceOf(m, t), tech = techOnly || space;
-  let band = strong ? (tech ? 'strong_tech' : 'strong') : tech ? 'tech' : RE_EXCL.test(t) ? 'low' : 'needs_data';
+  let band = strong ? (tech ? 'strong_tech' : 'strong') : tech ? 'tech' : RE_EXCL.test(mandateText(m)) ? 'low' : 'needs_data';
   // An allocator's hire is worth a look, never an automatic match.
   if (band.indexOf('strong') === 0 && /^people$/i.test(String(m.investor_tag || '').trim())) band = 'hire';
   const cc = String(m.investor_country || '').toUpperCase().replace(/[^A-Z]/g, '');
@@ -1907,7 +1919,7 @@ function verdictReason(m) {
     else if ((tech || space) && !strong) s = capFirst(techBit) + ', but no long/short or quant stated: worth a look';
     else s = 'Held for a person to look at: ' + [strongBit, techBit, hedge].filter(Boolean).join(', ');
   } else if (band === 'low') {
-    const x = t.match(RE_EXCL);
+    const x = mandateText(m).match(RE_EXCL);
     s = 'Only ' + (x ? x[0] : 'CTA, macro or market-neutral') + ' stated, no long/short, quant or technology signal: the wrong fit for a long-biased L/S equity fund';
   } else {
     const w = stratWords(m);
