@@ -21,3 +21,20 @@
 --          new_fit_score = b.new_fit_score
 --     from rescore_backup_20261109 b where b.id = m.id;
 --   commit;
+
+-- ---------------------------------------------------------------------------------------------
+-- SECOND PASS, 9 Nov 2026 ~17:30 UTC (after Grok run grok-20261109-164706-2d5b; dry run = n8n
+-- execution 70486, 237 rows, 53 differences). Applied only the 8 differences caused by Grok fills;
+-- the 35+ older-rule differences and the 6 SFO "rejected" proposals were NOT applied.
+--   166, 184 UTIMCO            -> uncertain 0.6     1324, 2288 SWIB      matched 0.8 -> matched 1.0
+--   401 Greenwood              -> uncertain 0.7     1381 UChicago        needs data -> uncertain 0.7
+--   1619 Northwestern Medicine -> uncertain 0.6     2894 Kairos          matched 0.75 -> matched 1.0
+-- Same method as above: rows appended to rescore_backup_20261109 first, one transaction,
+-- logged in wi_fill_log with source 'Rescore 9 Nov 2026 after Grok fills (app rule rescore()), second pass'.
+-- The UNDO block above restores these rows too (it reads rescore_backup_20261109).
+--
+-- GROK CHECKED LIST, 9 Nov 2026: Grok's Excel of the 243 investors it checked today was written to
+-- grok_checked (464 rows: one per mandate row of each investor). Saved / nothing new -> 'done';
+-- skipped -> 'no_profile' (711, 740, 3011, 3057 CAMRADATA, and placeholder rows 2633, 2634, 2685,
+-- 2773, 3029, 3047), except 752 Quilter -> 'unsure' (uncertain match). Undo for one investor:
+--   update grok_checked set reviewed_at = now() where mandate_id = <id> and checked_at::date = '2026-11-09';
