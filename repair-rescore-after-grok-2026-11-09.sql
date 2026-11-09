@@ -36,5 +36,8 @@
 -- GROK CHECKED LIST, 9 Nov 2026: Grok's Excel of the 243 investors it checked today was written to
 -- grok_checked (464 rows: one per mandate row of each investor). Saved / nothing new -> 'done';
 -- skipped -> 'no_profile' (711, 740, 3011, 3057 CAMRADATA, and placeholder rows 2633, 2634, 2685,
--- 2773, 3029, 3047), except 752 Quilter -> 'unsure' (uncertain match). Undo for one investor:
---   update grok_checked set reviewed_at = now() where mandate_id = <id> and checked_at::date = '2026-11-09';
+-- 2773, 3029, 3047), except 752 Quilter -> 'unsure' (uncertain match). Nothing deleted.
+-- To put an investor back on Grok's to-do list (todo skips done / no_profile for 30 days):
+--   update grok_checked set checked_at = checked_at - interval '31 days'
+--    where mandate_id = <id> and checked_at::date = '2026-11-09';
+-- Quilter (unsure) leaves the review list once reviewed_at / reviewed_by are set.
