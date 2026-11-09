@@ -1,0 +1,23 @@
+-- 9 Nov 2026: rescore of the rows Grok filled today (applied in ONE transaction).
+-- Values from the app's own rule (app.js rescore(), run unchanged on the stored rows in a
+-- read-only n8n dry run, rerun just before applying). Only rows still as the dry run saw
+-- them, never a verdict a person set (verdict_source 'manual').
+--   57 changes caused by Grok's new values (approved by research@taranis.net), and
+--   6 single-family offices (720 Inversiones Nogaleda, 725 Ajit Khimji, 728 Clian Holding,
+--   733 Scimitar, 735 Playfair Capital, 742 SalibaCo) set to review (uncertain, no score)
+--   instead of the rule's rejection, whose only reason was that hedge funds are not among
+--   their With Intelligence asset classes (decided by research@taranis.net).
+-- Applied 63 of 63; none skipped; after the hedge fund rule ran, every row holds exactly
+-- the intended verdict and score.
+-- Backup: rescore_backup_20261109. Logged in wi_fill_log, field 'Verdict', source
+-- 'Rescore 9 Nov 2026 after Grok fills ...'.
+--
+-- The 38 rows whose verdict the rule already disputed before Grok, and 8 new Grok-caused
+-- changes from batch 13, were NOT applied (waiting for a decision).
+
+-- UNDO (one block):
+--   begin;
+--   update wi_mandates m set qualification = b.qualification, new_qualification = b.new_qualification,
+--          new_fit_score = b.new_fit_score
+--     from rescore_backup_20261109 b where b.id = m.id;
+--   commit;
