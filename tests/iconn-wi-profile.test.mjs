@@ -32,3 +32,23 @@ test('a firm finds its entry by any of its rows', () => {
   assert.equal(ctx.iconnWiOf({ row_nos: [3, 7] }).wi_id, '1904');
   assert.equal(ctx.iconnWiOf({ row_nos: [4] }), null);
 });
+
+test('a firm whose With Intelligence id is on a row of the list is that row, whatever its status', () => {
+  const ctx2 = { ICONN: { wi: {
+    1: { wi_id: '2147326049', in_list: { id: 1257, name: 'Stifel, Nicolaus & Co.', verdict: 'rejected', by_you: true, row_ids: [1257, 1728] } },
+    2: { wi_id: '9564', in_list: { id: 1358, name: 'Andrew Carnegie Foundation', verdict: 'matched', row_ids: [1358] } },
+    3: { wi_id: null } } } };
+  vm.createContext(ctx2);
+  vm.runInContext([grab('function iconnWiOf', 'function iconnFitCell'), grab('function iconnMatchByWi', '// "Rejected by you"'),
+    'this.iconnMatchByWi = iconnMatchByWi;'].join('\n'), ctx2);
+  const res = { firms: [
+    { name: 'Stifel', row_nos: [1], bucket: 'review', matched_id: null, candidates: [{ id: 1776 }] },
+    { name: 'Carnegie Corporation of New York', row_nos: [2], bucket: 'matched', matched_id: 1358 },
+    { name: 'Phoenix-5 Ltd', row_nos: [3], bucket: 'review', matched_id: null }] };
+  assert.equal(ctx2.iconnMatchByWi(res), 1);
+  const [s, c, p] = res.firms;
+  assert.equal(s.bucket, 'matched'); assert.equal(s.matched_id, 1257); assert.equal(s.match_method, 'wi_id');
+  assert.equal(s.name_match.bucket, 'review');
+  assert.equal(c.matched_id, 1358); assert.equal(c.by_wi, true); assert.equal(c.name_match, undefined);
+  assert.equal(p.bucket, 'review');
+});

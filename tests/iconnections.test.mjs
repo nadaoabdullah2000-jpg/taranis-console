@@ -246,3 +246,16 @@ test('an AUM range with one unit reads its left side in the next unit down when 
   assert.deepEqual(R.parseAum('$250m - $500m', 'AUM'), { low: 2.5e8, high: 5e8, ok: true });
   assert.equal(R.parseAum('5000 - 1bn', 'AUM').ok, false);
 });
+
+test('Contacts: position and e-mail domain per person; only the domain, never the address; no free mail (schema-23)', async () => {
+  const one = (rows) => book([{ name: 'S', rows }]).then(R.chooseSheet);
+  const p = await one([['Firm Name', 'First Name', 'Last Name', 'Title', 'Email'],
+    ['Stifel', 'Alex', 'Edwards', 'Managing Director', 'alex.edwards@stifel.com'],
+    ['Phoenix-5 Ltd', 'Alex', 'How', 'CIO', 'alex@gmail.com'],
+    ['True North Advisors', 'Brian', 'Heider', null, 'not an address']]);
+  const c = R.contactsByRow(p.sheet, p.headerIndex, p.cols);
+  assert.deepEqual(c.get(2), { name: 'Alex Edwards', position: 'Managing Director', domain: 'stifel.com' });
+  assert.deepEqual(c.get(3), { name: 'Alex How', position: 'CIO', domain: null });
+  assert.deepEqual(c.get(4), { name: 'Brian Heider', position: null, domain: null });
+  assert.ok(!JSON.stringify([...c]).includes('@'), 'no e-mail address leaves the reader');
+});

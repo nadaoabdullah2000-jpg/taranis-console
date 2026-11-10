@@ -10177,7 +10177,22 @@ async function iconnMatch(btn, stage) {
   // with each firm's row (schema-18 stores them with the run, so a reopened
   // run shows them too); before schema-18 the database ignores them.
   const people = window.IconnReader.peopleByRow(sheet, ICONN.headerIndex, ICONN.cols);
-  const withPeople = (r) => Object.assign({}, r, { people: iconnPeopleOf({ row_nos: r.row_nos }, people) });
+  // Each contact's position and the firm's e-mail domains (schema-23): only the
+  // part after @ is sent, never an address. They let a firm be found in the
+  // list by website or person, and Grok search With Intelligence with them.
+  const detail = window.IconnReader.contactsByRow ? window.IconnReader.contactsByRow(sheet, ICONN.headerIndex, ICONN.cols) : new Map();
+  const withPeople = (r) => {
+    const seen = new Set(), contacts = [], domains = new Set();
+    for (const n of (r.row_nos || [])) {
+      const c = detail.get(Number(n));
+      if (!c) continue;
+      if (c.domain) domains.add(c.domain);
+      const k = (c.name || '').toLowerCase();
+      if (c.name && !seen.has(k)) { seen.add(k); contacts.push(c.position ? { name: c.name, position: c.position } : { name: c.name }); }
+    }
+    return Object.assign({}, r, { people: iconnPeopleOf({ row_nos: r.row_nos }, people),
+      contacts_detail: contacts, email_domains: [...domains] });
+  };
   btn.disabled = true;
   try {
     let res;
@@ -10357,7 +10372,33 @@ async function iconnLoadWi(res) {
     const list = await supaRpc('console_iconn_wi_profiles', { p_run_id: Number(ICONN.runId) });
     for (const w of list || []) ICONN.wi[w.row_no] = w;
   } catch (_) { return; /* older database: the column keeps its old look */ }
+  if (iconnMatchByWi(res)) ICONN.mandFor = null;   // new rows to read for the Opportunity column
   if (current === 'iconn' && ICONN.result === res) go('iconn');
+}
+// The With Intelligence profile is the main key (schema-23b): a firm whose
+// With Intelligence id is on a row of the list is that row, whatever its
+// status (rejected, excluded and merged rows included), even when the
+// iConnections name match found nothing or something else. The name match is
+// kept on the firm as name_match. Returns how many firms changed.
+function iconnMatchByWi(res) {
+  let n = 0;
+  for (const f of (res.firms || [])) {
+    const il = (iconnWiOf(f) || {}).in_list;
+    if (!il || !il.id) continue;
+    const same = f.bucket === 'matched' && (il.row_ids || []).map(Number).includes(Number(f.matched_id));
+    if (same) { f.by_wi = true; continue; }
+    if (!f.name_match) f.name_match = { bucket: f.bucket, matched_id: f.matched_id, matched_name: f.matched_name,
+      match_method: f.match_method, confidence: f.confidence, candidates: f.candidates };
+    Object.assign(f, { bucket: 'matched', matched_id: il.id, matched_name: il.name, match_method: 'wi_id', confidence: null,
+      candidates: [], opp_ids: il.row_ids || [il.id], matched_status: il.verdict, matched_fit: il.score, by_wi: true });
+    n++;
+  }
+  return n;
+}
+// "Rejected by you" when a person set the rejection, as the Opportunities list says it.
+function iconnVerdictText(band, m) {
+  if (band === 'rejected' && m && m.verdict_source === 'manual') return 'Rejected by you';
+  return iconnVerdictLabel(band);
 }
 function iconnWiOf(f) {
   for (const r of (f.row_nos || [])) if (ICONN.wi && ICONN.wi[r]) return ICONN.wi[r];
@@ -10519,14 +10560,17 @@ function iconnFirmRow(f, showPeople) {
     const band = fx.verdict;
     opp.appendChild(el('button', { class: 'ic-link', onclick: () => openMandateById(f.matched_id, 'iconn') }, f.matched_name || ('#' + f.matched_id)));
     opp.appendChild(el('div', { class: 'ic-flags' },
-      el('span', { class: 'tag ' + bandTone(band) + (band === 'rejected' ? ' ic-rej-tag' : '') }, 'status: ' + iconnVerdictLabel(band)),
+      el('span', { class: 'tag ' + bandTone(band) + (band === 'rejected' ? ' ic-rej-tag' : '') }, 'status: ' + iconnVerdictText(band, fx.m)),
+      (iconnWiOf(f) || {}).in_list && iconnWiOf(f).in_list.excluded ? el('span', { class: 'tag' }, 'excluded') : null,
       !f.rejected && f.opp_rejected > 0
         ? el('span', { class: 'ic-sub', style: 'margin:0' }, f.opp_rejected + ' of ' + f.opp_ids.length + ' rows rejected') : null));
     // How the file's name was linked to it, kept in view so a loose link
     // never reads as a sure one just because the fit beside it is high.
     opp.appendChild(el('div', { class: 'ic-how' + (f.match_method === 'fuzzy' ? ' fuzzy' : '') },
-      'iConnections match: ' + (f.match_method || '?')
-      + (f.confidence !== null && f.confidence !== undefined ? ' ' + Math.round(Number(f.confidence) * 100) + '%' : '')));
+      f.match_method === 'wi_id' ? 'Matched by its With Intelligence profile'
+        : 'iConnections match: ' + (f.match_method || '?')
+          + (f.confidence !== null && f.confidence !== undefined ? ' ' + Math.round(Number(f.confidence) * 100) + '%' : '')
+          + (f.by_wi ? ' · same With Intelligence profile' : '')));
   } else if (f.bucket === 'review') {
     opp.appendChild(el('div', { class: 'ic-sub', style: 'margin:0 0 4px' },
       f.match_method === 'alias' ? 'The short name points at more than one investor:' : 'Close, but below the line for a match:'));
@@ -10592,6 +10636,10 @@ function iconnResults(body) {
   const keepBy = { all: () => true, dup: ICONN_DUP, conflict: (f) => !!f.conflicts,
     'ic:matched': (f) => f.bucket === 'matched', 'ic:review': (f) => f.bucket === 'review', 'ic:none': (f) => f.bucket === 'none' };
   for (const v of vKeys) keepBy['v:' + v] = (f) => verdictOf(f) === v;
+  // With Intelligence profile linked or not, and in the list or not (schema-23).
+  const wiLinked = (f) => { const w = iconnWiOf(f) || {}; return !!w.wi_id && w.certain !== false; };
+  const inList = (f) => f.bucket === 'matched' && !!f.matched_id;
+  Object.assign(keepBy, { 'wi:yes': wiLinked, 'wi:no': (f) => !wiLinked(f), 'list:yes': inList, 'list:no': (f) => !inList(f) });
   if (!keepBy[ICONN.filter]) ICONN.filter = 'all';
   const chip = ([k, label, n]) => el('button', {
     class: 'btn btn-sm ' + (ICONN.filter === k ? '' : 'btn-quiet'), 'aria-pressed': String(ICONN.filter === k),
@@ -10608,6 +10656,13 @@ function iconnResults(body) {
     chip(['ic:none', 'iConnections \u2014 no match', nB('none')]),
     chip(['dup', 'Duplicates', firms.filter(ICONN_DUP).length]),
     chip(['conflict', 'Conflicts', firms.filter(f => !!f.conflicts).length])));
+  body.appendChild(el('div', { class: 'chips ic-chips', style: 'margin:0 0 10px' },
+    chipLabel('With Intelligence profile'),
+    chip(['wi:yes', 'Linked', firms.filter(wiLinked).length]),
+    chip(['wi:no', 'Not linked', firms.filter(f => !wiLinked(f)).length]),
+    chipLabel('In my list'),
+    chip(['list:yes', 'Yes', firms.filter(inList).length]),
+    chip(['list:no', 'No', firms.filter(f => !inList(f)).length])));
 
   const keep = keepBy[ICONN.filter];
   // Sorting by fit keeps confirmed matches above review rows above no

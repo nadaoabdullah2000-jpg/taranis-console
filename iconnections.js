@@ -604,13 +604,39 @@
     return out;
   }
 
+  // Each contact's position and e-mail domain, by sheet row (schema-23). Only the
+  // part after @ leaves the browser, never the address; free-mail domains
+  // (gmail.com and the like) say nothing about the firm and are dropped.
+  const FREE_MAIL = /^(gmail|googlemail|yahoo|hotmail|outlook|live|msn|icloud|me|mac|aol|protonmail|proton|gmx|web|qq|163|126|mail|yandex|zoho|btinternet|comcast|verizon|att|sbcglobal|bluewin|orange|free|libero|naver)\.[a-z.]+$/;
+  function contactsByRow(sheet, headerIndex, cols) {
+    const out = new Map();
+    const headers = sheet.rows[headerIndex] ? sheet.rows[headerIndex].cells : [];
+    const norm = headers.map(normHeader);
+    const used = new Set(SENT_FIELDS.map(f => cols[f]).concat([cols.person]).filter(i => i !== undefined && i !== null && i >= 0));
+    const find = (re) => norm.findIndex((h, i) => h && re.test(h) && !used.has(i));
+    const pos = find(/^(job )?(title|position|role|designation|job function|function)$|^(job|business) title$/);
+    const mail = find(/^(e ?mail|e ?mail address|work e ?mail|business e ?mail|email 1|primary e ?mail)$/);
+    const names = peopleByRow(sheet, headerIndex, cols);
+    for (const row of sheet.rows.slice(headerIndex + 1)) {
+      const cell = (i) => i >= 0 && row.cells[i] !== null && row.cells[i] !== undefined ? String(row.cells[i]).replace(/\s+/g, ' ').trim() : '';
+      const position = cell(pos).slice(0, 200);
+      const raw = cell(mail);
+      const domain = raw.includes('@') ? parseDomain(raw) : null;
+      const name = names.get(row.r) || '';
+      if (name || position || domain) {
+        out.set(row.r, { name: name, position: position || null, domain: domain && !FREE_MAIL.test(domain) ? domain : null });
+      }
+    }
+    return out;
+  }
+
   async function sha256Hex(buf) {
     const subtle = (root.crypto && root.crypto.subtle) || (typeof require === 'function' ? require('crypto').webcrypto.subtle : null);
     const d = await subtle.digest('SHA-256', buf);
     return Array.from(new Uint8Array(d), b => b.toString(16).padStart(2, '0')).join('');
   }
 
-  const api = { MAX_ROWS, SENT_FIELDS, peopleByRow, ReadError, readZip, readWorkbook, parseSheet, normHeader, detectColumns, findHeader,
+  const api = { MAX_ROWS, SENT_FIELDS, peopleByRow, contactsByRow, ReadError, readZip, readWorkbook, parseSheet, normHeader, detectColumns, findHeader,
                 chooseSheet, headerUnit, parseAum, parseDomain, parseCountry, buildRows, sha256Hex, colName, FIELDS };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.IconnReader = api;
