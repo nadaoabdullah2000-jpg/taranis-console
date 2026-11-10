@@ -9881,6 +9881,9 @@ function ensureIconnCss() {
   + ".ic-more{font-size:12px;margin:3px 0 0 16px}"
   + ".ic-how{font-size:11px;letter-spacing:.04em;color:var(--ink-3);margin-top:5px}"
   + ".ic-how.fuzzy{color:var(--signal)}"
+  + ".ic-chip-s{font-size:11px;padding:2px 8px}.ic-sub-chips{opacity:.95}"
+  + ".ic-checks summary{cursor:pointer;font-size:12px;color:var(--ink-3);display:inline-block;padding:2px 0}"
+  + ".ic-checks[open] summary{color:var(--ink-2)}.ic-checks .chips{margin-top:6px}"
   + ".ic-score.cand{color:var(--signal);font-weight:500}"
   + ".ic-why{margin:3px 0 0;text-decoration:underline dotted}"
   + ".ic-fitbtn{all:unset;display:block;cursor:pointer;min-width:120px;border-radius:4px}"
@@ -10328,9 +10331,9 @@ function iconnRep(f) {
            fit: fit !== null ? fit : n(st.fit),
            reason: (m && m.fit_reason) || st.reason || '' };
 }
-// Verdict words on this page. 'uncertain' is spelt out rather than shown
-// as "review", which here would read as the iConnections name-match state.
-const ICONN_VERDICT = [['matched', 'Matched'], ['uncertain', 'Uncertain'], ['low', 'Low fit'],
+// Verdict words on this page, the same as the filters: "Review" for
+// uncertain (the name-match states now live under Checks, 11 Nov 2026).
+const ICONN_VERDICT = [['matched', 'Matched'], ['uncertain', 'Review'], ['low', 'Low fit'],
                        ['needs_data', 'Needs data'], ['rejected', 'Rejected']];
 const iconnVerdictLabel = (v) => ((ICONN_VERDICT.find(x => x[0] === v) || [])[1] || String(v || '').replace(/_/g, ' '));
 const ICONN_TIER = { matched: 0, review: 1, none: 2 };
@@ -10623,46 +10626,49 @@ function iconnResults(body) {
     body.appendChild(el('ul', { class: 'ic-notes' }, ...ICONN.notes.map(n => el('li', null, n))));
   }
 
-  // Chips. Matched firms by the Taranis verdict of their representative
-  // row (iconnRep: the same row the Opportunity status and the fit come
-  // from), one chip per verdict present. Firms with no verdict, and the
-  // in-book set as a whole, by the iConnections name-match state.
+  // Filters (11 Nov 2026). One main row whose counts add up to the total:
+  //   In my list: matched to an Opportunities row by any method (name, alias,
+  //     With Intelligence id, or a link from the list);
+  //   On With Intelligence, not in my list: a certain link, no row;
+  //   Not found yet: no certain link (Grok's to-do list).
+  // "In my list" opens a smaller row of verdicts; Duplicates, Conflicts and
+  // uncertain name matches sit in a "Checks" menu.
   const verdictOf = (f) => f.bucket === 'matched' && f.matched_id ? iconnRep(f).verdict : null;
-  const vCount = {};
-  for (const f of firms) { const v = verdictOf(f); if (v) vCount[v] = (vCount[v] || 0) + 1; }
-  const vKeys = ICONN_VERDICT.map(x => x[0]).filter(v => vCount[v])
-    .concat(Object.keys(vCount).filter(v => !ICONN_VERDICT.some(x => x[0] === v)).sort());
-  const nB = (b) => firms.filter(f => f.bucket === b).length;
-  const keepBy = { all: () => true, dup: ICONN_DUP, conflict: (f) => !!f.conflicts,
-    'ic:matched': (f) => f.bucket === 'matched', 'ic:review': (f) => f.bucket === 'review', 'ic:none': (f) => f.bucket === 'none' };
-  for (const v of vKeys) keepBy['v:' + v] = (f) => verdictOf(f) === v;
-  // With Intelligence profile linked or not, and in the list or not (schema-23).
-  const wiLinked = (f) => { const w = iconnWiOf(f) || {}; return !!w.wi_id && w.certain !== false; };
   const inList = (f) => f.bucket === 'matched' && !!f.matched_id;
-  Object.assign(keepBy, { 'wi:yes': wiLinked, 'wi:no': (f) => !wiLinked(f), 'list:yes': inList, 'list:no': (f) => !inList(f) });
+  const wiCertain = (f) => { const w = iconnWiOf(f) || {}; return !!w.wi_id && w.certain !== false; };
+  const onWi = (f) => !inList(f) && wiCertain(f);
+  const notFound = (f) => !inList(f) && !wiCertain(f);
+  const VERDICTS = [['matched', 'Matched'], ['uncertain', 'Review'], ['low', 'Low fit'], ['needs_data', 'Needs data'], ['rejected', 'Rejected']];
+  const keepBy = { all: () => true, list: inList, wi: onWi, notfound: notFound,
+    'chk:dup': ICONN_DUP, 'chk:conflict': (f) => !!f.conflicts, 'chk:review': (f) => f.bucket === 'review' };
+  for (const [v] of VERDICTS) keepBy['list:' + v] = (f) => inList(f) && verdictOf(f) === v;
   if (!keepBy[ICONN.filter]) ICONN.filter = 'all';
-  const chip = ([k, label, n]) => el('button', {
-    class: 'btn btn-sm ' + (ICONN.filter === k ? '' : 'btn-quiet'), 'aria-pressed': String(ICONN.filter === k),
+  const chip = ([k, label, n], small) => el('button', {
+    class: 'btn btn-sm ' + (ICONN.filter === k ? '' : 'btn-quiet') + (small ? ' ic-chip-s' : ''), 'aria-pressed': String(ICONN.filter === k),
     onclick: () => { ICONN.filter = k; go('iconn'); } }, label + ' ' + n);
-  const chipLabel = (t) => el('span', { class: 'ic-chipk' }, t);
+  const listed = firms.filter(inList);
   body.appendChild(el('div', { class: 'chips ic-chips', style: 'margin:14px 0 4px' },
-    chip(['all', 'Everything', firms.length]),
-    vKeys.length ? chipLabel('Taranis verdict') : null,
-    ...vKeys.map(v => chip(['v:' + v, iconnVerdictLabel(v), vCount[v]]))));
-  body.appendChild(el('div', { class: 'chips ic-chips', style: 'margin:0 0 10px' },
-    chipLabel('Name match'),
-    chip(['ic:matched', 'iConnections \u2014 matched', nB('matched')]),
-    chip(['ic:review', 'iConnections \u2014 review', nB('review')]),
-    chip(['ic:none', 'iConnections \u2014 no match', nB('none')]),
-    chip(['dup', 'Duplicates', firms.filter(ICONN_DUP).length]),
-    chip(['conflict', 'Conflicts', firms.filter(f => !!f.conflicts).length])));
-  body.appendChild(el('div', { class: 'chips ic-chips', style: 'margin:0 0 10px' },
-    chipLabel('With Intelligence profile'),
-    chip(['wi:yes', 'Linked', firms.filter(wiLinked).length]),
-    chip(['wi:no', 'Not linked', firms.filter(f => !wiLinked(f)).length]),
-    chipLabel('In my list'),
-    chip(['list:yes', 'Yes', firms.filter(inList).length]),
-    chip(['list:no', 'No', firms.filter(f => !inList(f)).length])));
+    chip(['all', 'All', firms.length]),
+    chip(['list', 'In my list', listed.length]),
+    chip(['wi', 'On With Intelligence, not in my list', firms.filter(onWi).length]),
+    chip(['notfound', 'Not found yet', firms.filter(notFound).length])));
+  // The verdicts of the firms in the list, while "In my list" (or one verdict) is selected.
+  if (ICONN.filter === 'list' || ICONN.filter.indexOf('list:') === 0) {
+    const byYou = listed.filter(f => verdictOf(f) === 'rejected' && iconnRep(f).m && iconnRep(f).m.verdict_source === 'manual').length;
+    body.appendChild(el('div', { class: 'chips ic-chips ic-sub-chips', style: 'margin:0 0 4px 12px' },
+      ...VERDICTS.map(([v, label]) => {
+        const n = listed.filter(f => verdictOf(f) === v).length;
+        return chip(['list:' + v, label + (v === 'rejected' && byYou ? ' (' + byYou + ' by you)' : ''), n], true);
+      })));
+  }
+  // Checks: a small menu, not part of the main row.
+  const checks = [['chk:dup', 'Duplicates', firms.filter(ICONN_DUP).length],
+                  ['chk:conflict', 'Conflicts', firms.filter(f => !!f.conflicts).length],
+                  ['chk:review', 'Uncertain name matches', firms.filter(f => f.bucket === 'review').length]];
+  const menu = el('details', { class: 'ic-checks' }, el('summary', null, 'Checks \u25BE'),
+    el('div', { class: 'chips ic-chips' }, ...checks.map(c => chip(c, true))));
+  if (ICONN.filter.indexOf('chk:') === 0) menu.setAttribute('open', '');
+  body.appendChild(el('div', { style: 'margin:2px 0 10px' }, menu));
 
   const keep = keepBy[ICONN.filter];
   // Sorting by fit keeps confirmed matches above review rows above no
