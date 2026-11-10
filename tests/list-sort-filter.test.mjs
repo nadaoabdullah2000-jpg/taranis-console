@@ -16,7 +16,10 @@ const store = {};
 const ctx = { Date, Number, JSON, Intl, Array, String, isFinite,
   localStorage: { getItem: (k) => store[k] || null, setItem: (k, v) => { store[k] = v; } },
   OPPS_COUNTRY_NAMES: { GB: 'United Kingdom', US: 'United States', CH: 'Switzerland' },
-  techOf: () => false, asText: (v) => Array.isArray(v) ? v.join(' ') : String(v || '') };
+  techOf: () => false, asText: (v) => Array.isArray(v) ? v.join(' ') : String(v || ''),
+  // The verdict as app.js reads it, and the criteria met (given on the test rows).
+  bandOf: (m) => String((m && m.new_qualification) || (m && m.qualification) || 'uncertain').trim().toLowerCase(),
+  critOf: (m) => (m && m._crit) || [false, false, false] };
 vm.createContext(ctx);
 vm.runInContext(grab('const LIST_SORTS = [', '// The Sort dropdown')
   + grab('function assetMatches(', '// A row\'s verdict is new_qualification')
@@ -39,7 +42,8 @@ test('every sort option is wired, and the dropdown keeps its keys', () => {
 
 test('score sorts as a number and follows the verdict, not the stale intake score', () => {
   // #2 has a verdict but no re-score: its old fit_score of 1 must not put it first.
-  assert.deepEqual(ids(ctx.sortMandates(ROWS, 'best')), [1, 5, 3, 4, 2]);
+  // Best match first goes by verdict: matched, review, needs data, low fit.
+  assert.deepEqual(ids(ctx.sortMandates(ROWS, 'best')), [1, 5, 3, 2, 4]);
   assert.deepEqual(ids(ctx.sortMandates(ROWS, 'score_asc')), [4, 3, 5, 1, 2]);   // no score is last both ways
 });
 
@@ -104,4 +108,17 @@ test('strategy -> asset class: a strategy lists and selects only its own asset c
   assert.equal(ctx.listPasses(pe, F('', 'equity')), false);                       // private equity is not listed equity
   assert.equal(ctx.listPasses({ strategies: ['cta'], asset_classes: ['Hedge Funds'] }, F('cta')), true);
   assert.equal(ctx.listPasses({ strategies: ['credit'], asset_classes: ['Hedge Funds'] }, F('credit')), true);
+});
+
+test('best match first: verdict before score, then score, then more criteria met, then the newest intention', () => {
+  const rows = [
+    { id: 10, new_qualification: 'uncertain', new_fit_score: 0.74, alert_date: '2026-11-09', _crit: [true, false, false] },   // capped review, 1 of 3, newest
+    { id: 11, new_qualification: 'uncertain', new_fit_score: 0.74, alert_date: '2026-10-01', _crit: [true, true, false] },    // capped review, 2 of 3
+    { id: 12, new_qualification: 'matched',   new_fit_score: 0.75, alert_date: '2026-06-01', _crit: [true, false, false] },
+    { id: 13, new_qualification: 'matched',   new_fit_score: 1,    alert_date: '2026-06-01', _crit: [true, true, false] },
+    { id: 14, new_qualification: 'needs_data', new_fit_score: null, alert_date: '2026-11-10' },
+    { id: 15, new_qualification: 'low',       new_fit_score: 0.25, alert_date: '2026-11-10' },
+    { id: 16, new_qualification: 'uncertain', new_fit_score: 0.74, alert_date: '2026-11-10', _crit: [true, false, false] }   // 1 of 3, newer than #10
+  ];
+  assert.deepEqual(ids(ctx.sortMandates(rows, 'best')), [13, 12, 11, 16, 10, 14, 15]);
 });

@@ -2017,10 +2017,16 @@ function critMeter(m) {
   for (let i = 0; i < crit.length; i++) seg.appendChild(el('div', { class: 'seg' + (i < score ? ' on' : '') }));
   // The score the lists sort on, so "best match first" can be read off the cards.
   const fit = sortFit(m);
-  const fitTxt = fit === null ? 'no score' : Math.round(fit * 100) + '%';
+  // A would-be match whose hedge fund investing is not confirmed becomes a
+  // review capped at 74% (the hedge fund rule), whatever its criteria: say so,
+  // so "1 of 3" and "2 of 3" at the same 74% are not read as the same fit.
+  const capped = q === 'uncertain' && fit === 0.74 && !sortHf(m);
+  const fitTxt = fit === null ? 'no score' : (capped ? 'capped at ' : '') + Math.round(fit * 100) + '%';
   return [el('div', { class: 'mcard-score' },
     el('span', null, qLabel + ' \u00B7 ',
-      el('span', { class: 'mcard-fit', title: 'Fit score, the order of "Score: best match first"' }, fitTxt)),
+      el('span', { class: 'mcard-fit', title: capped
+        ? 'Hedge fund investing not confirmed: a review is capped at 74%, whatever the criteria. Order of "Score: best match first": verdict, score, then criteria met.'
+        : 'Fit score. Order of "Score: best match first": verdict, score, then criteria met.' }, fitTxt)),
     el('b', null, score + ' of ' + crit.length + ' criteria met')), seg];
 }
 // The three criteria, each met (\u2713), not stated (?) or contradicted (\u2717).
@@ -2380,6 +2386,16 @@ const sortHf = (m) => {
   if (hfConfirmed(m)) return 1;
   return (Array.isArray(m._intentions) ? m._intentions : []).some(hfConfirmed) ? 1 : 0;
 };
+// The verdict's place in "best match first".
+const BEST_VERDICT_ORDER = { matched: 0, uncertain: 1, needs_data: 2, low: 3, rejected: 4 };
+const sortVerdict = (m) => { const v = BEST_VERDICT_ORDER[bandOf(m)]; return v === undefined ? 5 : v; };
+// How many of the three criteria the card meets; worked out once per row.
+const CRIT_N = new WeakMap();
+const sortCrit = (m) => {
+  if (!m || typeof m !== 'object') return 0;
+  if (!CRIT_N.has(m)) CRIT_N.set(m, critOf(m).filter(Boolean).length);
+  return CRIT_N.get(m);
+};
 const sortTicket = (m) => {
   const hi = numOrNull(m && m.ticket_max_usd);
   if (hi !== null && hi > 0) return hi;
@@ -2418,11 +2434,15 @@ function sortMandates(rows, mode) {
   const byId = (x, y) => (Number(y && y.id) || 0) - (Number(x && x.id) || 0);
   const then = (...cs) => (x, y) => { for (const c of cs) { const r = c(x, y); if (r) return r; } return 0; };
   const byName = orderBy(sortName, 1);
-  // Equal scores: confirmed hedge fund evidence first, then the most recent alert
-  // or intention, then name and id so the order never changes between redraws.
+  // Equal scores: more of the three criteria met first, then the most recent
+  // alert or intention, then confirmed hedge fund evidence, then name and id so
+  // the order never changes between redraws.
   const hfFirst = (x, y) => sortHf(y) - sortHf(x);
-  const ties = [hfFirst, orderBy(sortDate, -1), byName, byId];
-  const best = then(orderBy(sortFit, -1), ...ties);
+  const ties = [orderBy(sortCrit, -1), orderBy(sortDate, -1), hfFirst, byName, byId];
+  // Best match first (11 Nov 2026): the verdict first (Matched, Review, Needs
+  // data, Low fit, then Rejected where a list shows it), then the score, then
+  // the ties above. A review capped at 74% never ranks above a match.
+  const best = then(orderBy(sortVerdict, 1), orderBy(sortFit, -1), ...ties);
   const cmp = {
     best:       best,
     score_asc:  then(orderBy(sortFit, 1), ...ties),
