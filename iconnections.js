@@ -614,8 +614,10 @@
     const norm = headers.map(normHeader);
     const used = new Set(SENT_FIELDS.map(f => cols[f]).concat([cols.person]).filter(i => i !== undefined && i !== null && i >= 0));
     const find = (re) => norm.findIndex((h, i) => h && re.test(h) && !used.has(i));
-    const pos = find(/^(job )?(title|position|role|designation|job function|function)$|^(job|business) title$/);
-    const mail = find(/^(e ?mail|e ?mail address|work e ?mail|business e ?mail|email 1|primary e ?mail)$/);
+    // "Title", "Job Title", "Contact Title", "Position", "Role"...; "Email", "Contact Email",
+    // "Email Address", "Work Email"... (not "Email Domain", which is the firm's website).
+    const pos = find(/(^|\b)(job title|business title|title|position|role|designation|job function)$/);
+    const mail = find(/(^|\b)e ?mail( address)?( 1)?$/);
     const names = peopleByRow(sheet, headerIndex, cols);
     for (const row of sheet.rows.slice(headerIndex + 1)) {
       const cell = (i) => i >= 0 && row.cells[i] !== null && row.cells[i] !== undefined ? String(row.cells[i]).replace(/\s+/g, ' ').trim() : '';

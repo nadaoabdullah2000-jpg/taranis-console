@@ -259,3 +259,11 @@ test('Contacts: position and e-mail domain per person; only the domain, never th
   assert.deepEqual(c.get(4), { name: 'Brian Heider', position: null, domain: null });
   assert.ok(!JSON.stringify([...c]).includes('@'), 'no e-mail address leaves the reader');
 });
+
+test('Contacts: "Contact Title" / "Contact Email" style headings are read too', async () => {
+  const one = (rows) => book([{ name: 'S', rows }]).then(R.chooseSheet);
+  const p = await one([['Firm', 'Contact Name', 'Contact Title', 'Contact Email'], ['Stifel', 'Alex Edwards', 'Managing Director', 'aedwards@stifel.com']]);
+  assert.deepEqual(R.contactsByRow(p.sheet, p.headerIndex, p.cols).get(2), { name: 'Alex Edwards', position: 'Managing Director', domain: 'stifel.com' });
+  const q = await one([['Firm Name', 'Full Name', 'Job Title', 'Email Address'], ['A Co', 'Jo Bloggs', 'CIO', 'jo@aco.com']]);
+  assert.deepEqual(R.contactsByRow(q.sheet, q.headerIndex, q.cols).get(2), { name: 'Jo Bloggs', position: 'CIO', domain: 'aco.com' });
+});
