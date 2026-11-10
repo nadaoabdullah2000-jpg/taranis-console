@@ -1,0 +1,59 @@
+/* Run with: npm test
+   Low fit (CTA / macro / market-neutral) only when the mandate itself is about
+   that strategy, not because the word sits in the investor's whole With
+   Intelligence strategy list; underscore tags such as equity_long_short read
+   as long/short (9 Nov 2026). Rows are stored rows, trimmed. */
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+
+const src = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
+const grab = (a, b) => src.slice(src.indexOf(a), src.indexOf(b, src.indexOf(a)));
+const ctx = { Intl, el: () => ({}), htmlToText: (s) => String(s || ''), cleanText: String, session: null };
+vm.createContext(ctx);
+vm.runInContext([
+  grab('const jsonArr', '\n};') + '\n};',
+  grab('function scoreText', '\n}') + '\n}',
+  grab('const KNOWN_MANAGERS', '\n'),
+  grab('const REGION_NAMES', '// WI\'s tags and types as words'),
+  grab('const MATCH_CRITERIA', 'function ensureMatchCss'),
+  'this.rescore = rescore; this.verdictReason = verdictReason;'
+].join('\n'), ctx);
+
+const base = { investor_country: 'US', investor_tag: null, asset_classes: ['Hedge Funds'], hf_evidence: 'confirmed',
+  open_to_emerging_managers: true, evidence: { wi_investor_id: '1' } };
+
+// 776 Illinois SURS: an investor export whose ten-tag menu includes macro and cta.
+const SURS = { ...base, id: 776, investor_type: 'Pension Fund', alert_type: 'Investor export',
+  intention_summary: 'The State Universities Retirement System of Illinois (SURS) is a US-based public defined benefit retirement savings plan.',
+  strategies: ['other', 'relative_value', 'multi_strategy', 'credit', 'macro', 'cta', 'long_volatility', 'tail_risk', 'alternative_risk_premia', 'commodities'] };
+// 1353 NYC Fire: the menu also lists equity_long_short.
+const NYCF = { ...base, id: 1353, investor_type: 'Pension Fund', hf_evidence: 'unconfirmed',
+  intention_summary: 'The New York City Fire Retirement System defined benefit pension fund.',
+  strategies: ['macro', 'equity', 'credit', 'event_driven', 'other', 'cta', 'multi_strategy', 'relative_value', 'em_macro',
+    'equity_long_short', 'merger_arbitrage', 'equity_market-neutral', 'long_bias_equity', 'alternative_markets_cta', 'commodities'] };
+
+test('a CTA or macro tag in a long strategy menu does not make the row low fit', () => {
+  const r = ctx.rescore(SURS);
+  assert.notEqual(r.q, 'low');
+  assert.equal(r.q, 'needs_data');
+});
+
+test('equity_long_short reads as long/short', () => {
+  const r = ctx.rescore(NYCF);
+  assert.equal(r.band, 'strong');
+  assert.equal(r.q, 'uncertain');           // hedge fund investing unconfirmed caps it at review
+  assert.equal(r.s, 0.74);
+  const one = ctx.rescore({ ...base, investor_type: 'Insurance', strategies: ['equity_long_short'] });
+  assert.equal(one.q, 'matched');
+});
+
+test('a mandate that is itself about macro or CTA is still low fit', () => {
+  const said = ctx.rescore({ ...SURS, intention_summary: 'Searching for a global macro manager for a $50m mandate.' });
+  assert.equal(said.q, 'low');
+  assert.match(ctx.verdictReason({ ...SURS, intention_summary: 'Searching for a global macro manager.', new_qualification: 'low', new_fit_score: 0.25 }),
+    /Only global macro stated/);
+  const shortList = ctx.rescore({ ...SURS, intention_summary: 'Mandate has been added.', strategies: ['CTA', 'Trend-Following'] });
+  assert.equal(shortList.q, 'low');
+});

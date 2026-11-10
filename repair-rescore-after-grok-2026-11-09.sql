@@ -1,0 +1,43 @@
+-- 9 Nov 2026: rescore of the rows Grok filled today (applied in ONE transaction).
+-- Values from the app's own rule (app.js rescore(), run unchanged on the stored rows in a
+-- read-only n8n dry run, rerun just before applying). Only rows still as the dry run saw
+-- them, never a verdict a person set (verdict_source 'manual').
+--   57 changes caused by Grok's new values (approved by research@taranis.net), and
+--   6 single-family offices (720 Inversiones Nogaleda, 725 Ajit Khimji, 728 Clian Holding,
+--   733 Scimitar, 735 Playfair Capital, 742 SalibaCo) set to review (uncertain, no score)
+--   instead of the rule's rejection, whose only reason was that hedge funds are not among
+--   their With Intelligence asset classes (decided by research@taranis.net).
+-- Applied 63 of 63; none skipped; after the hedge fund rule ran, every row holds exactly
+-- the intended verdict and score.
+-- Backup: rescore_backup_20261109. Logged in wi_fill_log, field 'Verdict', source
+-- 'Rescore 9 Nov 2026 after Grok fills ...'.
+--
+-- The 38 rows whose verdict the rule already disputed before Grok, and 8 new Grok-caused
+-- changes from batch 13, were NOT applied (waiting for a decision).
+
+-- UNDO (one block):
+--   begin;
+--   update wi_mandates m set qualification = b.qualification, new_qualification = b.new_qualification,
+--          new_fit_score = b.new_fit_score
+--     from rescore_backup_20261109 b where b.id = m.id;
+--   commit;
+
+-- ---------------------------------------------------------------------------------------------
+-- SECOND PASS, 9 Nov 2026 ~17:30 UTC (after Grok run grok-20261109-164706-2d5b; dry run = n8n
+-- execution 70486, 237 rows, 53 differences). Applied only the 8 differences caused by Grok fills;
+-- the 35+ older-rule differences and the 6 SFO "rejected" proposals were NOT applied.
+--   166, 184 UTIMCO            -> uncertain 0.6     1324, 2288 SWIB      matched 0.8 -> matched 1.0
+--   401 Greenwood              -> uncertain 0.7     1381 UChicago        needs data -> uncertain 0.7
+--   1619 Northwestern Medicine -> uncertain 0.6     2894 Kairos          matched 0.75 -> matched 1.0
+-- Same method as above: rows appended to rescore_backup_20261109 first, one transaction,
+-- logged in wi_fill_log with source 'Rescore 9 Nov 2026 after Grok fills (app rule rescore()), second pass'.
+-- The UNDO block above restores these rows too (it reads rescore_backup_20261109).
+--
+-- GROK CHECKED LIST, 9 Nov 2026: Grok's Excel of the 243 investors it checked today was written to
+-- grok_checked (464 rows: one per mandate row of each investor). Saved / nothing new -> 'done';
+-- skipped -> 'no_profile' (711, 740, 3011, 3057 CAMRADATA, and placeholder rows 2633, 2634, 2685,
+-- 2773, 3029, 3047), except 752 Quilter -> 'unsure' (uncertain match). Nothing deleted.
+-- To put an investor back on Grok's to-do list (todo skips done / no_profile for 30 days):
+--   update grok_checked set checked_at = checked_at - interval '31 days'
+--    where mandate_id = <id> and checked_at::date = '2026-11-09';
+-- Quilter (unsure) leaves the review list once reviewed_at / reviewed_by are set.

@@ -1,0 +1,15 @@
+-- Schema 21h (9 Nov 2026): migration schema_21l. Grok marks what it has looked at.
+--  * public.grok_checked (scope, mandate_id | firm_key, result done / no_profile / unsure,
+--    note, wi_id, checked_at, checked_by, reviewed_at, reviewed_by); view grok.checked.
+--  * grok_fn.checked(scope, items, by): one record per row of the investor (same With
+--    Intelligence id, else same name), or per I-Connections firm. Changes no investor data.
+--  * grok_fn.todo skips investors / firms checked done or no_profile in the last 30 days,
+--    and unsure ones until reviewed_at is set; totals show left_to_check,
+--    checked_last_30_days and unsure_waiting_for_review. Grok always asks with offset 0.
+--  * Backfill (9 Nov): 179 rows saved by Grok runs 1-12 marked done (from wi_fill_log).
+-- The n8n gateway routes the "checked" action to the write connection.
+-- Unsure list for review:
+--   select c.checked_at, c.scope, coalesce(m.investor_name, c.firm_key) investor, c.wi_id, c.note
+--     from grok_checked c left join wi_mandates m on m.id = c.mandate_id
+--    where c.result = 'unsure' and c.reviewed_at is null order by c.checked_at;
+-- Mark reviewed: update grok_checked set reviewed_at = now(), reviewed_by = '<you>' where id = ...;
