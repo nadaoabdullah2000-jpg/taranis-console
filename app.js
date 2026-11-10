@@ -10345,6 +10345,40 @@ async function iconnLoadMandates(res) {
   if (current === 'iconn' && ICONN.result === res) go('iconn');
 }
 
+// Each firm's With Intelligence link and stored profile (schema-22), also for
+// firms with no opportunity row: the profiles Grok saved live in
+// iconn_wi_profiles, not on an opportunity. Keyed by the run's row number.
+async function iconnLoadWi(res) {
+  if (ICONN.wiFor === res) return;
+  ICONN.wiFor = res;
+  ICONN.wi = {};
+  if (DEMO || !ICONN.runId) return;
+  try {
+    const list = await supaRpc('console_iconn_wi_profiles', { p_run_id: Number(ICONN.runId) });
+    for (const w of list || []) ICONN.wi[w.row_no] = w;
+  } catch (_) { return; /* older database: the column keeps its old look */ }
+  if (current === 'iconn' && ICONN.result === res) go('iconn');
+}
+function iconnWiOf(f) {
+  for (const r of (f.row_nos || [])) if (ICONN.wi && ICONN.wi[r]) return ICONN.wi[r];
+  return null;
+}
+// Only a With Intelligence id ever becomes a link, never a stored URL.
+function iconnWiUrl(id) {
+  return /^-?\d{1,12}$/.test(String(id || '')) ? 'https://platform.withintelligence.com/explore/investors/' + id : null;
+}
+// The stored profile in one line: type, country, AUM, ticket, emerging managers, strategies.
+function iconnWiFacts(p) {
+  if (!p) return '';
+  const t = p.ticket_min_usd || p.ticket_max_usd
+    ? 'ticket ' + [p.ticket_min_usd, p.ticket_max_usd].filter(v => v).map(iconnMoney).filter((v, i, a) => a.indexOf(v) === i).join('–') : '';
+  const strat = Array.isArray(p.strategies) && p.strategies.length
+    ? p.strategies.slice(0, 3).join(', ') + (p.strategies.length > 3 ? ' +' + (p.strategies.length - 3) : '') : '';
+  return [p.type, p.country, p.aum_band || (p.aum_usd ? iconnMoney(p.aum_usd) : ''), t,
+    p.emerging === true ? 'emerging managers: yes' : p.emerging === false ? 'emerging managers: no' : '', strat]
+    .filter(Boolean).join(' · ');
+}
+
 function iconnFitCell(f, fx) {
   const m = fx.m;
   const status = fx.verdict;
@@ -10453,10 +10487,30 @@ function iconnFirmRow(f, showPeople) {
 
   // 2. Intelligence profile: matched firms only
   const prof = el('td', { class: 'ic-prof' });
+  const wi = iconnWiOf(f);
   if (f.bucket === 'matched' && f.matched_name) {
     prof.appendChild(el('button', { class: 'ic-link', title: 'Everything held on ' + f.matched_name + ': mandates, contacts, documents, LinkedIn',
       onclick: () => iconnOpenProfile(f.matched_name) }, 'Profile'));
-  } else prof.appendChild(el('span', { class: 'ic-dash' }, '—'));
+  }
+  const wiUrl = wi && iconnWiUrl(wi.wi_id);
+  const candUrl = wi && !wi.wi_id && iconnWiUrl(wi.candidate_wi_id);
+  if (wiUrl) {
+    prof.appendChild(el('div', {}, el('a', { class: 'ic-link', href: wiUrl, target: '_blank', rel: 'noopener noreferrer',
+      title: 'With Intelligence profile ' + wi.wi_id }, 'With Intelligence ↗')));
+    if (!wi.certain) prof.appendChild(el('div', { class: 'ic-how fuzzy' }, 'link not certain'));
+  } else if (candUrl) {
+    prof.appendChild(el('div', {}, el('a', { class: 'ic-link', href: candUrl, target: '_blank', rel: 'noopener noreferrer',
+      title: 'Proposed, not linked: check it is the same firm' }, 'Candidate ↗')));
+    prof.appendChild(el('div', { class: 'ic-how fuzzy' }, 'not linked'));
+  }
+  if (!prof.firstChild) prof.appendChild(el('span', { class: 'ic-dash' }, '—'));
+  // The stored With Intelligence profile, under the firm's name.
+  const wp = wi && (wi.profile || wi.candidate);
+  if (wp) {
+    const facts = iconnWiFacts(wp);
+    const who = wp.name && wp.name !== f.name ? (wi.wi_id ? 'With Intelligence: ' : 'Candidate: ') + wp.name : '';
+    if (who || facts) firm.appendChild(el('div', { class: 'ic-sub ic-wi' }, [who, facts].filter(Boolean).join(' — ')));
+  }
 
   // 3. Opportunity
   const fx = iconnRep(f);
@@ -10506,6 +10560,7 @@ function iconnFirmRow(f, showPeople) {
 function iconnResults(body) {
   const res = ICONN.result;
   iconnLoadMandates(res);
+  iconnLoadWi(res);
   const firms = res.firms || [];
   const c = res.counts || {};
   const run = res.run || {};
