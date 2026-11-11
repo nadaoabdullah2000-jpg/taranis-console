@@ -187,7 +187,9 @@ if (m.open_to_emerging_managers === null || m.open_to_emerging_managers === unde
 // Nothing here rejects for a thin record; that is what needs-data means.
 let hard_status, band, needs_data_reason = null;
 if (strong && itag === 'people') { hard_status = 'uncertain'; band = 'hire'; notes.push('An allocator\'s hire with a strategy match - worth a look, not an automatic match'); }
-else if (strong) { hard_status = 'pass';      band = theme ? 'strong_tech' : 'strong'; notes.push('Strategy matches directly' + (tech ? ' (+ technology)' : '') + (space ? ' (+ space)' : '')); }
+// Matched requires long/short (or quant) AND technology (11 Nov 2026): long/short
+// without technology (space does not count) passes to review, not to a match.
+else if (strong) { hard_status = tech ? 'pass' : 'uncertain'; band = theme ? 'strong_tech' : 'strong'; notes.push('Strategy matches directly' + (tech ? ' (+ technology)' : ' - no technology, so review, not a match') + (space ? ' (+ space)' : '')); }
 else if (theme)  { hard_status = 'uncertain'; band = 'tech';        notes.push('No strategy stated, ' + (tech ? 'technology' : 'space') + ' interest - kept for review'); }
 else if (excl)   { hard_status = 'uncertain'; band = 'low';         notes.push('CTA/macro/market-neutral and no L/S, quant or tech - low but kept'); }
 else             { hard_status = 'uncertain'; band = 'needs_data';  needs_data_reason = 'No strategy or tech signal in the text'; notes.push('Hedge-fund allocator, strategy not stated - needs data'); }

@@ -45,8 +45,13 @@ test('equity_long_short reads as long/short', () => {
   assert.equal(r.band, 'strong');
   assert.equal(r.q, 'uncertain');           // hedge fund investing unconfirmed caps it at review
   assert.equal(r.s, 0.74);
+  // Matched requires long/short AND technology (11 Nov 2026): long/short alone waits for a decision.
   const one = ctx.rescore({ ...base, investor_type: 'Insurance', strategies: ['equity_long_short'] });
-  assert.equal(one.q, 'matched');
+  assert.equal(one.q, 'uncertain');
+  assert.ok(one.s <= 0.74);
+  const both = ctx.rescore({ ...base, investor_type: 'Insurance', strategies: ['equity_long_short'], is_tech_investor: true });
+  assert.equal(both.q, 'matched');
+  assert.ok(both.s >= 0.90);
 });
 
 test('a mandate that is itself about macro or CTA is still low fit', () => {

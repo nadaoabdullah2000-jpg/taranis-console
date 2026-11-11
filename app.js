@@ -1843,9 +1843,11 @@ function rescore(m) {
   const hf = m && m.hf_evidence ? String(m.hf_evidence) : null;
   if (hf === 'no' || hf === 'not_allocator') return { band: 'rejected', q: 'rejected', s: 0 };
   let q = BAND_QUAL[band];
-  // Long/short or quant AND technology is a match even when hedge fund
-  // investing is not confirmed (11 Nov 2026); the card says it is not.
-  if (hf !== 'confirmed' && q === 'matched' && !(strong && techOnly)) { q = 'uncertain'; if (s !== null) s = Math.min(s, 0.74); }
+  // Matched requires long/short (or quant) AND technology (decided 11 Nov 2026):
+  // one of the two waits for a decision, at 74% at most. Space is not technology.
+  // Long/short + technology is a match even when hedge fund investing is not
+  // confirmed; the card says so.
+  if (q === 'matched' && !(strong && techOnly)) { q = 'uncertain'; if (s !== null) s = Math.min(s, 0.74); }
   return { band: band, q: q, s: s === null ? null : Math.round(s * 100) / 100 };
 }
 
