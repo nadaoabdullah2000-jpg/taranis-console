@@ -1588,6 +1588,14 @@ function isTech(t) {
 // is_tech_investor = true (schema-13).
 const TECH_BY_PERSON = /^Set by a person/;
 function techSetByPerson(m) { return TECH_BY_PERSON.test(String((m && m.tech_signal) || '')); }
+// Technology backed by a With Intelligence quote (saved by Grok from the profile)
+// or set by a person: the only technology that can make a match (11 Nov 2026).
+const TECH_QUOTE = /^With Intelligence profile \(Grok\): "/;
+function techQuoted(m) {
+  if (!m) return false;
+  if (techSetByPerson(m)) return m.is_tech_investor === true;
+  return m.is_tech_investor === true && TECH_QUOTE.test(String(m.tech_signal || ''));
+}
 function techOf(m, t) {
   if (techSetByPerson(m) && typeof m.is_tech_investor === 'boolean') return m.is_tech_investor;
   return isTech(t === undefined ? sigText(m) : t) || (m && m.is_tech_investor === true);
@@ -1847,7 +1855,10 @@ function rescore(m) {
   // one of the two waits for a decision, at 74% at most. Space is not technology.
   // Long/short + technology is a match even when hedge fund investing is not
   // confirmed; the card says so.
-  if (q === 'matched' && !(strong && techOnly)) { q = 'uncertain'; if (s !== null) s = Math.min(s, 0.74); }
+  // The technology tick only counts toward a match with a With Intelligence quote
+  // (Grok's, from the profile) or a person's own Tech choice; a tick from the alert
+  // text alone waits for a decision.
+  if (q === 'matched' && !(strong && techOnly && techQuoted(m))) { q = 'uncertain'; if (s !== null) s = Math.min(s, 0.74); }
   return { band: band, q: q, s: s === null ? null : Math.round(s * 100) / 100 };
 }
 
