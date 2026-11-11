@@ -215,3 +215,31 @@ begin
 end $function$;
 reset role;
 revoke create on schema grok_fn from grok_reader;
+
+-- 11 Nov 2026 (requested by research@taranis.net): discover_known, the baseline in the database. Returns
+-- the With Intelligence ids already staged (with name, presets, first/last seen), so a scheduled run can
+-- send only investors not yet staged instead of relying on Grok remembering a list. Read-only.
+grant create on schema grok_fn to grok_reader;
+set role grok_reader;
+create or replace function grok_fn.discover_known(p_preset text default null, p_limit integer default 1000, p_offset integer default 0)
+returns jsonb language plpgsql stable security definer set search_path to 'grok', 'public', 'pg_temp' as $function$
+declare lim integer := greatest(1, least(coalesce(p_limit, 1000), 5000)); off integer := greatest(0, coalesce(p_offset, 0)); res jsonb;
+begin
+  with d as (
+    select * from wi_discovered
+     where p_preset is null or btrim(p_preset) = '' or btrim(p_preset) = any (seen_presets)
+  )
+  select jsonb_build_object(
+    'total', (select count(*) from d),
+    'preset', nullif(btrim(coalesce(p_preset, '')), ''),
+    'offset', off, 'limit', lim,
+    'wi_ids', coalesce((select jsonb_agg(wi_id order by wi_id) from (select wi_id from d order by wi_id limit lim offset off) z), '[]'),
+    'items', coalesce((select jsonb_agg(jsonb_build_object('wi_id', wi_id, 'name', name, 'presets', to_jsonb(seen_presets),
+                        'first_seen', first_seen_at::date, 'last_seen', last_seen_at::date, 'review_status', review_status) order by wi_id)
+                       from (select * from d order by wi_id limit lim offset off) z), '[]'),
+    'next', 'These investors are staged already. Send discover only for wi_ids not in this list; a repeat is harmless (it updates, never duplicates).')
+  into res;
+  return res;
+end $function$;
+reset role;
+revoke create on schema grok_fn from grok_reader;

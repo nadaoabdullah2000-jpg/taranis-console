@@ -24,3 +24,11 @@ test('discover_status is read-only; save stays as it was', () => {
   assert.equal(run({ action: 'save', scope: 'discover', items: [{}] }).route, 'error');
   assert.equal(run({ action: 'todo', scope: 'focus' }).params[1], 'focus');
 });
+
+test('discover_known is read-only, with an optional preset', () => {
+  const r = run({ action: 'discover_known', preset: 'HF L/S US' });
+  assert.equal(r.route, 'db');
+  assert.match(r.sql, /grok_fn\.discover_known\(\$2, \$3::int, \$4::int\)/);
+  assert.deepEqual(JSON.parse(JSON.stringify(r.params)), ['grok', 'HF L/S US', '1000', '0']);
+  assert.equal(run({ action: 'discover_known' }).params[1], null);
+});
