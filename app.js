@@ -1502,7 +1502,8 @@ function techEvidenceOf(m) {
   return 'From the alert or mandate text (no quote stored)';
 }
 function focusCheckLabel(c) {
-  return c.result === 'private_markets_only' ? 'Only for private markets (checked)' : 'Not stated (checked)';
+  return c.result === 'private_markets_only' ? 'Only for private markets (checked)'
+    : c.result === 'stated_other_currency' ? 'Stated in another currency (checked)' : 'Not stated (checked)';
 }
 function focusCheckTitle(c) {
   return 'Checked on With Intelligence' + (c.at ? ' on ' + String(c.at).slice(0, 10) : '')
@@ -2132,7 +2133,7 @@ function critRows(m) {
         'Not in the newest intention'));
     }
     if (st === 'unknown') {
-      const chk = name === 'Technology focus' ? focusCheckOf(m, 'tech') : null;
+      const chk = name === 'Technology focus' ? focusCheckOf(m, 'tech') : name === 'Space' ? focusCheckOf(m, 'space') : null;
       row.appendChild(chk ? el('span', { class: 'mcard-unk', title: focusCheckTitle(chk) }, focusCheckLabel(chk))
                           : el('span', { class: 'mcard-unk' }, 'Not stated'));
     }
