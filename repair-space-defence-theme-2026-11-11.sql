@@ -1,3 +1,4 @@
+-- SUPERSEDED (11 Nov 2026): merged into repair-themes-space-fill-2026-11-11.sql (one transaction). Do not run.
 -- 11 Nov 2026 (DRAFT, NOT APPLIED; dry run for research@taranis.net): Space = Yes from a With
 -- Intelligence "investment themes" line that names security & defence (the user's rule: Security &
 -- Defence counts as Space). Technology is not touched: security & defence is not a technology theme.
