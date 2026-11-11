@@ -1474,7 +1474,28 @@ function geoText(m) {
   return city || 'not stated';
 }
 function emergingText(m) {
-  return EMERGING_LABEL[emergingOf(m)];
+  const e = emergingOf(m);
+  if (e === 'unknown') { const c = focusCheckOf(m, 'emerging'); if (c) return focusCheckLabel(c); }
+  return EMERGING_LABEL[e];
+}
+// A field Grok looked for on With Intelligence and did not find (schema-26:
+// focus_checks {tech|emerging: {result, note, at, by}}), on the card's row or any
+// alert it folds. result not_stated, or private_markets_only (emerging managers
+// mentioned for private equity / private debt only, which does not count).
+function focusCheckOf(m, key) {
+  const all = [m].concat(Array.isArray(m && m._intentions) ? m._intentions : []);
+  for (const x of all) {
+    const fc = x && x.focus_checks;
+    if (fc && typeof fc === 'object' && fc[key] && fc[key].result) return fc[key];
+  }
+  return null;
+}
+function focusCheckLabel(c) {
+  return c.result === 'private_markets_only' ? 'Only for private markets (checked)' : 'Not stated (checked)';
+}
+function focusCheckTitle(c) {
+  return 'Checked on With Intelligence' + (c.at ? ' on ' + String(c.at).slice(0, 10) : '')
+    + (c.by ? ' by ' + c.by : '') + (c.note ? ': ' + c.note : '');
 }
 function contextLines(m) {
   return [['Geography', geoText(m)], ['Emerging managers', emergingText(m)]];
@@ -2001,7 +2022,8 @@ function contextRows(host, m) {
   for (const [k, v] of contextLines(m)) {
     host.appendChild(el('div', { class: 'mcard-c', style: 'color:var(--ink-3)' },
       el('span', { style: 'width:16px;flex:none;text-align:center' }, '\u00B7'),
-      el('span', null, k + ' \u2014 ' + v)));
+      el('span', k === 'Emerging managers' && focusCheckOf(m, 'emerging') && emergingOf(m) === 'unknown'
+      ? { title: focusCheckTitle(focusCheckOf(m, 'emerging')) } : null, k + ' \u2014 ' + v)));
   }
 }
 
@@ -2047,7 +2069,11 @@ function critRows(m) {
     const cls  = st === 'yes' ? 'yes' : st === 'unknown' ? 'unk' : 'no';
     const row  = el('div', { class: 'mcard-c' },
       el('span', { class: 'mk ' + cls }, mark), el('span', null, name));
-    if (st === 'unknown') row.appendChild(el('span', { class: 'mcard-unk' }, 'Not stated'));
+    if (st === 'unknown') {
+      const chk = name === 'Technology focus' ? focusCheckOf(m, 'tech') : null;
+      row.appendChild(chk ? el('span', { class: 'mcard-unk', title: focusCheckTitle(chk) }, focusCheckLabel(chk))
+                          : el('span', { class: 'mcard-unk' }, 'Not stated'));
+    }
     cr.appendChild(row);
   });
   return cr;
@@ -4359,7 +4385,7 @@ const MANDATE_LIST_COLS = [
   'linkedin_url', 'linkedin_urls', 'emails', 'contact_id', 'created_at', 'source_email_date',
   'alert_date', 'published_at', 'approved_at', 'approved_by', 'seen_at', 'wi_enriched_at',
   'source_page', 'source_kind', 'validation_status', 'verdict_source',
-  'is_tech_investor', 'tech_signal'
+  'is_tech_investor', 'tech_signal', 'focus_checks'
 ].join(',');
 
 // The whole row as the database holds it now. Every verdict or field write
@@ -10463,7 +10489,10 @@ function iconnWiFacts(p) {
   const strat = Array.isArray(p.strategies) && p.strategies.length
     ? p.strategies.slice(0, 3).join(', ') + (p.strategies.length > 3 ? ' +' + (p.strategies.length - 3) : '') : '';
   return [p.type, p.country, p.aum_band || (p.aum_usd ? iconnMoney(p.aum_usd) : ''), t,
-    p.emerging === true ? 'emerging managers: yes' : p.emerging === false ? 'emerging managers: no' : '', strat]
+    p.emerging === true ? 'emerging managers: yes' : p.emerging === false ? 'emerging managers: no'
+      : (p.focus_checks && p.focus_checks.emerging ? 'emerging managers: ' + focusCheckLabel(p.focus_checks.emerging).toLowerCase() : ''),
+    p.tech_focus === true ? 'technology: yes' : p.tech_focus === false ? 'technology: no'
+      : (p.focus_checks && p.focus_checks.tech ? 'technology: not stated (checked)' : ''), strat]
     .filter(Boolean).join(' · ');
 }
 
