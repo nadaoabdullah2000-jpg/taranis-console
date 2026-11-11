@@ -1348,15 +1348,56 @@ function paintCounts() {
   });
 }
 
-function go(id) {
+// The page scrolls inside <main>, not the window (11 Nov 2026): every scroll reset or restore
+// goes through mainScroller().
+function mainScroller() { return document.querySelector('main') || document.scrollingElement; }
+function scrollMainTo(top, smooth) {
+  const m = mainScroller(); if (!m) return;
+  try { m.scrollTo({ top: top, behavior: smooth ? 'smooth' : 'auto' }); } catch (_) { m.scrollTop = top; }
+}
+// Where each list was when a record was opened from it, so Back returns to the same place
+// (the scroll offset and the card that was opened).
+const LIST_POS = {};
+function rememberListPos(view, id) {
+  if (!view || view === 'mandate' || view === 'profile') return;
+  const m = mainScroller();
+  LIST_POS[view] = { top: m ? m.scrollTop : 0, id: id === undefined || id === null ? null : String(id) };
+}
+function restoreListPos(pos) {
+  if (!pos) return;
+  scrollMainTo(pos.top);
+  // The list may have changed meanwhile (a verdict changed, new rows): then bring the card itself back into view.
+  if (pos.id !== null) {
+    const card = document.querySelector('main [data-mid="' + String(pos.id).replace(/"/g, '') + '"]');
+    if (card) {
+      const r = card.getBoundingClientRect();
+      if (r.bottom < 0 || r.top > window.innerHeight) card.scrollIntoView({ block: 'center' });
+    }
+  }
+}
+// Back from a record: the list it was opened from, where it was. Opportunities reuses the rows already
+// loaded (unless a change made them stale), so the cards come back in the same order.
+function goBack(view) {
+  const pos = LIST_POS[view];
+  if (view === 'opps' && OPPS_ROWS) oppsReuse = true;
+  go(view, { restore: pos || null });
+}
+
+function go(id, opts) {
+  opts = opts || {};
+  const prev = current;
   current = id;
   const t = TABS.find(x => x.id === id);
-  if (!t || !RENDER[id]) return go('opps');
+  if (!t || !RENDER[id]) return go('opps', opts);
   document.querySelectorAll('.navbtn').forEach(b =>
     b.setAttribute('aria-current', b.getAttribute('data-tab') === id ? 'page' : 'false'));
   $('pg-title').textContent = t.title;
   $('pg-sub').textContent = t.sub;
-  stagePane((body) => RENDER[id](body));
+  // A new view starts at the top; re-drawing the same view (a filter, a sort, a verdict change)
+  // keeps its place; Back restores where the list was.
+  stagePane((body) => RENDER[id](body), {
+    onShown: () => { if (opts.restore) restoreListPos(opts.restore); else if (prev !== id) scrollMainTo(0); }
+  });
 }
 
 /* Views never pass through an empty pane. A view renders into a hidden pane
@@ -1368,7 +1409,11 @@ function go(id) {
 let STAGE = null;
 const STAGE_SLOW_MS = 150, STAGE_MAX_MS = 10000;
 
-function stagePane(build) {
+// A one-shot step for the next pane to run once it is on screen (set by openMandate / openProfile).
+let NEXT_ON_SHOWN = null;
+function stagePane(build, opts) {
+  const onShown = opts && typeof opts.onShown === 'function' ? opts.onShown : NEXT_ON_SHOWN;
+  NEXT_ON_SHOWN = null;
   const old = $('pg-body');
   if (STAGE && !STAGE.done) STAGE.abandon();    // a newer view replaces one still loading
   if (!old.childNodes.length) busy(old);           // first view after sign-in: say so, never blank
@@ -1390,6 +1435,7 @@ function stagePane(build) {
     next.style.display = '';
     next.classList.remove('is-busy');
     old.remove();
+    if (onShown) { try { onShown(); } catch (_) {} }
   };
   st.abandon = () => { stop(); next.remove(); old.classList.remove('is-busy'); };
   STAGE = st;
@@ -1520,7 +1566,12 @@ function contextLines(m) {
 // and a title such as "Hedge Funds in Hot Water" is about nobody, so neither is
 // scored. Same rule as WI 01 and HFN 02. WI's profile summary (wi_summary) is
 // background on the firm, not this mandate, so it is shown but never scored.
-const EVIDENCE_NOT_SCORED = ['passage', 'from_report', 'page', 'wi_summary'];
+// The With Intelligence data attached by the profile reads (11 Nov 2026) is shown, not scored either:
+// the industry tag list (wi_industries; "Technology" there is not a technology focus), the stored
+// intentions (wi_intentions; the newest one is the row's own intention text), the themes line
+// (wi_themes_line; it already decided Tech / Space through the fields) and the discovery record
+// (discovery; its "via fund" names, e.g. "... Long Short Fund", are not the investor's mandate).
+const EVIDENCE_NOT_SCORED = ['passage', 'from_report', 'page', 'wi_summary', 'wi_industries', 'wi_intentions', 'wi_themes_line', 'discovery'];
 // "does not state hedge fund appetite" is silence, not a hedge-fund signal.
 const RE_NO_APPETITE = /(does not state|doesn't state|no) hedge.fund appetite( stated)?|hedge.fund appetite (is )?not stated/g;
 function evidenceText(ev) {
@@ -2151,7 +2202,7 @@ function matchCard(m, opts) {
   const rej0  = opts.reject ? true : effectivelyRejected(m);
   const tone  = opts.tone || (rej0 ? 'bad' : bandTone(q));
 
-  const card = el('div', { class: 'mcard ' + tone });
+  const card = el('div', { class: 'mcard ' + tone, 'data-mid': m && m.id !== undefined && m.id !== null ? String(m.id) : '' });
   card.appendChild(el('h4', { class: 'mcard-h' }, investorLabel(m)));
   card.appendChild(el('div', { class: 'mcard-sub' },
     [typeLabel(m.investor_type), countryName(m.investor_country),
@@ -4049,7 +4100,7 @@ RENDER.email = function (body) {
             { label: 'Write to them', primary: true, run: () => {
                 to.value = c.name;
                 brief.focus();
-                window.scrollTo({ top: 0, behavior: 'smooth' });
+                scrollMainTo(0, true);   // the page scrolls inside <main>; window.scrollTo did nothing
                 toast('Writing to ' + c.name + '. Say what it should cover.');
               } },
             { label: 'View profile', run: () => openProfile(c) }
@@ -8604,10 +8655,16 @@ function investorView(full, m) {
   return box;
 }
 
+let MANDATE_OPEN_ID = null;
 async function openMandate(m) {
   closeSheet();
-  if (current !== 'mandate') PROFILE_BACK = current;
+  // Re-drawing the record already open (after a save) keeps its place; any other opening starts
+  // at the top, with the investor's name and criteria first.
+  const same = current === 'mandate' && MANDATE_OPEN_ID !== null && String(MANDATE_OPEN_ID) === String(m && m.id);
+  if (current !== 'mandate') { PROFILE_BACK = current; rememberListPos(current, m && m.id); }
   current = 'mandate';
+  MANDATE_OPEN_ID = m && m.id;
+  NEXT_ON_SHOWN = same ? null : () => scrollMainTo(0);
   document.querySelectorAll('.navbtn').forEach(b => b.setAttribute('aria-current', 'false'));
 
   // Built in a staged pane: the page swaps in when its record is drawn.
@@ -8625,7 +8682,7 @@ async function openMandate(m) {
 
     const q = verdictGroup(full);
     host.appendChild(el('div', { class: 'acts', style: 'margin-bottom:20px' },
-      el('button', { class: 'btn btn-sm btn-quiet', onclick: () => go(PROFILE_BACK || 'opps') }, '\u2190 Back'),
+      el('button', { class: 'btn btn-sm btn-quiet', onclick: () => goBack(PROFILE_BACK || 'opps') }, '\u2190 Back'),
       full.view_article_url
         ? el('button', { class: 'btn btn-sm',
             onclick: () => openExternal(full.view_article_url) },
@@ -8991,7 +9048,8 @@ async function editProfile(c) {
 
 async function openProfile(c) {
   closeSheet();
-  if (current !== 'profile') PROFILE_BACK = current;
+  if (current !== 'profile') { PROFILE_BACK = current; rememberListPos(current, c && (c.id || c.name)); }
+  NEXT_ON_SHOWN = current === 'profile' ? null : () => scrollMainTo(0);
   current = 'profile';
   document.querySelectorAll('.navbtn').forEach(b => b.setAttribute('aria-current', 'false'));
 
@@ -9026,7 +9084,7 @@ async function openProfile(c) {
 
     const back = el('div', { class: 'acts', style: 'margin-bottom:20px' },
       el('button', { class: 'btn btn-sm btn-quiet',
-        onclick: () => go(PROFILE_BACK || 'contacts') }, '\u2190 Back'),
+        onclick: () => goBack(PROFILE_BACK || 'contacts') }, '\u2190 Back'),
       c.not_in_book ? null : el('button', { class: 'btn btn-sm', onclick: () => editProfile(c) }, 'Edit'),
       el('button', { class: 'btn btn-sm',
         onclick: () => { PENDING.draft = c.name; go('email'); } }, 'Draft an email'),

@@ -38,3 +38,15 @@ test('security & defence is Space; cybersecurity is not', () => {
   assert.equal(ctx.RE_SPACE.test('themes include cybersecurity and data'), false);
   assert.equal(SPACE.test('themes include cybersecurity and data'), false);
 });
+
+test('profile-read evidence is shown, not scored (industry tags, stored intentions, via-fund names)', () => {
+  const src2 = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
+  const c2 = {}; vm.createContext(c2);
+  const g = (a, b) => src2.slice(src2.indexOf(a), src2.indexOf(b, src2.indexOf(a)));
+  vm.runInContext(g('const EVIDENCE_NOT_SCORED', 'function evidenceText') + g('function evidenceText', '// Strategy tags are read as words') + '; this.evidenceText = evidenceText;', c2);
+  const t = c2.evidenceText({ wi_investor_id: '1', wi_industries: ['Technology', 'Software & Computer Services'],
+    wi_intentions: [{ note: 'Looking for long/short equity managers.' }], discovery: { via_fund: 'Global Equity Long Short Fund' },
+    wi_themes_line: 'themes include artificial intelligence', emerging_evidence: 'Considers emerging managers.' });
+  assert.doesNotMatch(t, /technology|software|long\/short|long short|artificial/i);
+  assert.match(t, /emerging managers/);
+});
