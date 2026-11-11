@@ -1701,14 +1701,34 @@ function newestIntentionNoLS(m) {
   const c = ev && typeof ev === 'object' && !Array.isArray(ev) ? ev.newest_intention_criteria : null;
   return !!(c && typeof c === 'object' && c.long_short === false);
 }
+// Equity in a hedge-fund context counts toward long/short (decided 11 Nov 2026): a strategy of
+// "equity", "equity hedge", "equity long/short", "equity l/s" or "fundamental equity", when the
+// investor's asset classes include hedge funds (a With Intelligence strategy tag) or when it sits in a
+// sentence about hedge funds (an intention). Never long-only, private equity, equity market-neutral,
+// or listed / public equity without hedge-fund context. Returns how it was found, or null.
+const RE_EQ_TAG = /^(fundamental )?equit(y|ies)$|^equity (hedge|long ?\/ ?short|long short|l\/s)$/;
+const RE_HF_WORD = /\bhedge[- ]funds?\b|\bhfs?\b|\bfund of hedge funds\b|\babsolute return\b/;
+const RE_EQ_NOT = /private equity|equity market[- ]neutral|long[- ]only equit(y|ies)|equit(y|ies) long[- ]only|long[- ]only|(listed|public) equit(y|ies)/g;
+function equityInHf(m) {
+  if (!m) return null;
+  const hfAsset = jsonArr(m.asset_classes).some(a => /hedge/i.test(String(a)));
+  if (hfAsset && stratWords(m).some(s => RE_EQ_TAG.test(s.trim()))) return 'tag';
+  const own = [m.intention_summary, m.requirements_raw, m.appetite_raw].map(x => String(x || '')).join(' ').toLowerCase();
+  for (const sen of own.split(/(?<=[.!?;\u2022])\s+/)) {
+    if (!RE_HF_WORD.test(sen)) continue;
+    if (/\b(fundamental )?equit(y|ies)\b/.test(sen.replace(RE_EQ_NOT, ' '))) return 'text';
+  }
+  return null;
+}
 function isStrong(m, t) {
   if (newestIntentionNoLS(m)) return false;
   const u = t.replace(RE_NEGATED, ' ');
   const sysOk = !RE_EXCL.test(t);
   if (RE_STRONG_CORE.test(u) || (sysOk && /systematic/.test(u))) return true;
   const w = stratWords(m);
-  return w.length > 0 && w.length <= 3
-    && w.some(s => RE_STRONG_CORE.test(s) || (sysOk && /systematic/.test(s)));
+  if (w.length > 0 && w.length <= 3
+    && w.some(s => RE_STRONG_CORE.test(s) || (sysOk && /systematic/.test(s)))) return true;
+  return !!equityInHf(m);
 }
 
 // A manager's own news is not an allocator's mandate: anything typed as a hedge
