@@ -1251,7 +1251,7 @@ function taranisScorecard(m) {
     wants: c.wants,
     has:   String(c.has(m) || '').trim() || (st[i] === 'yes' ? 'Yes' : ''),
     state: st[i] === 'yes' ? 'met' : st[i] === 'no' ? 'failed' : 'unknown',
-    note:  st[i] === 'no' ? c.no : null
+    note:  st[i] === 'no' ? (i === 0 && newestIntentionNoLS(m) ? 'The newest intention no longer asks for long/short' : c.no) : null
   }));
 }
 
@@ -1497,7 +1497,7 @@ function techEvidenceOf(m) {
   const all = [m].concat(Array.isArray(m && m._intentions) ? m._intentions : []);
   for (const x of all) {
     const sig = String((x && x.tech_signal) || '').trim();
-    if (sig && x.is_tech_investor === true) return sig.replace(/^With Intelligence profile \(Grok\): /, 'With Intelligence profile: ');
+    if (sig && x.is_tech_investor === true) return sig.replace(/^With Intelligence profile \((Grok|theme line)\): /, 'With Intelligence profile: ');
   }
   return 'From the alert or mandate text (no quote stored)';
 }
@@ -1577,9 +1577,15 @@ const RE_TECH = /\b(?:tech|technology|software|semiconductors?|tmt|internet|saas
 const RE_TECH_OFF = /\b(?:avoid[a-z]*|exclud[a-z]*|low on|away from|otherwise be)\b(?:(?!,\s*(?:and\s+)?(?:instead|but|while|whereas|rather|focus\w*|prefer\w*|seek\w*|look\w*|interest\w*|keen|target\w*|want\w*|lik\w*)\b)[^.;])*/g;
 const RE_TECH_NAME = /\b(?:information )?technology industry\b|\b[a-z]+ tech (?:foundation|university)\b/g;
 const RE_TECH_PLURAL = /\b(?:emerging|innovative|new|disruptive|digital|climate|clean|financial|advanced) technologies\b/g;
+// A With Intelligence "investment themes" line ("The investor's primary investment themes over
+// the next 12-18 months include artificial intelligence, ...") names technology themes that are
+// not tech words: AI, machine learning, data, digital infrastructure, blockchain, cybersecurity,
+// deep tech (decided 11 Nov 2026). Only in that sentence form, so a consultant's "caution over
+// AI-driven investment themes" does not count. Same rule as WI 01.
+const RE_THEME_TECH = /\b(?:investment )?themes?\b[^.;]{0,40}?\b(?:over|for|include[sd]?|focus(?:es|ed)? on|are|is)\b[^.;]*?\b(?:artificial intelligence|ai|machine learning|data|digital infrastructure|blockchain|cyber ?security|deep tech)\b/i;
 function isTech(t) {
-  return RE_TECH.test(String(t).replace(/_/g, ' ').replace(RE_TECH_OFF, ' ')
-    .replace(RE_TECH_NAME, ' ').replace(RE_TECH_PLURAL, ' technology '));
+  const u = String(t).replace(/_/g, ' ').replace(RE_TECH_OFF, ' ');
+  return RE_TECH.test(u.replace(RE_TECH_NAME, ' ').replace(RE_TECH_PLURAL, ' technology ')) || RE_THEME_TECH.test(u);
 }
 
 // Technology, as the score reads it. A person's Tech choice (the dropdown on
@@ -1588,6 +1594,15 @@ function isTech(t) {
 // is_tech_investor = true (schema-13).
 const TECH_BY_PERSON = /^Set by a person/;
 function techSetByPerson(m) { return TECH_BY_PERSON.test(String((m && m.tech_signal) || '')); }
+// Technology backed by a With Intelligence quote (saved by Grok from the profile)
+// or set by a person: the only technology that can make a match (11 Nov 2026).
+// Grok's profile quote, or a With Intelligence "investment themes" line (11 Nov 2026).
+const TECH_QUOTE = /^With Intelligence profile \((Grok|theme line)\): "/;
+function techQuoted(m) {
+  if (!m) return false;
+  if (techSetByPerson(m)) return m.is_tech_investor === true;
+  return m.is_tech_investor === true && TECH_QUOTE.test(String(m.tech_signal || ''));
+}
 function techOf(m, t) {
   if (techSetByPerson(m) && typeof m.is_tech_investor === 'boolean') return m.is_tech_investor;
   return isTech(t === undefined ? sigText(m) : t) || (m && m.is_tech_investor === true);
@@ -1597,7 +1612,7 @@ function techOf(m, t) {
 // the profile) and the alert text, with space_signal saying where; true /
 // false / null (no information). The alert text alone can also say yes.
 // "Space" on its own is not enough ("office space", "in the AI space").
-const RE_SPACE = /\b(space (economy|technology|technologies|tech|sector|industry|exploration|infrastructure|companies|startups?|ventures?|investing|investments?|theme)|spacetech|new space|outer space|satellite (operators?|compan(y|ies)|communications|constellations?|launch(es)?|imagery|broadband|internet|networks?)|aerospace|orbital|launch vehicles?|space-related|space and defen[cs]e)\b/i;
+const RE_SPACE = /\b(space (economy|technology|technologies|tech|sector|industry|exploration|infrastructure|companies|startups?|ventures?|investing|investments?|theme)|spacetech|new space|outer space|satellite (operators?|compan(y|ies)|communications|constellations?|launch(es)?|imagery|broadband|internet|networks?)|aerospace|orbital|launch vehicles?|space-related|space and defen[cs]e|security (?:and|&) defen[cs]e|security & defen[cs]e)\b/i;
 function spaceOf(m, t) {
   if (m && typeof m.is_space === 'boolean' && m.is_space) return true;
   return RE_SPACE.test(t === undefined ? sigText(m) : t);
@@ -1621,7 +1636,18 @@ function hedgeStatus(m, t) {
 function stratWords(m) {
   return jsonArr(m.strategies).map(s => String(s).toLowerCase().replace(/_/g, ' '));
 }
+// A rescore from the investor's newest intention can find that it no longer asks
+// for long/short (evidence.newest_intention_criteria.long_short = false, set 11 Nov
+// 2026). That wins over the older strategy tags, so the card shows long/short as
+// not met instead of a tick from the tag list.
+function newestIntentionNoLS(m) {
+  let ev = m && (m.evidence_scored || m.evidence);
+  for (let i = 0; i < 2 && typeof ev === 'string'; i++) { try { ev = JSON.parse(ev); } catch (_) { ev = null; } }
+  const c = ev && typeof ev === 'object' && !Array.isArray(ev) ? ev.newest_intention_criteria : null;
+  return !!(c && typeof c === 'object' && c.long_short === false);
+}
 function isStrong(m, t) {
+  if (newestIntentionNoLS(m)) return false;
   const u = t.replace(RE_NEGATED, ' ');
   const sysOk = !RE_EXCL.test(t);
   if (RE_STRONG_CORE.test(u) || (sysOk && /systematic/.test(u))) return true;
@@ -1677,7 +1703,7 @@ function critStatus(m) {
   const strats = jsonArr(m.strategies);
   const cc = String(m.investor_country || '').trim().toUpperCase().slice(0, 2);
   return [
-    isStrong(m, t) ? 'yes' : (strats.length ? 'no' : 'unknown'),
+    isStrong(m, t) ? 'yes' : (strats.length || newestIntentionNoLS(m) ? 'no' : 'unknown'),
     techOf(m, t) ? 'yes' : (techSetByPerson(m) ? 'no' : 'unknown'),
     spaceStatus(m, t)
   ];
@@ -1843,9 +1869,14 @@ function rescore(m) {
   const hf = m && m.hf_evidence ? String(m.hf_evidence) : null;
   if (hf === 'no' || hf === 'not_allocator') return { band: 'rejected', q: 'rejected', s: 0 };
   let q = BAND_QUAL[band];
-  // Long/short or quant AND technology is a match even when hedge fund
-  // investing is not confirmed (11 Nov 2026); the card says it is not.
-  if (hf !== 'confirmed' && q === 'matched' && !(strong && techOnly)) { q = 'uncertain'; if (s !== null) s = Math.min(s, 0.74); }
+  // Matched requires long/short (or quant) AND technology (decided 11 Nov 2026):
+  // one of the two waits for a decision, at 74% at most. Space is not technology.
+  // Long/short + technology is a match even when hedge fund investing is not
+  // confirmed; the card says so.
+  // The technology tick only counts toward a match with a With Intelligence quote
+  // (Grok's, from the profile) or a person's own Tech choice; a tick from the alert
+  // text alone waits for a decision.
+  if (q === 'matched' && !(strong && techOnly && techQuoted(m))) { q = 'uncertain'; if (s !== null) s = Math.min(s, 0.74); }
   return { band: band, q: q, s: s === null ? null : Math.round(s * 100) / 100 };
 }
 
@@ -1957,7 +1988,8 @@ function verdictReason(m) {
     s = 'Only ' + (x ? x[0] : 'CTA, macro or market-neutral') + ' stated, no long/short, quant or technology signal: the wrong fit for a long-biased L/S equity fund';
   } else {
     const w = stratWords(m);
-    s = capFirst(hedge) + (hs === 'yes' ? ', but ' : '; ') + (w.length ? 'its strategy (' + w.slice(0, 3).join(', ') + ') is not long/short, quant or technology'
+    s = capFirst(hedge) + (hs === 'yes' ? ', but ' : '; ') + (newestIntentionNoLS(m) ? 'its newest intention does not ask for long/short, quant or technology'
+      : w.length ? 'its strategy (' + w.slice(0, 3).join(', ') + ') is not long/short, quant or technology'
       : 'no strategy or technology stated') + ': needs data';
   }
   const where = geoText(m);
@@ -2083,6 +2115,10 @@ function critRows(m) {
     const row  = el('div', { class: 'mcard-c' },
       el('span', { class: 'mk ' + cls }, mark),
       el('span', ev ? { class: 'mcard-ev', title: ev } : null, name));
+    if (st === 'no' && i === 0 && newestIntentionNoLS(m)) {
+      row.appendChild(el('span', { class: 'mcard-unk', title: 'The strategy tags still list long/short, but the investor\u2019s newest intention does not ask for it.' },
+        'Not in the newest intention'));
+    }
     if (st === 'unknown') {
       const chk = name === 'Technology focus' ? focusCheckOf(m, 'tech') : null;
       row.appendChild(chk ? el('span', { class: 'mcard-unk', title: focusCheckTitle(chk) }, focusCheckLabel(chk))

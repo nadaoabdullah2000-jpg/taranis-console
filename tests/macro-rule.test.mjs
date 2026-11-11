@@ -45,8 +45,20 @@ test('equity_long_short reads as long/short', () => {
   assert.equal(r.band, 'strong');
   assert.equal(r.q, 'uncertain');           // hedge fund investing unconfirmed caps it at review
   assert.equal(r.s, 0.74);
+  // Matched requires long/short AND technology (11 Nov 2026): long/short alone waits for a decision.
   const one = ctx.rescore({ ...base, investor_type: 'Insurance', strategies: ['equity_long_short'] });
-  assert.equal(one.q, 'matched');
+  assert.equal(one.q, 'uncertain');
+  assert.ok(one.s <= 0.74);
+  // Technology from the alert text alone does not make a match; a With Intelligence quote does.
+  const textOnly = ctx.rescore({ ...base, investor_type: 'Insurance', strategies: ['equity_long_short'], intention_summary: 'Wants technology managers.' });
+  assert.equal(textOnly.q, 'uncertain');
+  const both = ctx.rescore({ ...base, investor_type: 'Insurance', strategies: ['equity_long_short'], is_tech_investor: true,
+    tech_signal: 'With Intelligence profile (Grok): "Favours technology-focused long/short managers."' });
+  assert.equal(both.q, 'matched');
+  assert.ok(both.s >= 0.90);
+  const person = ctx.rescore({ ...base, investor_type: 'Insurance', strategies: ['equity_long_short'], is_tech_investor: true,
+    tech_signal: 'Set by a person: someone, 2026-11-11' });
+  assert.equal(person.q, 'matched');
 });
 
 test('a mandate that is itself about macro or CTA is still low fit', () => {

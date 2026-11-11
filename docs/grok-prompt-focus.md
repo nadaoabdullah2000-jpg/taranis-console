@@ -34,11 +34,31 @@ rules as the I-Connections section). Otherwise record both fields as not stated,
   - the firm's own use of technology or AI to run its portfolio or operations ("AI-enabled
     investment strategies", "uses AI in its investment process");
   - wanting tech-savvy managers or a manager's "technological / informational edge";
-  - a generic list of industries, themes or tags where technology is one item among many, with no
-    sentence saying the investor targets it;
+  - a generic list of industries or tags (With Intelligence's industry menu) where technology is one
+    item among many; an "investment themes" sentence is not a generic list (see above);
   - a market view ("the AI-driven economy") that is not a stated allocation;
   - the name of a plan or company ("Virginia Tech Foundation", "… Technologies"); biotech or
     healthcare alone.
+- **An "investment themes" line counts** (decided 11 Nov 2026): when the profile says "The investor's
+  primary investment themes over the next 12-18 months focus on artificial intelligence, … financial
+  technology, …" (or "Key investment themes include …") and at least one theme is technology (AI,
+  data, digital infrastructure, fintech, software, semiconductors, cybersecurity, blockchain, deep
+  tech), save `tech_focus: true` with that whole line as `tech_evidence`, unless the line is limited
+  to the private equity or venture book (then `private_markets_only`).
+  - **Where it is** (11 Nov 2026): usually at the end of the investor's **intentions** on With
+    Intelligence ("Planning to make new commitments ... The investor's primary investment themes over
+    the next 12-18 months focus on ..."), not in the profile summary. Read the intentions, newest
+    first. The same line is often repeated on several intentions (one per asset class): it counts when
+    at least one of those intentions is not private equity / venture / private credit / real estate /
+    infrastructure only.
+  - The singular form counts too: "The investor's investment theme over the next 12-18 months
+    includes artificial intelligence."
+  - Technology themes: AI / machine learning, data, digital infrastructure, fintech / financial
+    technology, software, semiconductors, cybersecurity, blockchain, deep tech. Healthcare and
+    longevity, energy transition, sustainability, security and defence are not technology.
+  - **Security and defence (or space) in the line means Space = Yes**, not Technology: put the whole
+    line in your `checked` note for the Technology field ("themes line: security and defence, not
+    technology") so the user can set Space from it.
 - Technology mentioned **only** for private equity, private debt, venture or infrastructure →
   do not save; record `private_markets_only` with a note saying where (e.g. "Tech sector bias in
   its private equity programme only").

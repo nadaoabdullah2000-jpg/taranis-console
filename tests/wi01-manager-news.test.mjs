@@ -29,3 +29,14 @@ test('allocators stay', () => {
   assert.ok(!isMgrNews(run({ investor_name: "Seidor founding family's new CIO", investor_type: 'family office',
     intention_summary: "Seidor founding family's new CIO launches l/s HF search", source_links: links("Seidor founding family's new CIO launches l/s HF search", 'View article') })));
 });
+
+test('Matched needs long/short AND technology (11 Nov 2026)', () => {
+  const ls = run({ investor_name: 'Pension A', investor_type: 'Public D.B.', intention_summary: 'Searching for long/short equity managers.', source_links: links('View investor') });
+  assert.equal(ls.hard_status, 'uncertain');
+  assert.equal(ls.score_band, 'strong');
+  const lt = run({ investor_name: 'Pension B', investor_type: 'Public D.B.', intention_summary: 'Searching for technology long/short equity managers.', source_links: links('View investor') });
+  assert.equal(lt.hard_status, 'pass');
+  assert.equal(lt.score_band, 'strong_tech');
+  const ls_space = run({ investor_name: 'Pension C', investor_type: 'Public D.B.', intention_summary: 'Searching for long/short managers in the space economy.', source_links: links('View investor') });
+  assert.equal(ls_space.hard_status, 'uncertain');
+});

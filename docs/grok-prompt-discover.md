@@ -24,6 +24,24 @@ your own list between runs: this is the list.
 
 The first full pass (11 Nov 2026) has no baseline: send every investor the preset returns.
 
+### Recapture of the first pass (11 Nov 2026): industries, themes, intentions
+The first pass stored With Intelligence industries for only 4 of the 99 investors and no themes line,
+so Technology cannot be judged. For each of the 99 (get them with `discover_known`), open the profile
+again and send `discover` (dry run first, then `"dry_run": false`) with the same `wi_id` and `name` and:
+- `industries`: every industry or sector the profile lists (e.g. ["Technology", "Software & Computer
+  Services", "Artificial Intelligence"]);
+- `investment_themes`: the profile's themes line exactly as written. It is usually the last sentence
+  of the investor's intentions ("The investor's primary investment themes over the next 12-18 months
+  ...", or the singular "investment theme ... includes ..."), not the profile summary (e.g. "The investor's primary
+  investment themes over the next 12-18 months focus on artificial intelligence, digital
+  infrastructure, and financial technology."); leave it out if the profile has none;
+- `intentions`: every intention, search or mandate on the profile, newest first, `{date, type, text}`;
+- `tech_focus` / `tech_evidence` under the Technology rule of the focus pass: a themes line naming a
+  technology theme counts; the firm's own use of AI, a manager's "tech edge", an industry tag list
+  alone, or tech only in private equity / venture do not.
+Fields you leave out keep what is stored; intentions are added, never duplicated. `discover_status`
+shows `missing_industries`, `missing_investment_themes` and `missing_intentions` going down.
+
 ### 1. Send a batch (up to 50 investors per call), dry run first
 ```json
 {
@@ -47,6 +65,7 @@ The first full pass (11 Nov 2026) has no baseline: send every investor the prese
       "strategies": ["Long/Short Equity", "Equity Market Neutral"],
       "strategy_focus": "Equity long/short, fundamental",
       "industries": ["Technology", "Healthcare"],
+      "investment_themes": "The investor's primary investment themes over the next 12-18 months focus on artificial intelligence and financial technology.",
       "approach": "Invests directly with managers; uses Cambridge Associates as consultant",
       "emerging_managers": true,
       "emerging_evidence": "Considers emerging managers and first-time funds for its hedge fund portfolio.",

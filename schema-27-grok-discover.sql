@@ -243,3 +243,41 @@ begin
 end $function$;
 reset role;
 revoke create on schema grok_fn from grok_reader;
+
+-- 11 Nov 2026 (requested by research@taranis.net): recapture for Technology. The first pass stored
+-- industries for only 4 of 99 finds, so Technology could not be judged. New field investment_themes
+-- (the profile's "primary investment themes ..." line, as written); discover accepts and updates it;
+-- discover_status counts the finds still missing industries, themes or intentions.
+alter table grok.wi_discovered add column if not exists investment_themes text;
+do $do$
+declare d text; n text;
+begin
+  d := pg_get_functiondef('grok_fn.discover(jsonb,boolean,text)'::regprocedure);
+  n := replace(d, 'industries, approach, ticket_min_usd', 'industries, investment_themes, approach, ticket_min_usd');
+  n := replace(n, $s$coalesce(case when jsonb_typeof(it -> 'industries') = 'array' then it -> 'industries' end, '[]'),
+             nullif(btrim(it ->> 'approach'), ''),$s$,
+                  $s$coalesce(case when jsonb_typeof(it -> 'industries') = 'array' then it -> 'industries' end, '[]'),
+             nullif(btrim(it ->> 'investment_themes'), ''), nullif(btrim(it ->> 'approach'), ''),$s$);
+  n := replace(n, $s$        approach = coalesce(excluded.approach, d.approach),$s$,
+                  $s$        approach = coalesce(excluded.approach, d.approach),
+        investment_themes = coalesce(excluded.investment_themes, d.investment_themes),$s$);
+  n := replace(n, $s$'strategy_focus','approach',$s$, $s$'strategy_focus','investment_themes','approach',$s$);
+  if (length(n) - length(d)) < 150 then raise exception 'discover text not as expected'; end if;
+  execute n;
+end $do$;
+grant create on schema grok_fn to grok_reader;
+set role grok_reader;
+do $do$
+declare d text; n text;
+begin
+  d := pg_get_functiondef('grok_fn.discover_status(integer,integer)'::regprocedure);
+  n := replace(d, $s$'seen_more_than_once', count(*) filter (where times_seen > 1)) from d),$s$,
+                  $s$'seen_more_than_once', count(*) filter (where times_seen > 1),
+                 'missing_industries', count(*) filter (where jsonb_array_length(industries) = 0),
+                 'missing_investment_themes', count(*) filter (where investment_themes is null),
+                 'missing_intentions', count(*) filter (where jsonb_array_length(intentions) = 0)) from d),$s$);
+  if n = d then raise exception 'discover_status text not as expected'; end if;
+  execute n;
+end $do$;
+reset role;
+revoke create on schema grok_fn from grok_reader;
