@@ -14,7 +14,7 @@ Previous code: `wi01-apply-hard-criteria.before-2026-11-10.js` (version 145564a6
 Undo: in n8n, publish version 145564a6-9cb0-4af0-b770-f420d97bff48 again
 (workflow history), or paste the previous code into the node and publish.
 
-## 11 Nov 2026: manager news by links and headline (DRAFT, not published)
+## 11 Nov 2026: manager news by links and headline (published)
 `wi01-apply-hard-criteria.js` adds one check after the tag-based manager-news test. An item is
 manager news (rejected as "Not an investor mandate - manager news") when its With Intelligence links
 reach only a manager or fund page, or when it has no investor page, no investor type and a
@@ -25,3 +25,5 @@ including the 4 untagged copies that had reached Opportunities (HF Ranch 3011, C
 JonesTrading 3006, First NY 3007). No open row would change.
 Previous code: `wi01-apply-hard-criteria.before-2026-11-11.js` (= published version b29d8838).
 Tests: `tests/wi01-manager-news.test.mjs`.
+Published 11 Nov 2026 (approved by research@taranis.net) as version 7a60e603-8238-4a02-b297-b29be135b0c7.
+Undo: publish b29d8838-e45e-42ea-8ff7-6ec09c45f3db again.
