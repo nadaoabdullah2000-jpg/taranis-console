@@ -1251,7 +1251,7 @@ function taranisScorecard(m) {
     wants: c.wants,
     has:   String(c.has(m) || '').trim() || (st[i] === 'yes' ? 'Yes' : ''),
     state: st[i] === 'yes' ? 'met' : st[i] === 'no' ? 'failed' : 'unknown',
-    note:  st[i] === 'no' ? c.no : null
+    note:  st[i] === 'no' ? (i === 0 && newestIntentionNoLS(m) ? 'The newest intention no longer asks for long/short' : c.no) : null
   }));
 }
 
@@ -1630,7 +1630,18 @@ function hedgeStatus(m, t) {
 function stratWords(m) {
   return jsonArr(m.strategies).map(s => String(s).toLowerCase().replace(/_/g, ' '));
 }
+// A rescore from the investor's newest intention can find that it no longer asks
+// for long/short (evidence.newest_intention_criteria.long_short = false, set 11 Nov
+// 2026). That wins over the older strategy tags, so the card shows long/short as
+// not met instead of a tick from the tag list.
+function newestIntentionNoLS(m) {
+  let ev = m && (m.evidence_scored || m.evidence);
+  for (let i = 0; i < 2 && typeof ev === 'string'; i++) { try { ev = JSON.parse(ev); } catch (_) { ev = null; } }
+  const c = ev && typeof ev === 'object' && !Array.isArray(ev) ? ev.newest_intention_criteria : null;
+  return !!(c && typeof c === 'object' && c.long_short === false);
+}
 function isStrong(m, t) {
+  if (newestIntentionNoLS(m)) return false;
   const u = t.replace(RE_NEGATED, ' ');
   const sysOk = !RE_EXCL.test(t);
   if (RE_STRONG_CORE.test(u) || (sysOk && /systematic/.test(u))) return true;
@@ -1686,7 +1697,7 @@ function critStatus(m) {
   const strats = jsonArr(m.strategies);
   const cc = String(m.investor_country || '').trim().toUpperCase().slice(0, 2);
   return [
-    isStrong(m, t) ? 'yes' : (strats.length ? 'no' : 'unknown'),
+    isStrong(m, t) ? 'yes' : (strats.length || newestIntentionNoLS(m) ? 'no' : 'unknown'),
     techOf(m, t) ? 'yes' : (techSetByPerson(m) ? 'no' : 'unknown'),
     spaceStatus(m, t)
   ];
@@ -1971,7 +1982,8 @@ function verdictReason(m) {
     s = 'Only ' + (x ? x[0] : 'CTA, macro or market-neutral') + ' stated, no long/short, quant or technology signal: the wrong fit for a long-biased L/S equity fund';
   } else {
     const w = stratWords(m);
-    s = capFirst(hedge) + (hs === 'yes' ? ', but ' : '; ') + (w.length ? 'its strategy (' + w.slice(0, 3).join(', ') + ') is not long/short, quant or technology'
+    s = capFirst(hedge) + (hs === 'yes' ? ', but ' : '; ') + (newestIntentionNoLS(m) ? 'its newest intention does not ask for long/short, quant or technology'
+      : w.length ? 'its strategy (' + w.slice(0, 3).join(', ') + ') is not long/short, quant or technology'
       : 'no strategy or technology stated') + ': needs data';
   }
   const where = geoText(m);
@@ -2097,6 +2109,10 @@ function critRows(m) {
     const row  = el('div', { class: 'mcard-c' },
       el('span', { class: 'mk ' + cls }, mark),
       el('span', ev ? { class: 'mcard-ev', title: ev } : null, name));
+    if (st === 'no' && i === 0 && newestIntentionNoLS(m)) {
+      row.appendChild(el('span', { class: 'mcard-unk', title: 'The strategy tags still list long/short, but the investor\u2019s newest intention does not ask for it.' },
+        'Not in the newest intention'));
+    }
     if (st === 'unknown') {
       const chk = name === 'Technology focus' ? focusCheckOf(m, 'tech') : null;
       row.appendChild(chk ? el('span', { class: 'mcard-unk', title: focusCheckTitle(chk) }, focusCheckLabel(chk))

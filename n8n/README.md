@@ -28,6 +28,20 @@ Tests: `tests/wi01-manager-news.test.mjs`.
 Published 11 Nov 2026 (approved by research@taranis.net) as version 7a60e603-8238-4a02-b297-b29be135b0c7.
 Undo: publish b29d8838-e45e-42ea-8ff7-6ec09c45f3db again.
 
+## 11 Nov 2026: Matched needs long/short AND technology (published)
+Two nodes changed, same rule as the console's `rescore()` and the database guard `zz_match_rule`
+(schema-28):
+- "Apply Taranis Hard Criteria" (`wi01-apply-hard-criteria.js`): long/short without technology is
+  `uncertain` (review), not `pass`. Previous code: `wi01-apply-hard-criteria.before-2026-11-11b.js`.
+- "Build Mandate SQL" (`wi01-build-mandate-sql.js`): band `strong` (long/short only) is `uncertain`;
+  `matched` only with long/short and technology; a long/short review is capped at 0.74.
+  Previous code: `wi01-build-mandate-sql.before-2026-11-11.js`.
+A new alert's technology comes from its text, so the guard then holds it in review until a With
+Intelligence quote (Grok or theme line) or a person's Tech choice backs it.
+Tests: `tests/wi01-manager-news.test.mjs`, `tests/wi01-build-mandate.test.mjs`.
+Published 11 Nov 2026 (approved by the user) as version 6bf8ba73-c4ac-4787-8b01-791306cd1f19.
+Undo: publish 7a60e603-8238-4a02-b297-b29be135b0c7 again.
+
 ## Grok gateway (MO9CD19ZeKB3YGfQ), node "Parse Request"
 Copy: `grok-gateway-parse-request.js` (tests: `tests/grok-gateway.test.mjs`).
 - 11 Nov 2026, version f3808fd3: todo accepts scope "focus" (undo: a6fbe075).

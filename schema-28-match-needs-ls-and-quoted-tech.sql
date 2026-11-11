@@ -1,4 +1,4 @@
--- Schema 28 (DRAFT, NOT APPLIED; 11 Nov 2026): Matched requires long/short (or quant) AND technology,
+-- Schema 28 (APPLIED 11 Nov 2026 via repair-match-rule-2026-11-11.sql): Matched requires long/short (or quant) AND technology,
 -- and the technology must be backed by a With Intelligence quote (saved by Grok from the profile,
 -- tech_signal 'With Intelligence profile (Grok): "..."', or an "investment themes" line,
 -- 'With Intelligence profile (theme line): "..."') or a person's own Tech choice ('Set by a
@@ -11,7 +11,7 @@
 -- any other writer. A verdict a person set (verdict_source = 'manual') is never touched.
 -- Long/short itself is judged by the rule that set the verdict (the console's rescore / WI 01).
 --
--- To be applied only after the dry run is approved, together with the data change.
+-- Applied together with the data change (repair-match-rule-2026-11-11.sql), after the dry run was approved.
 -- Undo: drop trigger zz_match_rule on public.wi_mandates; drop function public.match_rule();
 
 create or replace function public.match_rule()
@@ -40,5 +40,5 @@ begin
   return new;
 end $function$;
 
--- create trigger zz_match_rule before insert or update on public.wi_mandates
---   for each row execute function public.match_rule();
+create trigger zz_match_rule before insert or update on public.wi_mandates
+  for each row execute function public.match_rule();
