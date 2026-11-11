@@ -1577,9 +1577,15 @@ const RE_TECH = /\b(?:tech|technology|software|semiconductors?|tmt|internet|saas
 const RE_TECH_OFF = /\b(?:avoid[a-z]*|exclud[a-z]*|low on|away from|otherwise be)\b(?:(?!,\s*(?:and\s+)?(?:instead|but|while|whereas|rather|focus\w*|prefer\w*|seek\w*|look\w*|interest\w*|keen|target\w*|want\w*|lik\w*)\b)[^.;])*/g;
 const RE_TECH_NAME = /\b(?:information )?technology industry\b|\b[a-z]+ tech (?:foundation|university)\b/g;
 const RE_TECH_PLURAL = /\b(?:emerging|innovative|new|disruptive|digital|climate|clean|financial|advanced) technologies\b/g;
+// A With Intelligence "investment themes" line ("The investor's primary investment themes over
+// the next 12-18 months include artificial intelligence, ...") names technology themes that are
+// not tech words: AI, machine learning, data, digital infrastructure, blockchain, cybersecurity,
+// deep tech (decided 11 Nov 2026). Only in that sentence form, so a consultant's "caution over
+// AI-driven investment themes" does not count. Same rule as WI 01.
+const RE_THEME_TECH = /\b(?:investment )?themes?\b[^.;]{0,40}?\b(?:over|for|include[sd]?|focus(?:es|ed)? on|are|is)\b[^.;]*?\b(?:artificial intelligence|ai|machine learning|data|digital infrastructure|blockchain|cyber ?security|deep tech)\b/i;
 function isTech(t) {
-  return RE_TECH.test(String(t).replace(/_/g, ' ').replace(RE_TECH_OFF, ' ')
-    .replace(RE_TECH_NAME, ' ').replace(RE_TECH_PLURAL, ' technology '));
+  const u = String(t).replace(/_/g, ' ').replace(RE_TECH_OFF, ' ');
+  return RE_TECH.test(u.replace(RE_TECH_NAME, ' ').replace(RE_TECH_PLURAL, ' technology ')) || RE_THEME_TECH.test(u);
 }
 
 // Technology, as the score reads it. A person's Tech choice (the dropdown on
@@ -1606,7 +1612,7 @@ function techOf(m, t) {
 // the profile) and the alert text, with space_signal saying where; true /
 // false / null (no information). The alert text alone can also say yes.
 // "Space" on its own is not enough ("office space", "in the AI space").
-const RE_SPACE = /\b(space (economy|technology|technologies|tech|sector|industry|exploration|infrastructure|companies|startups?|ventures?|investing|investments?|theme)|spacetech|new space|outer space|satellite (operators?|compan(y|ies)|communications|constellations?|launch(es)?|imagery|broadband|internet|networks?)|aerospace|orbital|launch vehicles?|space-related|space and defen[cs]e)\b/i;
+const RE_SPACE = /\b(space (economy|technology|technologies|tech|sector|industry|exploration|infrastructure|companies|startups?|ventures?|investing|investments?|theme)|spacetech|new space|outer space|satellite (operators?|compan(y|ies)|communications|constellations?|launch(es)?|imagery|broadband|internet|networks?)|aerospace|orbital|launch vehicles?|space-related|space and defen[cs]e|security (?:and|&) defen[cs]e|security & defen[cs]e)\b/i;
 function spaceOf(m, t) {
   if (m && typeof m.is_space === 'boolean' && m.is_space) return true;
   return RE_SPACE.test(t === undefined ? sigText(m) : t);

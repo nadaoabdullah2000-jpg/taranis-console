@@ -30,7 +30,9 @@ so Technology cannot be judged. For each of the 99 (get them with `discover_know
 again and send `discover` (dry run first, then `"dry_run": false`) with the same `wi_id` and `name` and:
 - `industries`: every industry or sector the profile lists (e.g. ["Technology", "Software & Computer
   Services", "Artificial Intelligence"]);
-- `investment_themes`: the profile's themes line exactly as written (e.g. "The investor's primary
+- `investment_themes`: the profile's themes line exactly as written. It is usually the last sentence
+  of the investor's intentions ("The investor's primary investment themes over the next 12-18 months
+  ...", or the singular "investment theme ... includes ..."), not the profile summary (e.g. "The investor's primary
   investment themes over the next 12-18 months focus on artificial intelligence, digital
   infrastructure, and financial technology."); leave it out if the profile has none;
 - `intentions`: every intention, search or mandate on the profile, newest first, `{date, type, text}`;

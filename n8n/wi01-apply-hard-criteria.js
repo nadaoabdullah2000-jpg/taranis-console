@@ -163,12 +163,16 @@ const TECH = /\b(?:tech|technology|software|semiconductors?|tmt|internet|saas|fi
 const TECH_OFF = /\b(?:avoid[a-z]*|exclud[a-z]*|low on|away from|otherwise be)\b(?:(?!,\s*(?:and\s+)?(?:instead|but|while|whereas|rather|focus\w*|prefer\w*|seek\w*|look\w*|interest\w*|keen|target\w*|want\w*|lik\w*)\b)[^.;])*/g;
 const TECH_NAME = /\b(?:information )?technology industry\b|\b[a-z]+ tech (?:foundation|university)\b/g;
 const TECH_PLURAL = /\b(?:emerging|innovative|new|disruptive|digital|climate|clean|financial|advanced) technologies\b/g;
-const tech   = TECH.test(txtS.replace(/_/g, ' ').replace(TECH_OFF, ' ').replace(TECH_NAME, ' ').replace(TECH_PLURAL, ' technology '));
+// A With Intelligence "investment themes" line naming AI, data, digital infrastructure, blockchain,
+// cybersecurity or deep tech counts as technology (11 Nov 2026). Same rule as the console (RE_THEME_TECH).
+const THEME_TECH = /\b(?:investment )?themes?\b[^.;]{0,40}?\b(?:over|for|include[sd]?|focus(?:es|ed)? on|are|is)\b[^.;]*?\b(?:artificial intelligence|ai|machine learning|data|digital infrastructure|blockchain|cyber ?security|deep tech)\b/i;
+const techTxt = txtS.replace(/_/g, ' ').replace(TECH_OFF, ' ');
+const tech   = TECH.test(techTxt.replace(TECH_NAME, ' ').replace(TECH_PLURAL, ' technology ')) || THEME_TECH.test(techTxt);
 const excl   = EXCL.test(mandateTxt);
-// Space (4 Nov 2026): replaces "buys hedge funds" as a scored point; scores
+// Space (4 Nov 2026; security & defence counts too, 11 Nov 2026): replaces "buys hedge funds" as a scored point; scores
 // like technology. Explicit space wording only: not "office space", "in the AI
 // space" or "satellite allocations". Same rule as the console (RE_SPACE).
-const SPACE = /\b(space (economy|technology|technologies|tech|sector|industry|exploration|infrastructure|companies|startups?|ventures?|investing|investments?|theme)|spacetech|new space|outer space|satellite (operators?|compan(y|ies)|communications|constellations?|launch(es)?|imagery|broadband|internet|networks?)|aerospace|orbital|launch vehicles?|space-related|space and defen[cs]e)\b/i;
+const SPACE = /\b(space (economy|technology|technologies|tech|sector|industry|exploration|infrastructure|companies|startups?|ventures?|investing|investments?|theme)|spacetech|new space|outer space|satellite (operators?|compan(y|ies)|communications|constellations?|launch(es)?|imagery|broadband|internet|networks?)|aerospace|orbital|launch vehicles?|space-related|space and defen[cs]e|security (?:and|&) defen[cs]e|security & defen[cs]e)\b/i;
 const spaceHit = (txtS.match(SPACE) || [])[0] || null;
 const space = !!spaceHit;
 const theme = tech || space;

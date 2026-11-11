@@ -31,7 +31,7 @@ const NYU = { id: 2026, investor_type: 'endowment', investor_country: 'US', inve
 
 test('a matched row reads from the rule, not the model', () => {
   const r = why(NYU);
-  assert.match(r, /^Quant stated, technology interest, buys hedge funds/);
+  assert.match(r, /^Quant stated, technology interest, space interest, buys hedge funds/);
   assert.doesNotMatch(r, /wrong fit/);
   const kgi = { investor_type: 'Insurance', investor_country: 'TA', investor_city: 'Taipei', strategies: ['equity_long_short'],
     asset_classes: ['hedge funds'], hard_fail_reasons: ['Investor outside GB/CH/US: TA'],
