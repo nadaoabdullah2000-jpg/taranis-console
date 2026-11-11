@@ -1,4 +1,4 @@
--- 11 Nov 2026 (DRAFT until research@taranis.net approves): the "low match" tier.
+-- 11 Nov 2026, APPLIED (approved by research@taranis.net): the "low match" tier.
 --   1. schema-29: the guard keeps an alert-text-only Tech match as Matched, capped at 0.89 with a
 --      "Low match" note (instead of Waiting for decision at 0.74). Covers WI 01's new alerts.
 --   2. Institute for Advanced Study (398): the live profile read (11 Nov) found the themes line on its

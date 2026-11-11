@@ -1,4 +1,4 @@
--- Schema 29 (DRAFT, NOT APPLIED; 11 Nov 2026): the "low match" tier replaces the 74% cap for
+-- Schema 29 (APPLIED 11 Nov 2026 via repair-low-match-2026-11-11.sql): the "low match" tier replaces the 74% cap for
 -- technology from the alert text only. A non-manual 'matched' row without quoted technology (no
 -- With Intelligence profile quote, no theme line, no person's choice, on the row or another row of
 -- the same investor) stays 'matched' but is capped at 0.89, below every quoted match (0.90 and up),
