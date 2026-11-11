@@ -48,3 +48,17 @@ Copy: `grok-gateway-parse-request.js` (tests: `tests/grok-gateway.test.mjs`).
 - 11 Nov 2026, version 973df23d: actions discover and discover_status (schema-27) (undo: f3808fd3).
 - 11 Nov 2026, version f9953e88: action discover_known (the staged wi_ids, the baseline for scheduled
   discovery runs) (undo: 973df23d).
+
+## 11 Nov 2026: themes line counts as Tech; security & defence as Space (published)
+"Apply Taranis Hard Criteria" (`wi01-apply-hard-criteria.js`): an "investment themes" line naming AI,
+machine learning, data, digital infrastructure, blockchain, cybersecurity or deep tech counts as
+technology (THEME_TECH, same as the console's RE_THEME_TECH); "security and/& defence" counts as Space.
+Previous code: `wi01-apply-hard-criteria.before-2026-11-11c.js` (= version 6bf8ba73).
+Tests: `tests/themes-line.test.mjs`.
+Published 11 Nov 2026 (approved by the user) as version 9b0c7bd1-9fb9-4ea7-bef2-2e3869d7ef7b.
+Undo: publish 6bf8ba73-c4ac-4787-8b01-791306cd1f19 again.
+
+## WI 01d (umIcE6l9pLFuC5JH), scratch branch: themes-line read (11 Nov 2026)
+"Run iConnections lookup" branch reads With Intelligence intentions for `wi_themes_targets` into
+`wi_themes_reads` (`wi01d-themes-read.js`), paced, stopping on an expired token / sign-in / CAPTCHA.
+Read-only on wi_mandates. Previous branch code: `wi01d-scratch.before-2026-11-11.js`.
