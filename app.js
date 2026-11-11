@@ -1811,7 +1811,9 @@ function rescore(m) {
   const hf = m && m.hf_evidence ? String(m.hf_evidence) : null;
   if (hf === 'no' || hf === 'not_allocator') return { band: 'rejected', q: 'rejected', s: 0 };
   let q = BAND_QUAL[band];
-  if (hf !== 'confirmed' && q === 'matched') { q = 'uncertain'; if (s !== null) s = Math.min(s, 0.74); }
+  // Long/short or quant AND technology is a match even when hedge fund
+  // investing is not confirmed (11 Nov 2026); the card says it is not.
+  if (hf !== 'confirmed' && q === 'matched' && !(strong && techOnly)) { q = 'uncertain'; if (s !== null) s = Math.min(s, 0.74); }
   return { band: band, q: q, s: s === null ? null : Math.round(s * 100) / 100 };
 }
 
@@ -1989,7 +1991,8 @@ function ensureMatchCss() {
   + ".mcard-int-top{display:flex;justify-content:space-between;gap:10px;margin-bottom:2px}"
   + ".mcard-int-d{font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3)}"
   + ".mcard-int-t{font-variant-numeric:tabular-nums;color:var(--ink-3);font-size:11.5px;white-space:nowrap}"
-  + ".mcard-int-s{display:block;line-height:1.5;overflow-wrap:break-word;word-break:normal}";
+  + ".mcard-int-s{display:block;line-height:1.5;overflow-wrap:break-word;word-break:normal}"
+  + ".mcard-hfnote{font-size:11.5px;color:var(--signal);margin:6px 0 2px}";
   document.head.appendChild(s);
 }
 
@@ -2027,7 +2030,10 @@ function critMeter(m) {
       el('span', { class: 'mcard-fit', title: capped
         ? 'Hedge fund investing not confirmed: a review is capped at 74%, whatever the criteria. Order of "Score: best match first": verdict, score, then criteria met.'
         : 'Fit score. Order of "Score: best match first": verdict, score, then criteria met.' }, fitTxt)),
-    el('b', null, score + ' of ' + crit.length + ' criteria met')), seg];
+    el('b', null, score + ' of ' + crit.length + ' criteria met')), seg,
+    q === 'matched' && !sortHf(m)
+      ? el('div', { class: 'mcard-hfnote', title: 'With Intelligence does not confirm that this investor buys hedge funds.' },
+          'Hedge fund investing not confirmed') : null].filter(Boolean);
 }
 // The three criteria, each met (\u2713), not stated (?) or contradicted (\u2717).
 function critRows(m) {
@@ -2152,6 +2158,24 @@ const QUALIFICATIONS = [
   ['rejected',  'Rejected']
 ];
 
+// Writes a person's verdict and takes back what the database stored, so the
+// card, its mode (Matched / Waiting for decision / Rejected) and the counts
+// follow the row as it really is. Then the Opportunities list is read afresh
+// and the sidebar counts are refreshed at once, not at the next poll.
+async function saveVerdict(m, patch) {
+  const rows = await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), patch, { returnRows: true });
+  const row = Array.isArray(rows) && rows[0] ? rows[0] : patch;
+  const keep = {};
+  for (const k of ['qualification', 'new_qualification', 'new_fit_score', 'fit_reason', 'verdict_source',
+                   'verdict_set_by', 'verdict_set_at', 'approved_at', 'approved_by', 'hf_evidence']) {
+    if (k in row) keep[k] = row[k];
+  }
+  Object.assign(m, keep);
+  OPPS_ROWS = null; OPPS_AT = 0;
+  setTimeout(() => { try { poll(); } catch (_) {} }, 0);
+  return keep;
+}
+
 function qualificationControl(m, after) {
   const cur = verdictGroup(m);
   const sel = el('select', { class: 'search', style: 'flex:none;min-width:150px' });
@@ -2175,9 +2199,10 @@ function qualificationControl(m, after) {
       const full = await fullMandate(m);
       const patch = Object.assign({ qualification: to }, verdictPatch(full, to), manualVerdict());
       if (to === 'rejected') { patch.approved_at = null; patch.approved_by = null; }
-      await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(m.id), patch);
-      Object.assign(m, patch);
-      toast('Qualification set to ' + to.replace(/_/g, ' ') + '.');
+      const saved = await saveVerdict(m, patch);
+      toast(saved.new_qualification === patch.new_qualification
+        ? 'Qualification set to ' + to.replace(/_/g, ' ') + '.'
+        : 'Saved, but the database kept ' + String(saved.new_qualification || '').replace(/_/g, ' ') + '.', saved.new_qualification !== patch.new_qualification);
       if (typeof after === 'function') after(to);
     } catch (e) {
       toast(e.message, true);
@@ -5132,9 +5157,8 @@ async function setQualification(m, to, said, after) {
       const full = await fullMandate(r);
       const patch = Object.assign({ qualification: to }, verdictPatch(full, to), manualVerdict());
       if (to === 'rejected') { patch.approved_at = null; patch.approved_by = null; }
-      await supaPatch('wi_mandates', 'id=eq.' + encodeURIComponent(r.id), patch);
-      Object.assign(r, patch);
-      if (!first || String(r.id) === String(m.id)) first = patch;
+      const saved = await saveVerdict(r, patch);
+      if (!first || String(r.id) === String(m.id)) first = saved;
     }
     Object.assign(m, first);
     toast(n > 1 ? said.replace(/\.$/, '') + ' (' + n + ' alerts).' : said);
