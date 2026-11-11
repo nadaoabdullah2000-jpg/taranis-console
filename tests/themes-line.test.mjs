@@ -50,3 +50,20 @@ test('profile-read evidence is shown, not scored (industry tags, stored intentio
   assert.doesNotMatch(t, /technology|software|long\/short|long short|artificial/i);
   assert.match(t, /emerging managers/);
 });
+
+test('equity in a hedge-fund context counts toward long/short; long-only, private equity and checked exclusions do not', () => {
+  const src3 = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
+  const c3 = {}; vm.createContext(c3);
+  const g = (a, b) => src3.slice(src3.indexOf(a), src3.indexOf(b, src3.indexOf(a)));
+  vm.runInContext([g('const jsonArr', '\n};') + '\n};', g('function stratWords', '\n}') + '\n}',
+    g('const RE_EQ_TAG', 'function isStrong'), 'this.equityInHf = equityInHf;'].join('\n'), c3);
+  const hf = { asset_classes: ['Hedge Funds'] };
+  assert.equal(c3.equityInHf({ ...hf, strategies: ['macro', 'equity', 'multi_strategy'] }), 'tag');      // Maihar
+  assert.equal(c3.equityInHf({ ...hf, strategies: ['Fundamental Equity'] }), 'tag');
+  assert.equal(c3.equityInHf({ asset_classes: ['Equity', 'Fixed Income'], strategies: ['Equity'] }), null);  // no hedge-fund context
+  assert.equal(c3.equityInHf({ ...hf, strategies: ['Long Only', 'Equity Market-Neutral'] }), null);
+  assert.equal(c3.equityInHf({ asset_classes: [], strategies: [], intention_summary: 'Planning new hedge fund commitments to relative value, equity and macro.' }), 'text');
+  assert.equal(c3.equityInHf({ asset_classes: [], strategies: [], intention_summary: 'Planning new private equity and hedge fund commitments.' }), null);
+  assert.equal(c3.equityInHf({ asset_classes: [], strategies: [], intention_summary: 'Hedge funds alongside long-only equity.' }), null);
+  assert.equal(c3.equityInHf({ ...hf, strategies: ['equity'], evidence: { equity_not_long_short: 'public equity commitments only' } }), null);
+});

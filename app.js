@@ -1571,7 +1571,8 @@ function contextLines(m) {
 // intentions (wi_intentions; the newest one is the row's own intention text), the themes line
 // (wi_themes_line; it already decided Tech / Space through the fields) and the discovery record
 // (discovery; its "via fund" names, e.g. "... Long Short Fund", are not the investor's mandate).
-const EVIDENCE_NOT_SCORED = ['passage', 'from_report', 'page', 'wi_summary', 'wi_industries', 'wi_intentions', 'wi_themes_line', 'discovery'];
+const EVIDENCE_NOT_SCORED = ['passage', 'from_report', 'page', 'wi_summary', 'wi_industries', 'wi_intentions', 'wi_themes_line', 'discovery',
+  'equity_not_long_short', 'equity_long_short'];
 // "does not state hedge fund appetite" is silence, not a hedge-fund signal.
 const RE_NO_APPETITE = /(does not state|doesn't state|no) hedge.fund appetite( stated)?|hedge.fund appetite (is )?not stated/g;
 function evidenceText(ev) {
@@ -1711,6 +1712,11 @@ const RE_HF_WORD = /\bhedge[- ]funds?\b|\bhfs?\b|\bfund of hedge funds\b|\babsol
 const RE_EQ_NOT = /private equity|equity market[- ]neutral|long[- ]only equit(y|ies)|equit(y|ies) long[- ]only|long[- ]only|(listed|public) equit(y|ies)/g;
 function equityInHf(m) {
   if (!m) return null;
+  // A row checked and found not to be long/short (its "equity" is long-only, market-neutral or a
+  // manager's own fund): evidence.equity_not_long_short says why, and the tag does not count.
+  let ev = m.evidence_scored || m.evidence;
+  for (let i = 0; i < 2 && typeof ev === 'string'; i++) { try { ev = JSON.parse(ev); } catch (_) { ev = null; } }
+  if (ev && typeof ev === 'object' && ev.equity_not_long_short) return null;
   const hfAsset = jsonArr(m.asset_classes).some(a => /hedge/i.test(String(a)));
   if (hfAsset && stratWords(m).some(s => RE_EQ_TAG.test(s.trim()))) return 'tag';
   const own = [m.intention_summary, m.requirements_raw, m.appetite_raw].map(x => String(x || '')).join(' ').toLowerCase();
