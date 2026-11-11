@@ -1572,7 +1572,7 @@ function contextLines(m) {
 // (wi_themes_line; it already decided Tech / Space through the fields) and the discovery record
 // (discovery; its "via fund" names, e.g. "... Long Short Fund", are not the investor's mandate).
 const EVIDENCE_NOT_SCORED = ['passage', 'from_report', 'page', 'wi_summary', 'wi_industries', 'wi_intentions', 'wi_themes_line', 'discovery',
-  'equity_not_long_short', 'equity_long_short'];
+  'equity_not_long_short', 'equity_long_short', 'equity_review_only'];
 // "does not state hedge fund appetite" is silence, not a hedge-fund signal.
 const RE_NO_APPETITE = /(does not state|doesn't state|no) hedge.fund appetite( stated)?|hedge.fund appetite (is )?not stated/g;
 function evidenceText(ev) {
@@ -1710,21 +1710,45 @@ function newestIntentionNoLS(m) {
 const RE_EQ_TAG = /^(fundamental )?equit(y|ies)$|^equity (hedge|long ?\/ ?short|long short|l\/s)$/;
 const RE_HF_WORD = /\bhedge[- ]funds?\b|\bhfs?\b|\bfund of hedge funds\b|\babsolute return\b/;
 const RE_EQ_NOT = /private equity|equity market[- ]neutral|long[- ]only equit(y|ies)|equit(y|ies) long[- ]only|long[- ]only|(listed|public) equit(y|ies)/g;
+// How the equity tick was found, and whether it may make a match (decided 11 Nov 2026):
+//   'text'   a sentence about hedge funds names equity                          -> may match
+//   'quote'  evidence.equity_long_short holds the hedge-fund intention (or the user's decision) -> may match
+//   'tag'    an "equity" tag, the investor's only asset class is hedge funds, no long-only tag -> may match
+//   'review' an "equity" tag with other asset classes or a long-only tag beside it, or a row flagged
+//            evidence.equity_review_only (e.g. a fund vehicle): long/short for Review only, never a match on its own
+function evidenceObj(m) {
+  let ev = m && (m.evidence_scored || m.evidence);
+  for (let i = 0; i < 2 && typeof ev === 'string'; i++) { try { ev = JSON.parse(ev); } catch (_) { ev = null; } }
+  return ev && typeof ev === 'object' && !Array.isArray(ev) ? ev : {};
+}
 function equityInHf(m) {
   if (!m) return null;
   // A row checked and found not to be long/short (its "equity" is long-only, market-neutral or a
   // manager's own fund): evidence.equity_not_long_short says why, and the tag does not count.
-  let ev = m.evidence_scored || m.evidence;
-  for (let i = 0; i < 2 && typeof ev === 'string'; i++) { try { ev = JSON.parse(ev); } catch (_) { ev = null; } }
-  if (ev && typeof ev === 'object' && ev.equity_not_long_short) return null;
-  const hfAsset = jsonArr(m.asset_classes).some(a => /hedge/i.test(String(a)));
-  if (hfAsset && stratWords(m).some(s => RE_EQ_TAG.test(s.trim()))) return 'tag';
+  const ev = evidenceObj(m);
+  if (ev.equity_not_long_short) return null;
   const own = [m.intention_summary, m.requirements_raw, m.appetite_raw].map(x => String(x || '')).join(' ').toLowerCase();
   for (const sen of own.split(/(?<=[.!?;\u2022])\s+/)) {
     if (!RE_HF_WORD.test(sen)) continue;
-    if (/\b(fundamental )?equit(y|ies)\b/.test(sen.replace(RE_EQ_NOT, ' '))) return 'text';
+    if (/\b(fundamental )?equit(y|ies)\b/.test(sen.replace(RE_EQ_NOT, ' '))) return ev.equity_review_only ? 'review' : 'text';
   }
-  return null;
+  const assets = jsonArr(m.asset_classes).map(a => String(a));
+  const words = stratWords(m);
+  if (!assets.some(a => /hedge/i.test(a)) || !words.some(s => RE_EQ_TAG.test(s.trim()))) return null;
+  if (ev.equity_review_only) return 'review';
+  if (ev.equity_long_short) return 'quote';
+  const onlyHf = assets.every(a => /hedge|alternative|absolute return/i.test(a));
+  const longOnly = words.some(s => /long only|long-only|long bias/.test(s));
+  return onlyHf && !longOnly ? 'tag' : 'review';
+}
+// Long/short without the equity rule (the wording and short tag lists that always counted).
+function isStrongCore(m, t) {
+  if (newestIntentionNoLS(m)) return false;
+  const u = t.replace(RE_NEGATED, ' ');
+  const sysOk = !RE_EXCL.test(t);
+  if (RE_STRONG_CORE.test(u) || (sysOk && /systematic/.test(u))) return true;
+  const w = stratWords(m);
+  return w.length > 0 && w.length <= 3 && w.some(x => RE_STRONG_CORE.test(x) || (sysOk && /systematic/.test(x)));
 }
 function isStrong(m, t) {
   if (newestIntentionNoLS(m)) return false;
@@ -1962,6 +1986,8 @@ function rescore(m) {
   // Matched: capped at 89%, below every quoted match (90% and up). Same as the database guard.
   let low = false;
   if (q === 'matched' && !(strong && techOnly)) { q = 'uncertain'; if (s !== null) s = Math.min(s, 0.74); }
+  // Long/short only from an "equity" tag in a mixed or long-only context counts toward Review, never a match.
+  else if (q === 'matched' && equityInHf(m) === 'review' && !isStrongCore(m, t)) { q = 'uncertain'; if (s !== null) s = Math.min(s, 0.74); }
   else if (q === 'matched' && !techQuoted(m)) { low = true; if (s !== null) s = Math.min(s, LOW_MATCH_CAP); }
   return { band: band, q: q, s: s === null ? null : Math.round(s * 100) / 100, low: low };
 }
@@ -2201,6 +2227,13 @@ function critRows(m) {
     const row  = el('div', { class: 'mcard-c' },
       el('span', { class: 'mk ' + cls }, mark),
       el('span', ev ? { class: 'mcard-ev', title: ev } : null, name));
+    if (st === 'yes' && name === 'Long/short or quant' && !isStrongCore(m, sigText(m))) {
+      const how = equityInHf(m);
+      if (how) row.appendChild(el('span', { class: 'mcard-unk', title: how === 'review'
+          ? 'Long/short from an "equity" strategy tag beside other asset classes or a long-only tag: counts toward Review, not a match.'
+          : 'Long/short from equity in a hedge-fund context' + (evidenceObj(m).equity_long_short ? ': ' + evidenceObj(m).equity_long_short : '.') },
+        how === 'review' ? '(equity tag only: review)' : '(equity in a hedge-fund context)'));
+    }
     if (st === 'yes' && name === 'Technology focus' && !techQuoted(m)) {
       row.appendChild(el('span', { class: 'mcard-unk', title: 'Technology comes from the alert text; the With Intelligence profile has no quote for it yet.' },
         '(alert text only, no profile quote)'));

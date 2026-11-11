@@ -56,10 +56,14 @@ test('equity in a hedge-fund context counts toward long/short; long-only, privat
   const c3 = {}; vm.createContext(c3);
   const g = (a, b) => src3.slice(src3.indexOf(a), src3.indexOf(b, src3.indexOf(a)));
   vm.runInContext([g('const jsonArr', '\n};') + '\n};', g('function stratWords', '\n}') + '\n}',
-    g('const RE_EQ_TAG', 'function isStrong'), 'this.equityInHf = equityInHf;'].join('\n'), c3);
+    g('const RE_EQ_TAG', '// Long/short without the equity rule'), 'this.equityInHf = equityInHf;'].join('\n'), c3);
   const hf = { asset_classes: ['Hedge Funds'] };
-  assert.equal(c3.equityInHf({ ...hf, strategies: ['macro', 'equity', 'multi_strategy'] }), 'tag');      // Maihar
+  assert.equal(c3.equityInHf({ ...hf, strategies: ['macro', 'equity', 'multi_strategy'] }), 'tag');      // Maihar: may match
   assert.equal(c3.equityInHf({ ...hf, strategies: ['Fundamental Equity'] }), 'tag');
+  assert.equal(c3.equityInHf({ asset_classes: ['Hedge Funds', 'Equity', 'Private Equity'], strategies: ['Equity'] }), 'review');   // mixed: Review only
+  assert.equal(c3.equityInHf({ ...hf, strategies: ['Equity', 'Long Only'] }), 'review');                    // long-only beside it
+  assert.equal(c3.equityInHf({ ...hf, strategies: ['Equity'], evidence: { equity_review_only: 'fund vehicle' } }), 'review');
+  assert.equal(c3.equityInHf({ asset_classes: ['Hedge Funds', 'Equity'], strategies: ['Equity'], evidence: { equity_long_short: 'quote' } }), 'quote');
   assert.equal(c3.equityInHf({ asset_classes: ['Equity', 'Fixed Income'], strategies: ['Equity'] }), null);  // no hedge-fund context
   assert.equal(c3.equityInHf({ ...hf, strategies: ['Long Only', 'Equity Market-Neutral'] }), null);
   assert.equal(c3.equityInHf({ asset_classes: [], strategies: [], intention_summary: 'Planning new hedge fund commitments to relative value, equity and macro.' }), 'text');

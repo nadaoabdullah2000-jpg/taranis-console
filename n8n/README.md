@@ -62,3 +62,11 @@ Undo: publish 6bf8ba73-c4ac-4787-8b01-791306cd1f19 again.
 "Run iConnections lookup" branch reads With Intelligence intentions for `wi_themes_targets` into
 `wi_themes_reads` (`wi01d-themes-read.js`), paced, stopping on an expired token / sign-in / CAPTCHA.
 Read-only on wi_mandates. Previous branch code: `wi01d-scratch.before-2026-11-11.js`.
+
+## DRAFT (not published): equity in a hedge-fund context counts toward long/short (11 Nov 2026)
+"Apply Taranis Hard Criteria" (`wi01-apply-hard-criteria.js`): "equity", "equity hedge", "equity long/short", "equity l/s"
+or "fundamental equity" in a sentence about hedge funds, or as a strategy tag when hedge funds are among the asset
+classes, counts toward long/short. A tag beside other asset classes or a long-only tag counts toward review only
+(band 'strong', so Build Mandate SQL keeps it at 74% at most). Same rule as the console's equityInHf.
+Previous code: `wi01-apply-hard-criteria.before-2026-11-11d.js` (= published version 9b0c7bd1).
+Tests: `tests/wi01-manager-news.test.mjs` ("equity in a hedge-fund context ...").

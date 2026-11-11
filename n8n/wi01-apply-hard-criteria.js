@@ -149,7 +149,31 @@ for (let i = 0; i < 2 && typeof tags === 'string'; i++) { try { tags = JSON.pars
 const stratWords = (Array.isArray(tags) ? tags : []).map(s => String(s).toLowerCase().replace(/_/g, ' '));
 const tagStrong = stratWords.length > 0 && stratWords.length <= 3
   && stratWords.some(s => STRONG.test(s) || (sysOk && /systematic/.test(s)));
-const strong = STRONG.test(txtN) || (sysOk && /systematic/.test(txtN)) || tagStrong;
+const strongCore = STRONG.test(txtN) || (sysOk && /systematic/.test(txtN)) || tagStrong;
+// Equity in a hedge-fund context counts toward long/short (11 Nov 2026; same rule as the console's
+// equityInHf): "equity", "equity hedge", "equity long/short", "equity l/s" or "fundamental equity" in a
+// sentence about hedge funds (may match), or as a strategy tag when hedge funds are among the asset
+// classes: a match only when hedge funds are the only asset class and there is no long-only tag;
+// otherwise long/short for review only. Never long-only, private equity, equity market-neutral, or
+// listed / public equity without hedge-fund context.
+const EQ_TAG = /^(fundamental )?equit(y|ies)$|^equity (hedge|long ?\/ ?short|long short|l\/s)$/;
+const HF_WORD = /\bhedge[- ]funds?\b|\bhfs?\b|\bfund of hedge funds\b|\babsolute return\b/;
+const EQ_NOT = /private equity|equity market[- ]neutral|long[- ]only equit(y|ies)|equit(y|ies) long[- ]only|long[- ]only|(listed|public) equit(y|ies)/g;
+let eqHow = null;
+{
+  const own = [m.intention_summary, m.requirements_raw, m.appetite_raw].map(x => String(x || '')).join(' ').toLowerCase();
+  for (const sen of own.split(/(?<=[.!?;\u2022])\s+/)) {
+    if (HF_WORD.test(sen) && /\b(fundamental )?equit(y|ies)\b/.test(sen.replace(EQ_NOT, ' '))) { eqHow = 'text'; break; }
+  }
+  const assetNames = arr(m.asset_classes).map(a => String(a));
+  if (!eqHow && assetNames.some(a => /hedge/i.test(a)) && stratWords.some(w => EQ_TAG.test(w.trim()))) {
+    const onlyHf = assetNames.every(a => /hedge|alternative|absolute return/i.test(a));
+    const longOnly = stratWords.some(w => /long only|long-only|long bias/.test(w));
+    eqHow = onlyHf && !longOnly ? 'tag' : 'review';
+  }
+}
+const strong = strongCore || !!eqHow;
+const eqReviewOnly = !strongCore && eqHow === 'review';
 // Technology as whole words: not biotech, techniques or technician. Clauses
 // that turn tech away ("avoid funds overly exposed to software and
 // technology") and plan or firm names ("Information Technology Industry",
@@ -193,7 +217,8 @@ let hard_status, band, needs_data_reason = null;
 if (strong && itag === 'people') { hard_status = 'uncertain'; band = 'hire'; notes.push('An allocator\'s hire with a strategy match - worth a look, not an automatic match'); }
 // Matched requires long/short (or quant) AND technology (11 Nov 2026): long/short
 // without technology (space does not count) passes to review, not to a match.
-else if (strong) { hard_status = tech ? 'pass' : 'uncertain'; band = theme ? 'strong_tech' : 'strong'; notes.push('Strategy matches directly' + (tech ? ' (+ technology)' : ' - no technology, so review, not a match') + (space ? ' (+ space)' : '')); }
+else if (strong && eqReviewOnly) { hard_status = 'uncertain'; band = 'strong'; notes.push('Long/short from an equity tag beside other asset classes or a long-only tag - review, not a match'); }
+else if (strong) { hard_status = tech ? 'pass' : 'uncertain'; band = theme ? 'strong_tech' : 'strong'; notes.push('Strategy matches directly' + (eqHow && !strongCore ? ' (equity in a hedge-fund context)' : '') + (tech ? ' (+ technology)' : ' - no technology, so review, not a match') + (space ? ' (+ space)' : '')); }
 else if (theme)  { hard_status = 'uncertain'; band = 'tech';        notes.push('No strategy stated, ' + (tech ? 'technology' : 'space') + ' interest - kept for review'); }
 else if (excl)   { hard_status = 'uncertain'; band = 'low';         notes.push('CTA/macro/market-neutral and no L/S, quant or tech - low but kept'); }
 else             { hard_status = 'uncertain'; band = 'needs_data';  needs_data_reason = 'No strategy or tech signal in the text'; notes.push('Hedge-fund allocator, strategy not stated - needs data'); }
