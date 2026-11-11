@@ -54,6 +54,10 @@ switch (action) {
   }
   case 'discover_status':
     return call('grok_fn.discover_status($2::int, $3::int)', [String(int(b.limit, 50, 200)), String(int(b.offset, 0, 100000))]);
+  case 'discover_known':
+    // The baseline: wi_ids already staged (optionally those a preset found), so a run sends only new ones.
+    return call('grok_fn.discover_known($2, $3::int, $4::int)',
+      [String(b.preset || '').trim() || null, String(int(b.limit, 1000, 5000)), String(int(b.offset, 0, 100000))]);
   case 'save_undo': {
     const run = String(b.run || '').trim();
     if (!run) return fail(400, 'Give run: the run tag a save returned.');
@@ -69,5 +73,5 @@ switch (action) {
   case 'update':
     return fail(410, 'update was removed. Use save: it fills blanks only, logs every change, and has dry_run.');
   default:
-    return fail(400, 'Unknown action. Use one of: schema, query, missing_summary, todo, save, checked, save_undo, discover, discover_status, wi_lookup.');
+    return fail(400, 'Unknown action. Use one of: schema, query, missing_summary, todo, save, checked, save_undo, discover, discover_status, discover_known, wi_lookup.');
 }

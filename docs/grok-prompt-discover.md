@@ -11,6 +11,19 @@ user reviews them separately.
 Run the user's saved With Intelligence search (the filter preset). For each **investor** profile in
 the results (not a manager, fund or consultant page), read the profile and send it with `discover`.
 
+### 0. Scheduled runs: start from the baseline in the database
+Before a scheduled run (e.g. the daily 8:00 run), ask which investors are staged already:
+```json
+{ "action": "discover_known", "preset": "HF L/S, tech, US+UK", "limit": 1000, "offset": 0 }
+```
+It returns `total`, `wi_ids` (sorted) and `items` (wi_id, name, presets, first_seen, last_seen,
+review_status). Leave out `preset` to get every staged investor. Page with `offset` when `total` is
+larger than `limit` (up to 5000 per call). Send `discover` only for search results whose wi_id is not
+in this list. Resending one is harmless: it updates the record and never duplicates it. Do not keep
+your own list between runs: this is the list.
+
+The first full pass (11 Nov 2026) has no baseline: send every investor the preset returns.
+
 ### 1. Send a batch (up to 50 investors per call), dry run first
 ```json
 {

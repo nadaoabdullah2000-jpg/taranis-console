@@ -32,3 +32,5 @@ Undo: publish b29d8838-e45e-42ea-8ff7-6ec09c45f3db again.
 Copy: `grok-gateway-parse-request.js` (tests: `tests/grok-gateway.test.mjs`).
 - 11 Nov 2026, version f3808fd3: todo accepts scope "focus" (undo: a6fbe075).
 - 11 Nov 2026, version 973df23d: actions discover and discover_status (schema-27) (undo: f3808fd3).
+- 11 Nov 2026, version f9953e88: action discover_known (the staged wi_ids, the baseline for scheduled
+  discovery runs) (undo: 973df23d).
