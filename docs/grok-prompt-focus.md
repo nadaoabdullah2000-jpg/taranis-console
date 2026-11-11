@@ -22,13 +22,26 @@ search With Intelligence by name. Use a profile only when you are sure it is thi
 rules as the I-Connections section). Otherwise record both fields as not stated, with the note
 "No With Intelligence profile found (searched: …)".
 
-### Technology focus (`tech_focus`)
-- `true`: the profile says the investor targets technology: tech, software, TMT, internet, fintech,
-  semiconductors, or technology-focused managers or funds. The name of a plan or a company
-  ("Virginia Tech Foundation", "… Technologies") does not count. Biotech or healthcare alone does
-  not count.
+### Technology focus (`tech_focus`) (tightened 11 Nov 2026, from batch 10 on)
+- Counts only for **hedge funds or public markets**: the firm's hedge fund, long/short, listed
+  equity or other public-markets investing, or its whole portfolio with no restriction to private
+  markets. Same rule as Emerging managers.
+- `true`: the profile says the investor targets technology there: tech, software, TMT, internet,
+  fintech, semiconductors, AI as an investment theme, or technology-focused managers or funds.
 - `false`: only when the profile says it avoids or excludes technology.
 - Either value needs `tech_evidence`: the sentence from the profile, quoted (10 to 300 characters).
+- **Does not count as a technology focus** (leave blank, record `not_stated`):
+  - the firm's own use of technology or AI to run its portfolio or operations ("AI-enabled
+    investment strategies", "uses AI in its investment process");
+  - wanting tech-savvy managers or a manager's "technological / informational edge";
+  - a generic list of industries, themes or tags where technology is one item among many, with no
+    sentence saying the investor targets it;
+  - a market view ("the AI-driven economy") that is not a stated allocation;
+  - the name of a plan or company ("Virginia Tech Foundation", "… Technologies"); biotech or
+    healthcare alone.
+- Technology mentioned **only** for private equity, private debt, venture or infrastructure →
+  do not save; record `private_markets_only` with a note saying where (e.g. "Tech sector bias in
+  its private equity programme only").
 - Nothing about technology → do not save; record it as `not_stated` (below).
 
 ### Emerging managers (`open_to_emerging_managers`)
@@ -53,7 +66,7 @@ rules as the I-Connections section). Otherwise record both fields as not stated,
 2. Then **always** `checked` with `scope` = the item's `kind`, `result: "done"`, and one entry in
    `fields` for every field in `missing` that you did not save:
    `{"action": "checked", "scope": "mandates", "items": [{"id": "<id>", "result": "done", "note": "focus pass", "fields": [{"field": "tech_focus", "result": "not_stated", "note": "profile summary, preferences, mandates"}, {"field": "open_to_emerging_managers", "result": "private_markets_only", "note": "first-time funds in private equity only"}]}]}`
-   - `result` is `not_stated` or, for `open_to_emerging_managers` only, `private_markets_only`.
+   - `result` is `not_stated` or `private_markets_only` (both fields).
    - `note` says where you looked (at least 5 characters, at most 300).
    - No sure profile found → `"result": "no_profile"` and both fields `not_stated`, with the note
      "No With Intelligence profile found (searched: …)".

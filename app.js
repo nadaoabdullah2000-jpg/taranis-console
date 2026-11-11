@@ -1490,6 +1490,17 @@ function focusCheckOf(m, key) {
   }
   return null;
 }
+// The evidence behind a Technology ✓, for the hover on the card (11 Nov 2026): the
+// stored note (a person's choice, or the quote from the With Intelligence profile),
+// on the card's row or any alert it folds; else the alert text that says it.
+function techEvidenceOf(m) {
+  const all = [m].concat(Array.isArray(m && m._intentions) ? m._intentions : []);
+  for (const x of all) {
+    const sig = String((x && x.tech_signal) || '').trim();
+    if (sig && x.is_tech_investor === true) return sig.replace(/^With Intelligence profile \(Grok\): /, 'With Intelligence profile: ');
+  }
+  return 'From the alert or mandate text (no quote stored)';
+}
 function focusCheckLabel(c) {
   return c.result === 'private_markets_only' ? 'Only for private markets (checked)' : 'Not stated (checked)';
 }
@@ -1999,6 +2010,7 @@ function ensureMatchCss() {
   + ".mcard-c .mk.yes{background:rgba(30,158,99,.14);color:var(--good)}"
   + ".mcard-c .mk.no{background:rgba(198,64,43,.12);color:var(--bad)}"
   + ".mcard-c .mk.unk{background:rgba(90,110,130,.14);color:var(--ink-3)}"
+  + ".mcard-ev{cursor:help;text-decoration:underline dotted;text-decoration-color:var(--rule-2,#C9D6DD);text-underline-offset:3px}"
   + ".mcard-unk{margin-left:auto;font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3);background:var(--rule-2,#E9EFF3);padding:1px 7px;border-radius:10px;flex:none}"
   + ".mcard .acts{display:flex;gap:8px;flex-wrap:wrap}"
   + ".mcard-reason{margin-top:13px;padding:10px 12px;border-radius:8px;font-size:12.5px;line-height:1.45;background:rgba(198,64,43,.07);border:1px solid rgba(198,64,43,.18)}"
@@ -2067,8 +2079,10 @@ function critRows(m) {
     const st   = crit[i] ? 'yes' : (stat[i] === 'unknown' ? 'unknown' : 'no');
     const mark = st === 'yes' ? '\u2713' : st === 'unknown' ? '?' : '\u2717';
     const cls  = st === 'yes' ? 'yes' : st === 'unknown' ? 'unk' : 'no';
+    const ev   = (st === 'yes' && name === 'Technology focus') ? techEvidenceOf(m) : '';
     const row  = el('div', { class: 'mcard-c' },
-      el('span', { class: 'mk ' + cls }, mark), el('span', null, name));
+      el('span', { class: 'mk ' + cls }, mark),
+      el('span', ev ? { class: 'mcard-ev', title: ev } : null, name));
     if (st === 'unknown') {
       const chk = name === 'Technology focus' ? focusCheckOf(m, 'tech') : null;
       row.appendChild(chk ? el('span', { class: 'mcard-unk', title: focusCheckTitle(chk) }, focusCheckLabel(chk))
@@ -10500,7 +10514,7 @@ function iconnWiFacts(p) {
     p.emerging === true ? 'emerging managers: yes' : p.emerging === false ? 'emerging managers: no'
       : (p.focus_checks && p.focus_checks.emerging ? 'emerging managers: ' + focusCheckLabel(p.focus_checks.emerging).toLowerCase() : ''),
     p.tech_focus === true ? 'technology: yes' : p.tech_focus === false ? 'technology: no'
-      : (p.focus_checks && p.focus_checks.tech ? 'technology: not stated (checked)' : ''), strat]
+      : (p.focus_checks && p.focus_checks.tech ? 'technology: ' + focusCheckLabel(p.focus_checks.tech).toLowerCase() : ''), strat]
     .filter(Boolean).join(' · ');
 }
 
