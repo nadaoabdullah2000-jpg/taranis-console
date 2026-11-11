@@ -40,3 +40,22 @@ test('Matched needs long/short AND technology (11 Nov 2026)', () => {
   const ls_space = run({ investor_name: 'Pension C', investor_type: 'Public D.B.', intention_summary: 'Searching for long/short managers in the space economy.', source_links: links('View investor') });
   assert.equal(ls_space.hard_status, 'uncertain');
 });
+
+test('equity in a hedge-fund context counts toward long/short (11 Nov 2026)', () => {
+  const base = { investor_type: 'Foundation', source_links: links('View investor') };
+  // a hedge-fund sentence naming equity, with technology: a match
+  const txt = run({ ...base, investor_name: 'F1', intention_summary: 'Planning new hedge fund commitments to relative value, equity and multi-strategy, with a focus on artificial intelligence and technology.' });
+  assert.equal(txt.sig_strong, true); assert.equal(txt.hard_status, 'pass'); assert.equal(txt.score_band, 'strong_tech');
+  // an equity tag, hedge funds the only asset class: long/short (a match with technology)
+  const onlyHf = run({ ...base, investor_name: 'F2', asset_classes: '["Hedge Funds"]', strategies: '["macro","equity","multi_strategy","credit"]', intention_summary: 'Focus on technology.' });
+  assert.equal(onlyHf.sig_strong, true); assert.equal(onlyHf.hard_status, 'pass');
+  // an equity tag beside other asset classes: long/short for review only, never a match
+  const mixed = run({ ...base, investor_name: 'F3', asset_classes: '["Hedge Funds","Equity","Private Equity"]', strategies: '["macro","equity","multi_strategy","credit"]', intention_summary: 'Focus on technology.' });
+  assert.equal(mixed.sig_strong, true); assert.equal(mixed.hard_status, 'uncertain'); assert.equal(mixed.score_band, 'strong');
+  // long-only beside it: review only
+  const lo = run({ ...base, investor_name: 'F4', asset_classes: '["Hedge Funds"]', strategies: '["equity","long_only","macro","credit"]', intention_summary: 'Focus on technology.' });
+  assert.equal(lo.hard_status, 'uncertain');
+  // private equity / long-only equity in a hedge-fund sentence: not long/short
+  const pe = run({ ...base, investor_name: 'F5', intention_summary: 'New private equity and hedge fund commitments; hedge funds alongside long-only equity.' });
+  assert.equal(pe.sig_strong, false);
+});
