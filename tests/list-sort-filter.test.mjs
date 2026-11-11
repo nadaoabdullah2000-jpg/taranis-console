@@ -88,8 +88,8 @@ test('emerging managers: Yes / No / Unknown from the profile, never guessed', ()
 const vmArr = (x) => JSON.parse(JSON.stringify(x));
 test('strategy -> asset class: a strategy lists and selects only its own asset classes', () => {
   const opts = vmArr(ctx.assetOptsFor('equity_long_short'));
-  assert.deepEqual(opts.map(o => o[0]), ['', 'hedge', 'equity', 'tech_equity']);
-  assert.match(opts[0][1], /^All for Equity long\/short/);
+  assert.deepEqual(opts.map(o => o[0]), ['', 'hedge', 'equity']);
+  assert.equal(opts[0][1], 'All asset classes');
   assert.equal(vmArr(ctx.assetOptsFor('')).length, vmArr(ctx.ASSET_OPTS).length);
   const els = { strategies: ['equity_long_short'], asset_classes: ['Equity'] };
   const tech = { strategies: '["equity"]', asset_classes: '["Semiconductors"]' };
@@ -99,8 +99,8 @@ test('strategy -> asset class: a strategy lists and selects only its own asset c
   const F = (s, a) => ({ q: '', country: '', type: '', strategy: s, asset: a || '', tmin: '', emerging: '' });
   assert.equal(ctx.listPasses(els, F('equity_long_short')), true);
   assert.equal(ctx.listPasses(tech, F('equity_long_short')), true);
-  assert.equal(ctx.listPasses(tech, F('equity_long_short', 'equity')), false);   // one class picked
-  assert.equal(ctx.listPasses(tech, F('equity_long_short', 'tech_equity')), true);
+  assert.equal(ctx.listPasses(tech, F('equity_long_short', 'equity')), true);    // sector equity is listed equity
+  assert.equal(ctx.listPasses(tech, F('equity_long_short', 'hedge')), false);    // one class picked
   assert.equal(ctx.listPasses(elsPE, F('equity_long_short')), false);            // PE is not an ELS class
   assert.equal(ctx.listPasses(noAssets, F('equity_long_short')), true);          // nothing contradicts it
   assert.equal(ctx.listPasses(pe, F('equity_long_short')), false);
@@ -108,6 +108,15 @@ test('strategy -> asset class: a strategy lists and selects only its own asset c
   assert.equal(ctx.listPasses(pe, F('', 'equity')), false);                       // private equity is not listed equity
   assert.equal(ctx.listPasses({ strategies: ['cta'], asset_classes: ['Hedge Funds'] }, F('cta')), true);
   assert.equal(ctx.listPasses({ strategies: ['credit'], asset_classes: ['Hedge Funds'] }, F('credit')), true);
+});
+
+test('Technology focus filter: Yes / Not stated / No', () => {
+  const F = (t) => ({ q: '', country: '', type: '', strategy: '', asset: '', tmin: '', emerging: '', tech: t });
+  assert.equal(ctx.listPasses({ is_tech_investor: null }, F('unknown')), true);
+  assert.equal(ctx.listPasses({ is_tech_investor: false }, F('no')), true);
+  assert.equal(ctx.listPasses({ is_tech_investor: false }, F('unknown')), false);
+  assert.equal(ctx.listPasses({ is_tech_investor: null }, F('yes')), false);   // techOf is stubbed false here
+  assert.equal(ctx.listPasses({ is_tech_investor: null }, F('')), true);
 });
 
 test('best match first: verdict before score, then score, then more criteria met, then the newest intention', () => {

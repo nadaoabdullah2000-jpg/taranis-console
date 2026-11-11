@@ -12,7 +12,7 @@
 --  * todo('focus'): every investor (mandates) and every I-Connections firm not in the list (certain link,
 --    stored profile) where either field is blank and not yet checked for this pass; the 30-day skip
 --    does not apply. Items: kind, id, investor_name, wi_id, wi_url, missing.
--- Status: NOT APPLIED. Dry run 11 Nov 2026 (inside a rolled-back transaction): 318 items on the focus
+-- Status: APPLIED 11 Nov 2026 with the approval of research@taranis.net; gateway todo accepts "focus" (n8n version f3808fd3; undo: republish a6fbe075). Dry run 11 Nov 2026 (inside a rolled-back transaction): 318 items on the focus
 -- list (296 investors, 22 I-Connections firms); tech_focus missing 303, open_to_emerging_managers
 -- missing 188, both 173; 19 without a With Intelligence link. Tested in the same way: checked records
 -- not_stated / private_markets_only and refuses other fields; save refuses an emerging-managers value
