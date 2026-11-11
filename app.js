@@ -1474,7 +1474,28 @@ function geoText(m) {
   return city || 'not stated';
 }
 function emergingText(m) {
-  return EMERGING_LABEL[emergingOf(m)];
+  const e = emergingOf(m);
+  if (e === 'unknown') { const c = focusCheckOf(m, 'emerging'); if (c) return focusCheckLabel(c); }
+  return EMERGING_LABEL[e];
+}
+// A field Grok looked for on With Intelligence and did not find (schema-26:
+// focus_checks {tech|emerging: {result, note, at, by}}), on the card's row or any
+// alert it folds. result not_stated, or private_markets_only (emerging managers
+// mentioned for private equity / private debt only, which does not count).
+function focusCheckOf(m, key) {
+  const all = [m].concat(Array.isArray(m && m._intentions) ? m._intentions : []);
+  for (const x of all) {
+    const fc = x && x.focus_checks;
+    if (fc && typeof fc === 'object' && fc[key] && fc[key].result) return fc[key];
+  }
+  return null;
+}
+function focusCheckLabel(c) {
+  return c.result === 'private_markets_only' ? 'Only for private markets (checked)' : 'Not stated (checked)';
+}
+function focusCheckTitle(c) {
+  return 'Checked on With Intelligence' + (c.at ? ' on ' + String(c.at).slice(0, 10) : '')
+    + (c.by ? ' by ' + c.by : '') + (c.note ? ': ' + c.note : '');
 }
 function contextLines(m) {
   return [['Geography', geoText(m)], ['Emerging managers', emergingText(m)]];
@@ -2001,7 +2022,8 @@ function contextRows(host, m) {
   for (const [k, v] of contextLines(m)) {
     host.appendChild(el('div', { class: 'mcard-c', style: 'color:var(--ink-3)' },
       el('span', { style: 'width:16px;flex:none;text-align:center' }, '\u00B7'),
-      el('span', null, k + ' \u2014 ' + v)));
+      el('span', k === 'Emerging managers' && focusCheckOf(m, 'emerging') && emergingOf(m) === 'unknown'
+      ? { title: focusCheckTitle(focusCheckOf(m, 'emerging')) } : null, k + ' \u2014 ' + v)));
   }
 }
 
@@ -2047,7 +2069,11 @@ function critRows(m) {
     const cls  = st === 'yes' ? 'yes' : st === 'unknown' ? 'unk' : 'no';
     const row  = el('div', { class: 'mcard-c' },
       el('span', { class: 'mk ' + cls }, mark), el('span', null, name));
-    if (st === 'unknown') row.appendChild(el('span', { class: 'mcard-unk' }, 'Not stated'));
+    if (st === 'unknown') {
+      const chk = name === 'Technology focus' ? focusCheckOf(m, 'tech') : null;
+      row.appendChild(chk ? el('span', { class: 'mcard-unk', title: focusCheckTitle(chk) }, focusCheckLabel(chk))
+                          : el('span', { class: 'mcard-unk' }, 'Not stated'));
+    }
     cr.appendChild(row);
   });
   return cr;
@@ -4165,7 +4191,7 @@ RENDER.inbox = function (body) {
 
 let oppsView = 'all';
 let oppsMode = 'matched';
-const NO_FILTERS = () => ({ q: '', country: '', type: '', strategy: '', asset: '', tmin: '', emerging: '' });
+const NO_FILTERS = () => ({ q: '', country: '', type: '', strategy: '', asset: '', tmin: '', emerging: '', tech: '' });
 let oppsFilters = NO_FILTERS();
 let oppsFilterOpen = true;
 
@@ -4201,8 +4227,9 @@ const EMERGING_LABEL = { yes: 'Yes', no: 'No', unknown: 'Unknown' };
 // (lower-cased). A group is a test on one name.
 const ASSET_GROUPS = [
   ['hedge',          'Hedge funds',               a => /hedge|^hf$|fohf/.test(a)],
-  ['equity',         'Equities (listed)',         a => /equit/.test(a) && !/private equit|real estate equit|biotech/.test(a)],
-  ['tech_equity',    'Tech & biotech equity',     a => /biotech|semiconductor|^it$|technology|healthcare/.test(a)],
+  // Sector equity classes (technology, semiconductors, biotech, healthcare) count as listed
+  // equities: "Tech & biotech equity" was dropped on 11 Nov 2026; Technology focus is its own filter.
+  ['equity',         'Equities (listed)',         a => (/equit/.test(a) && !/private equit|real estate equit/.test(a)) || /biotech|semiconductor|^it$|technology|healthcare/.test(a)],
   ['fixed_income',   'Fixed income',              a => /fixed.?income|bond|^debt$/.test(a)],
   ['credit',         'Credit',                    a => /credit|high yield/.test(a) && !/private.?credit/.test(a)],
   ['private_credit', 'Private debt / credit',     a => /private.?(debt|credit)|direct loan|real.?estate debt|natural resources debt/.test(a)],
@@ -4221,7 +4248,7 @@ const ASSET_GROUP = Object.fromEntries(ASSET_GROUPS.map(g => [g[0], g]));
 // Strategies: the With Intelligence strategy tags each covers (tags compared
 // with "_" and "-" read as spaces) and the asset classes it selects.
 const STRATEGY_MAP = [
-  ['equity_long_short', 'Equity long/short', /equity long.?short|long.?short equity|^long.?short$|equity hedge|long bias equity|^equity$|^equity growth$|short bias|small.?micro.?cap/, ['hedge', 'equity', 'tech_equity']],
+  ['equity_long_short', 'Equity long/short', /equity long.?short|long.?short equity|^long.?short$|equity hedge|long bias equity|^equity$|^equity growth$|short bias|small.?micro.?cap/, ['hedge', 'equity']],
   ['market_neutral', 'Equity market neutral', /market.?neutral|statistical arbitrage/, ['hedge', 'equity']],
   ['macro', 'Macro', /macro|^directional$|^currency$/, ['hedge', 'fixed_income', 'currency', 'commodities']],
   ['cta', 'CTA / managed futures', /\bcta\b|managed futures|trend.?following/, ['hedge', 'commodities', 'currency']],
@@ -4236,18 +4263,17 @@ const STRATEGY_MAP = [
   ['real_estate', 'Real estate', /^core$|core plus|value add|^opportunistic$|opportunistic real estate|real estate|^development$|^land$/, ['real_estate']],
   ['real_assets', 'Real assets / infrastructure', /^infrastructure$|^energy$|power generation|metals|agriculture|real assets|^commodities$|timberland|natural gas|^water$/, ['infra_real', 'commodities']],
   ['digital_assets', 'Digital assets', /digital assets/, ['hedge', 'alts']],
-  ['long_only', 'Long-only / multi-asset', /long only|multi asset(?! credit)|^blend$|^value$|^income|international|small cap emerging|long term investment|target date|^balanced$|tactical asset allocation/, ['equity', 'fixed_income', 'multi']],
-  ['__tech', 'Technology', null, ['tech_equity', 'equity', 'venture', 'hedge']]
+  ['long_only', 'Long-only / multi-asset', /long only|multi asset(?! credit)|^blend$|^value$|^income|international|small cap emerging|long term investment|target date|^balanced$|tactical asset allocation/, ['equity', 'fixed_income', 'multi']]
 ];
 const STRATEGY = Object.fromEntries(STRATEGY_MAP.map(s => [s[0], s]));
 const STRATEGY_OPTS = [['', 'Any strategy']].concat(STRATEGY_MAP.map(s => [s[0], s[1]]));
-const ASSET_OPTS = [['', 'Any asset class']].concat(ASSET_GROUPS.map(g => [g[0], g[1]]));
+const ASSET_OPTS = [['', 'All asset classes']].concat(ASSET_GROUPS.map(g => [g[0], g[1]]));
 // The asset-class options under a strategy: only its own classes, the first
 // ("All for ...") selecting all of them at once.
 function assetOptsFor(strategy) {
   const s = STRATEGY[strategy];
   if (!s) return ASSET_OPTS;
-  return [['', 'All for ' + s[1]]].concat(s[3].map(k => [k, ASSET_GROUP[k][1]]));
+  return [['', 'All asset classes']].concat(s[3].map(k => [k, ASSET_GROUP[k][1]]));
 }
 
 // An investor's tags and asset classes, across every alert folded into its card.
@@ -4267,15 +4293,10 @@ function strategiesOf(m) {
 function assetGroupsOf(m) {
   const names = assetNamesOf(m);
   const groups = ASSET_GROUPS.filter(g => names.some(a => g[2](a))).map(g => g[0]);
-  // With Intelligence has no "technology" asset class: tech & biotech equity is
-  // a technology-focused investor (techOf, as the score reads it) that holds
-  // listed equities or hedge funds.
-  if (groups.indexOf('tech_equity') < 0 && (groups.indexOf('equity') > -1 || groups.indexOf('hedge') > -1) && techOf(m)) groups.push('tech_equity');
   return groups;
 }
 function strategyPasses(m, key) {
   if (!key) return true;
-  if (key === '__tech') return !!techOf(m);
   return strategiesOf(m).indexOf(key) > -1;
 }
 // The asset filter: one group, or, under a strategy with no single class
@@ -4301,6 +4322,14 @@ function fillCountedSelect(node, items, current, countOf) {
   node.value = current || '';
 }
 const EMERGING_OPTS = [['', 'All'], ['yes', 'Yes'], ['no', 'No'], ['unknown', 'Unknown (profile silent)']];
+// Technology focus, the criterion itself (11 Nov 2026; replaces the "Technology" strategy and
+// "Tech & biotech equity"): Yes = the Technology criterion is met (techOf, as the score reads
+// it); No = the field says no (a person's or With Intelligence's evidence); otherwise Not stated.
+const TECH_OPTS = [['', 'All'], ['yes', 'Yes'], ['unknown', 'Not stated'], ['no', 'No']];
+function techFilterOf(m) {
+  if (techOf(m)) return 'yes';
+  return m && m.is_tech_investor === false ? 'no' : 'unknown';
+}
 
 function oppsPasses(m, skip) { return listPasses(m, oppsFilters, skip); }
 function listPasses(m, F, skip) {
@@ -4317,6 +4346,7 @@ function listPasses(m, F, skip) {
   // them, or the one picked), whatever skip says about the strategy.
   if (skips.indexOf('asset') < 0    && !assetPasses(m, F.asset, F.strategy)) return false;
   if (skips.indexOf('emerging') < 0 && F.emerging && emergingOf(m) !== F.emerging) return false;
+  if (skips.indexOf('tech') < 0     && F.tech && techFilterOf(m) !== F.tech) return false;
   if (skips.indexOf('tmin') < 0     && F.tmin) {
     const t = Number(m.ticket_max_usd || m.ticket_min_usd || 0);
     if (!(t >= Number(F.tmin))) return false;
@@ -4359,7 +4389,7 @@ const MANDATE_LIST_COLS = [
   'linkedin_url', 'linkedin_urls', 'emails', 'contact_id', 'created_at', 'source_email_date',
   'alert_date', 'published_at', 'approved_at', 'approved_by', 'seen_at', 'wi_enriched_at',
   'source_page', 'source_kind', 'validation_status', 'verdict_source',
-  'is_tech_investor', 'tech_signal'
+  'is_tech_investor', 'tech_signal', 'focus_checks'
 ].join(',');
 
 // The whole row as the database holds it now. Every verdict or field write
@@ -4502,7 +4532,7 @@ RENDER.opps = function (body) {
       bigBtn('review',  'Waiting for decision', nReview,  'signal'));
 
     const F = oppsFilters;
-    const anyFilter = !!(F.q || F.country || F.type || F.strategy || F.asset || F.tmin || F.emerging);
+    const anyFilter = !!(F.q || F.country || F.type || F.strategy || F.asset || F.tmin || F.emerging || F.tech);
     const toggle = el('button', { class: 'btn btn-sm btn-quiet',
       onclick: () => { oppsFilterOpen = !oppsFilterOpen; redrawOpps(); } },
       (oppsFilterOpen ? '\u25BE ' : '\u25B8 ') + 'Filters' + (anyFilter ? '  \u00B7  on' : ''));
@@ -4567,6 +4597,7 @@ RENDER.opps = function (body) {
       fStrat.addEventListener('change', () => { F.asset = ''; });
       const fAsset = counted('asset', assetOptsFor(F.strategy));
       const fEm = counted('emerging', EMERGING_OPTS);
+      const fTech = counted('tech', TECH_OPTS);
       const fTick = counted('tmin', [['', 'Any ticket'], ['100000', 'USD 100k and up'],
         ['1000000', 'USD 1m and up'], ['5000000', 'USD 5m and up'], ['10000000', 'USD 10m and up']]);
       const fQ = el('input', { class: 'search', type: 'search',
@@ -4576,7 +4607,8 @@ RENDER.opps = function (body) {
         mk('Search', fQ, 'q'),
         el('div', { class: 'grid2' }, mk('Geography', fGeo, 'country'), mk('Investor type', fType, 'type')),
         el('div', { class: 'grid2' }, mk('Strategy', fStrat, 'strategy'), mk('Asset class', fAsset, 'asset')),
-        el('div', { class: 'grid2' }, mk('Minimum ticket', fTick, 'tmin'), mk('Invests in emerging managers', fEm, 'emerging')));
+        el('div', { class: 'grid2' }, mk('Technology focus', fTech, 'tech'), mk('Invests in emerging managers', fEm, 'emerging')),
+        el('div', { class: 'grid2' }, mk('Minimum ticket', fTick, 'tmin')));
 
       const clearBtn = el('button', { class: 'btn btn-sm btn-quiet', style: 'margin-top:10px' }, 'Clear filters');
       clearBtn.addEventListener('click', () => {
@@ -5215,8 +5247,9 @@ RENDER.rejected = function (body) {
   const rejEm = rejSel('emerging', EMERGING_OPTS, 'Invests in emerging managers');
   const rejStrat = rejSel('strategy', STRATEGY_OPTS, 'Strategy');
   const rejAsset = rejSel('asset', ASSET_OPTS, 'Asset class');
+  const rejTech = rejSel('tech', TECH_OPTS, 'Technology focus');
   const rejFilterRow = el('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;margin:12px 0 4px;align-items:flex-end' },
-    rejStrat, rejAsset, rejEm,
+    rejStrat, rejAsset, rejTech, rejEm,
     el('button', { class: 'btn btn-sm btn-quiet', onclick: () => {
       rejFilters = NO_FILTERS();
       for (const s of rejFilterRow.querySelectorAll('select')) s.value = '';
@@ -5287,6 +5320,7 @@ RENDER.rejected = function (body) {
       fillCountedSelect(rejEm.querySelector('select'), EMERGING_OPTS, F.emerging || '', (v) => countWith('emerging', v));
       fillCountedSelect(rejStrat.querySelector('select'), STRATEGY_OPTS, F.strategy || '', (v) => countWith('strategy', v));
       fillCountedSelect(rejAsset.querySelector('select'), assetOptsFor(F.strategy), F.asset || '', (v) => countWith('asset', v));
+      fillCountedSelect(rejTech.querySelector('select'), TECH_OPTS, F.tech || '', (v) => countWith('tech', v));
     }
   }
 
@@ -10463,7 +10497,10 @@ function iconnWiFacts(p) {
   const strat = Array.isArray(p.strategies) && p.strategies.length
     ? p.strategies.slice(0, 3).join(', ') + (p.strategies.length > 3 ? ' +' + (p.strategies.length - 3) : '') : '';
   return [p.type, p.country, p.aum_band || (p.aum_usd ? iconnMoney(p.aum_usd) : ''), t,
-    p.emerging === true ? 'emerging managers: yes' : p.emerging === false ? 'emerging managers: no' : '', strat]
+    p.emerging === true ? 'emerging managers: yes' : p.emerging === false ? 'emerging managers: no'
+      : (p.focus_checks && p.focus_checks.emerging ? 'emerging managers: ' + focusCheckLabel(p.focus_checks.emerging).toLowerCase() : ''),
+    p.tech_focus === true ? 'technology: yes' : p.tech_focus === false ? 'technology: no'
+      : (p.focus_checks && p.focus_checks.tech ? 'technology: not stated (checked)' : ''), strat]
     .filter(Boolean).join(' · ');
 }
 
