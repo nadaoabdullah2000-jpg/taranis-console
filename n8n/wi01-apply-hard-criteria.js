@@ -83,6 +83,29 @@ if (mgrNews) {
     needs_data_reason: 'Not an investor mandate' } };
 }
 
+// ---------- MANAGER NEWS BY ITS LINKS AND HEADLINE (11 Nov 2026) ----------
+// The tag test above needs With Intelligence's tag; the same story often comes
+// again untagged (HF Ranch, Convexa, JonesTrading on 6 Nov). So an item is also
+// manager news when (a) its With Intelligence links reach only a manager or fund
+// page, never an investor page, or (b) it has no investor page and no investor
+// type and its headline is a manager's own event (launch, startup, hire, flows,
+// returns) with no word of placing money.
+const linkLabels = arr(m.source_links).map(l => String((l && l.label) || '').replace(/\s+/g, ' ').trim());
+const linkMgr = linkLabels.some(l => /^view (manager|fund)$/i.test(l));
+const linkInv = linkLabels.some(l => /^view investor$/i.test(l)) || /withintelligence\.com\/(explore\/)?investors\//i.test(String(m.view_investor_url || ''));
+const headline = linkLabels.filter(l => l && !/^view /i.test(l)).join(' | ') || String(m.intention_summary || '');
+const MGR_EVENT = /\b(launch(es|ed|ing)?|unveils?|debuts?|startup|start-up|spins? (out|off)|spin-?(out|off)|posts?|net (in)?flows|returned|takes on|taps|hires?|names|appoints?|joins|promotes?|rebrands?|shutters?|winds? down)\b/i;
+const PLACES_MONEY = /allocat|commit|\bsearch(es|ing)?\b|\bseeks?\b|\beyes?\b|\bplans?\b|\bconsider|\binvest(s|ing|ment)?\b|\bwants?\b|\bmandates?\b|\brfp\b|\bseed(s|ed|ing)?\b|\bbacks?\b|\bfavou?rs?\b|\bprefers?\b|\binvestors? (target|seek|eye)\w*/i;
+const mgrByLinks = linkMgr && !linkInv && !PLACES_MONEY.test(headline);   // a seeder "backs startups": kept
+const mgrByHead = !linkInv && !ttype && MGR_EVENT.test(headline) && !PLACES_MONEY.test(headline);
+if (mgrByLinks || mgrByHead) {
+  return { json: { ...m, hard_status: 'fail', us_review: false,
+    hard_fail_reasons: JSON.stringify(['Not an investor mandate - manager news (' + (mgrByLinks ? 'With Intelligence links only to a manager or fund page' : 'headline is a manager event') + ')']),
+    missing_hard_fields: JSON.stringify([]), soft_flags: JSON.stringify([]),
+    hard_notes: JSON.stringify(['A manager\'s launch, hire or results, not an allocator placing money']),
+    needs_data_reason: 'Not an investor mandate' } };
+}
+
 // ---------- HEDGE FUND IS THE ONLY HARD FILTER ----------
 // Reject only when we have POSITIVE evidence the allocator is not a hedge-fund
 // buyer: asset classes stated and none are hedge/alternative, OR an ineligible
