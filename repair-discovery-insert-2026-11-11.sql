@@ -73,10 +73,10 @@ select 'disc-' || coalesce(p.wi_id, md5(p.name)), 'discovery:' || coalesce(p.wi_
        'import', 'Discovery find', current_date
   from disc_plan p;
 
-update grok.wi_discovered d set review_status = 'added', reviewed_at = now(), reviewed_by = 'research (approved 11 Nov 2026)'
+update grok.wi_discovered d set review_status = 'imported', reviewed_at = now(), reviewed_by = 'research (approved 11 Nov 2026)'
  where exists (select 1 from wi_mandates m where m.record_key = 'disc-' || d.wi_id);
 commit;
 
 -- UNDO (no deletes): update wi_mandates set validation_status = 'merged', fit_reason = 'Undone: discovery insert 11 Nov 2026. ' || fit_reason
 --                      where record_key like 'disc-%' and alert_type = 'Discovery find';
---                    update grok.wi_discovered set review_status = null, reviewed_at = null, reviewed_by = null where review_status = 'added';
+--                    update grok.wi_discovered set review_status = 'staged', reviewed_at = null, reviewed_by = null where review_status = 'imported' and reviewed_by = 'research (approved 11 Nov 2026)';
