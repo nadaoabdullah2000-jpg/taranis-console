@@ -27,3 +27,8 @@ Previous code: `wi01-apply-hard-criteria.before-2026-11-11.js` (= published vers
 Tests: `tests/wi01-manager-news.test.mjs`.
 Published 11 Nov 2026 (approved by research@taranis.net) as version 7a60e603-8238-4a02-b297-b29be135b0c7.
 Undo: publish b29d8838-e45e-42ea-8ff7-6ec09c45f3db again.
+
+## Grok gateway (MO9CD19ZeKB3YGfQ), node "Parse Request"
+Copy: `grok-gateway-parse-request.js` (tests: `tests/grok-gateway.test.mjs`).
+- 11 Nov 2026, version f3808fd3: todo accepts scope "focus" (undo: a6fbe075).
+- 11 Nov 2026, version 973df23d: actions discover and discover_status (schema-27) (undo: f3808fd3).
