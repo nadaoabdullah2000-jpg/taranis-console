@@ -1,12 +1,15 @@
 -- 11 Nov 2026 (DRAFT until research@taranis.net approves): rescore of the 76 discovery inserts now that the
 -- field check filled their data. Values from the console's own rescore (with the profile-read evidence shown,
--- not scored: PR #22). Dry run: 1 Matched (Ewing Marion Kauffman Foundation, 90%, long/short + quoted
--- Tech from its themes line), 0 low matches, 65 Review, 8 stay Needs data, 2 Rejected (asset classes stated
+-- not scored: PR #22). APPROVED by research@taranis.net. Dry run: 1 Matched (Ewing Marion Kauffman Foundation, 90%, long/short + quoted
+-- Tech from its themes line), 0 low matches, 64 Review, 8 stay Needs data, 2 Rejected (asset classes stated
 -- without hedge funds: Kenneth Rainin Foundation, University of California Retirement Plan).
+-- Memorial Hermann (3187): the user's decision (11 Nov 2026): its only Tech signal, "software" in a private-equity
+-- buyout (HG Saturn Fund 3), is private markets, so Tech = No (recorded as the user's own choice) and it stays Needs data.
+-- Multi-manager firms stay in the pipeline (the user's decision).
 -- A person's verdict is never changed. ONE transaction. Backup: wi_mandates_backup_20261111_disc_rescore.
 begin;
 create table wi_mandates_backup_20261111_disc_rescore as
-  select id, qualification, new_qualification, new_fit_score, fit_reason from wi_mandates where alert_type = 'Discovery find';
+  select id, qualification, new_qualification, new_fit_score, fit_reason, is_tech_investor, tech_signal, focus_checks from wi_mandates where alert_type = 'Discovery find';
 create temp table rs(id bigint, q text, s numeric) on commit drop;
 insert into rs values
   (3176, 'uncertain', 0.74),
@@ -18,7 +21,6 @@ insert into rs values
   (3182, 'uncertain', 0.74),
   (3183, 'uncertain', 0.74),
   (3184, 'uncertain', 0.74),
-  (3187, 'uncertain', 0.65),
   (3188, 'uncertain', 0.74),
   (3189, 'uncertain', 0.74),
   (3190, 'uncertain', 0.74),
@@ -85,6 +87,17 @@ update wi_mandates m set new_qualification = rs.q, qualification = case when rs.
        new_fit_score = rs.s,
        fit_reason = 'Rescored 11 Nov 2026 from the With Intelligence profile read (' || coalesce(m.new_qualification, '-') || ' -> ' || rs.q || '). ' || coalesce(m.fit_reason, '')
   from rs where rs.id = m.id and m.alert_type = 'Discovery find' and coalesce(m.verdict_source, '') <> 'manual';
+insert into wi_fill_log (mandate_id, investor_name, field, old_value, new_value, source, wi_investor_id)
+select id, investor_name, 'is_tech_investor', coalesce(is_tech_investor::text, 'null'), 'false (private markets only: software in a private-equity buyout)',
+       'Decided by research@taranis.net, 11 Nov 2026', evidence ->> 'wi_investor_id'
+  from wi_mandates where id = 3187 and coalesce(tech_signal, '') not like 'Set by a person%';
+update wi_mandates set is_tech_investor = false,
+       tech_signal = 'Set by a person: research@taranis.net, 2026-11-11 (private markets only: "software" in a private-equity buyout, HG Saturn Fund 3)',
+       focus_checks = coalesce(focus_checks, '{}'::jsonb) || jsonb_build_object('tech', jsonb_build_object('result', 'private_markets_only',
+         'note', 'Software only in a private-equity buyout (HG Saturn Fund 3)', 'at', '2026-11-11', 'by', 'research@taranis.net'))
+ where id = 3187 and coalesce(tech_signal, '') not like 'Set by a person%';
 commit;
+-- UNDO (Memorial Hermann's Tech): update wi_mandates set is_tech_investor = b.is_tech_investor, tech_signal = b.tech_signal, focus_checks = b.focus_checks
+--   from wi_mandates_backup_20261111_disc_rescore b where b.id = wi_mandates.id and wi_mandates.id = 3187;
 -- UNDO: update wi_mandates m set qualification = b.qualification, new_qualification = b.new_qualification,
 --   new_fit_score = b.new_fit_score, fit_reason = b.fit_reason from wi_mandates_backup_20261111_disc_rescore b where b.id = m.id;
