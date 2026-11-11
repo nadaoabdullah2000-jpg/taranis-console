@@ -25,12 +25,12 @@ const iso2 = (n) => n ? (CODE[String(n).toLowerCase().trim()] || null) : null;
 // Same tests as the themes fill (sql/themes-fill-plan-2026-11-11.sql).
 const LINE = /((?:the investor['’]s |its )?(?:primary |key |main |core )?(?:investment )?themes?\s(?:over|for|in|include|includes|focus|focuses|are|is)[^.]*)/i;
 const HF = /\b(hedge funds?|long\/short|long-short|equity hedge|relative value|multi-?strateg\w*|global macro|macro|cta|event[- ]driven|market[- ]neutral|absolute return|listed|public equit\w*|liquid)\b/i;
-const PM = /\b(private equity|venture|buyouts?|growth capital|growth strateg\w*|secondaries|co-investments?|direct lending|mezzanine|private (credit|debt)|real estate|infrastructure|core-plus|value-add|development|distressed|specialty finance|structured credit|asset-backed|opportunistic credit|special situations)\b/i;
+const PM = /\b(private equity|venture|vc|early-stage|seed|buyouts?|growth capital|growth strateg\w*|secondaries|co-investments?|direct lending|mezzanine|private (credit|debt)|real estate|infrastructure|core-plus|value-add|development|distressed|specialty finance|structured credit|asset-backed|opportunistic credit|special situations)\b/i;
 const TECH_THEME = /\b(artificial intelligence|ai|machine learning|data|digital infrastructure|fintech|financial technology|software|semiconductors?|cyber ?security|blockchain|deep tech|technology|tech)\b/i;
 const SPACE_THEME = /(security|aerospace)\s?(and|&)\s?defen[cs]e|\bdefen[cs]e\b(?!ive)|\bspace\b|\baerospace\b|\bsatellites?\b/i;
-const EM = /emerging managers?|first[- ]time (funds?|managers?)|new managers? program/i;
+const EM = /\bemerging (?!markets?\b|-market)(?:[a-z\/ -]{0,30} )?managers?\b|first[- ]time (funds?|managers?)|new managers? program/i;
 const EM_NO = /\b(does not|doesn't|do not|will not|won't|not|no|never)\b[^.]{0,40}\b(consider\w*|invest\w*|back\w*|allocat\w*|open)\b[^.]{0,40}(emerging|first[- ]time)|\bnot open to (emerging|first[- ]time)/i;
-const EM_YES = /\b(consider\w*|open to|invest\w* (in|with)|back\w*|allocat\w* to|seed\w*|support\w*|interested in|willing to)\b[^.]{0,40}(emerging managers?|first[- ]time (funds?|managers?))|emerging managers? program/i;
+const EM_YES = /\b(consider\w*|open to|invest\w*|back\w*|allocat\w*|seed\w*|support\w*|interested|willing|looking for|look at|seek\w*|target\w*|hir\w+|evaluat\w*)\b|emerging managers? program/i;
 const sentences = (t) => String(t || '').split(/(?<=[.!?])\s+/);
 const kind = (note) => HF.test(note) ? 'HF' : PM.test(note) ? 'PE/VC' : 'general';
 
@@ -83,8 +83,35 @@ for (const m of rows) {
     const l = M(ts.value_lower_usd), h = M(ts.value_upper_usd);
     if (l !== null) tmin = tmin === null ? l : Math.min(tmin, l); if (h !== null) tmax = tmax === null ? h : Math.max(tmax, h);
   }
+  // Ticket sizes With Intelligence writes in the intention text ("Typical ticket size ranges between
+  // $35m-$45m", "tickets of $250k-$500k", "<$10m", "$50m per ticket"): hedge-fund / general intentions
+  // only. Amounts in another currency are not converted: kept as text, not as a US dollar figure.
+  let tSrc = null, tOther = null;
+  if (!tmin && !tmax) {
+    const money = (n, u) => { const v = Number(n); if (!isFinite(v)) return null; const k = /bn|b/i.test(u || '') ? 1e9 : /k/i.test(u || '') ? 1e3 : 1e6; return Math.round(v * k); };
+    const TK = /(typical|minimum|maximum|average)?\s*tickets?(?: sizes?)?(?: of| is| ranges? between| between| around| typically| for hedge funds?:?)*[^.$€£]{0,30}?([$€£])\s?(<|>|up to )?\s?([\d.]+)\s?(m|mn|bn|b|k)?\b(?:\s?(?:-|–|to)\s?[$€£]?\s?([\d.]+)\s?(m|mn|bn|b|k)?)?/i;
+    const PER = /([$€£])\s?([\d.]+)\s?(m|mn|bn|b|k)\s+per ticket/i;
+    for (const n of notes) {
+      if (kind(n.note) === 'PE/VC') continue;
+      for (const sen of sentences(n.note)) {
+        if (PM.test(sen) && !HF.test(sen)) continue;
+        let x = sen.match(TK), cur, lo = null, hi = null, cap = '', kindT = '';
+        if (x) { cur = x[2]; cap = x[3] || ''; kindT = x[1] || ''; lo = money(x[4], x[5] || x[7]); hi = x[6] ? money(x[6], x[7] || x[5]) : null; }
+        else if ((x = sen.match(PER))) { cur = x[1]; lo = money(x[2], x[3]); hi = lo; }
+        else continue;
+        if (cur !== '$') { tOther = 'intention ' + String(n.date || '').slice(0, 10) + ': ' + sen.trim().slice(0, 200); break; }
+        if (/(<|up to)\s*[$\u20ac\u00a3]?\s*[\d.]+[^-\u2013]*$/i.test(x[0]) && !hi) cap = '<';
+        if (/^(<|up to)/i.test(cap.trim()) || (/maximum/i.test(kindT) && !hi)) { tmax = lo; tmin = null; }
+        else if (/^>/.test(cap.trim()) || (/minimum/i.test(kindT) && !hi)) { tmin = lo; }
+        else { tmin = lo; tmax = hi || lo; }
+        tSrc = 'intention ' + String(n.date || '').slice(0, 10) + ': ' + x[0].trim(); break;
+      }
+      if (tSrc || tOther) break;
+    }
+  }
   if (m.ticket_min_usd || m.ticket_max_usd) already('ticket');
-  else if (tmin || tmax) { if (tmin) set.ticket_min_usd = tmin; if (tmax) set.ticket_max_usd = tmax; log.push(['ticket', 'profile' + (hfPrefs.length ? ' (hedge funds)' : '') + ': ' + tmin + ' - ' + tmax]); summary.fields.ticket.filled++; }
+  else if (tmin || tmax) { if (tmin) set.ticket_min_usd = tmin; if (tmax) set.ticket_max_usd = tmax; log.push(['ticket', (tSrc || ('profile' + (hfPrefs.length ? ' (hedge funds)' : ''))) + ': ' + tmin + ' - ' + tmax]); summary.fields.ticket.filled++; }
+  else if (tOther) { checks.ticket = { result: 'stated_other_currency', note: tOther.slice(0, 300), at: AT, by: 'live read' }; summary.fields.ticket.filled++; log.push(['ticket', 'stated in another currency, not converted: ' + tOther]); }
   else notStated('ticket');
 
   // strategies, asset classes
@@ -101,34 +128,45 @@ for (const m of rows) {
   // themes line (Tech / Space)
   const lines = notes.map(n => ({ n, line: (n.note.match(LINE) || [])[1], k: kind(n.note) })).filter(x => x.line);
   lines.sort((a, b) => ((b.k !== 'PE/VC') - (a.k !== 'PE/VC')) || String(b.n.date).localeCompare(String(a.n.date)));
+  // Grok's captured themes line (recapture), used when the live intentions read shows none; its
+  // "(Private Equity intention, ...)" tag says where it was.
+  let gThemes = null, gPe = false;
+  for (const cand of [m.d_themes, m.d_tech_ev]) {
+    const g = String(cand || '').split(' | ')[0];
+    const gl = (g.match(LINE) || [])[1];
+    if (gl) { gThemes = gl.replace(/\s+/g, ' ').trim(); gPe = /\((private equity|venture|private debt|real estate|infrastructure)[^)]*intention/i.test(g); break; }
+  }
   const best = lines[0];
-  const publicOk = lines.some(x => x.k !== 'PE/VC');
-  const themeLine = best ? best.line.replace(/\s+/g, ' ').trim() : null;
+  const publicOk = lines.length ? lines.some(x => x.k !== 'PE/VC') : !gPe;
+  const themeLine = best ? best.line.replace(/\s+/g, ' ').trim() : gThemes;
+  const themeSrc = best ? 'themes line' : 'themes line (Grok capture)';
   if (themeLine) ev.wi_themes_line = themeLine;
   if (m.is_tech_investor !== null && m.is_tech_investor !== undefined) already('tech');
   else if (themeLine && TECH_THEME.test(themeLine) && publicOk) {
     set.is_tech_investor = true; set.tech_signal = 'With Intelligence profile (theme line): "' + themeLine + '"';
-    log.push(['is_tech_investor', 'themes line: ' + themeLine]); summary.fields.tech.filled++;
+    log.push(['is_tech_investor', themeSrc + ': ' + themeLine]); summary.fields.tech.filled++;
   } else if (themeLine && TECH_THEME.test(themeLine)) {
     checks.tech = { result: 'private_markets_only', note: ('Themes line only on private equity / venture intentions: "' + themeLine + '"').slice(0, 300), at: AT, by: 'live read' };
     summary.fields.tech.private_markets_only++;
-  } else if (m.d_tech === true && m.d_tech_ev) {
-    set.is_tech_investor = true; set.tech_signal = 'With Intelligence profile (Grok): "' + String(m.d_tech_ev).slice(0, 280) + '"';
-    log.push(['is_tech_investor', 'Grok capture: ' + m.d_tech_ev]); summary.fields.tech.filled++;
-  } else notStated('tech', themeLine ? 'Themes line names no technology theme: "' + themeLine.slice(0, 200) + '"' : null);
+  } else if (!themeLine && m.d_tech === true && m.d_tech_ev) {
+    // Grok's capture without a themes line: a market view ("sees opportunities in the technology
+    // sector") is not a stated allocation under the strict rule, so it is not counted; quoted.
+    notStated('tech', ('Not counted (market view, not a stated allocation): "' + String(m.d_tech_ev) + '"').slice(0, 300));
+  } else notStated('tech', themeLine ? 'Newest themes line names no technology theme: "' + themeLine.slice(0, 200) + '"' : null);
   if (m.is_space === true) already('space');
   else if (themeLine && SPACE_THEME.test(themeLine)) {
     set.is_space = true; set.space_signal = 'With Intelligence profile (theme line): "' + themeLine + '"';
-    log.push(['is_space', 'themes line: ' + themeLine]); summary.fields.space.filled++;
-  } else notStated('space', themeLine ? 'Themes line names no security & defence or space: "' + themeLine.slice(0, 200) + '"' : null);
+    log.push(['is_space', themeSrc + ': ' + themeLine]); summary.fields.space.filled++;
+  } else notStated('space', themeLine ? 'Newest themes line names no security & defence or space: "' + themeLine.slice(0, 200) + '"' : null);
 
   // emerging managers: hedge-fund / general intentions first, then the profile summary, then Grok
   if (m.open_to_emerging_managers !== null && m.open_to_emerging_managers !== undefined) already('emerging');
   else {
-    let em = null, emPm = null;
+    let em = null, emPm = null, emAmb = null;
     for (const n of notes) {
       for (const s of sentences(n.note)) {
         if (!EM.test(s)) continue;
+        if (/\bnot operate\b|\bno formal\b/i.test(s)) { if (!emAmb) emAmb = s; continue; }   // ambiguous: not stated, quoted
         const v = EM_NO.test(s) ? false : EM_YES.test(s) ? true : null;
         if (v === null) continue;
         const k = kind(n.note);
@@ -145,11 +183,11 @@ for (const m of rows) {
     if (!em && m.d_em !== null && m.d_em !== undefined && m.d_em_ev) em = { v: m.d_em, s: m.d_em_ev, d: null, k: 'Grok capture' };
     if (em) {
       set.open_to_emerging_managers = em.v; ev.emerging_evidence = String(em.s).trim().slice(0, 300);
-      log.push(['open_to_emerging_managers', em.k + (em.d ? ' ' + String(em.d).slice(0, 10) : '') + ': ' + em.s]); summary.fields.emerging.filled++;
+      log.push(['open_to_emerging_managers', String(em.v) + ' (' + em.k + (em.d ? ' ' + String(em.d).slice(0, 10) : '') + '): ' + em.s]); summary.fields.emerging.filled++;
     } else if (emPm) {
       checks.emerging = { result: 'private_markets_only', note: ('Emerging managers only on private equity / venture intentions: "' + emPm.s + '"').slice(0, 300), at: AT, by: 'live read' };
       summary.fields.emerging.private_markets_only++;
-    } else notStated('emerging');
+    } else notStated('emerging', emAmb ? ('Ambiguous, so not set: "' + emAmb.trim() + '"').slice(0, 300) : null);
   }
 
   // intentions: the newest hedge-fund / general intention, else the newest
@@ -157,8 +195,11 @@ for (const m of rows) {
     ev.wi_intentions = notes.slice(0, 10).map(n => ({ date: String(n.date || '').slice(0, 10), type: n.type, status: n.status, note: n.note.slice(0, 600) }));
     if (m.intention_summary) already('intentions');
     else {
-      const pick = notes.find(n => kind(n.note) !== 'PE/VC') || notes[0];
-      set.intention_summary = pick.note.slice(0, 2000);
+      // the newest substantive intention: not With Intelligence's closing note ("No additional updates ...")
+      const BOILER = /^no additional updates were identified/i;
+      const real = notes.filter(n => !BOILER.test(n.note));
+      const pick = real.find(n => kind(n.note) !== 'PE/VC') || real[0] || notes[0];
+      set.intention_summary = pick.note.slice(0, 2000); set.__intention_idx = notes.indexOf(pick);
       log.push(['intention_summary', 'intention ' + String(pick.date || '').slice(0, 10) + ': ' + pick.note.slice(0, 200)]); summary.fields.intentions.filled++;
     }
   } else if (m.intention_summary) already('intentions');
@@ -171,6 +212,10 @@ for (const m of rows) {
   }
   if (ind.length) ev.wi_industries = ind;
 
+  const planSet = Object.assign({}, set); delete planSet.intention_summary;
+  const planEv = Object.assign({}, ev); const hasInts = !!planEv.wi_intentions; delete planEv.wi_intentions;
+  (summary.plan = summary.plan || []).push({ id: m.id, wi: m.wi, set: planSet, ev: planEv, ints: hasInts, checks, log: log.map(([c, v]) => [c, String(v).slice(0, 300)]) });
+  delete set.__intention_idx;
   const parts = [];
   for (const [k, v] of Object.entries(set)) parts.push(k + ' = ' + (Array.isArray(v) ? jq(v) : typeof v === 'number' || typeof v === 'boolean' ? String(v) : (k === 'alert_date' ? sqlq(v) + '::date' : sqlq(v))));
   parts.push("evidence = (case when jsonb_typeof(evidence) = 'object' then evidence else '{}'::jsonb end) || " + jq(ev));
