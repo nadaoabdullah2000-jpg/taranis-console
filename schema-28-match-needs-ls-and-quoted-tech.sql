@@ -1,6 +1,7 @@
 -- Schema 28 (DRAFT, NOT APPLIED; 11 Nov 2026): Matched requires long/short (or quant) AND technology,
 -- and the technology must be backed by a With Intelligence quote (saved by Grok from the profile,
--- tech_signal 'With Intelligence profile (Grok): "..."') or a person's own Tech choice ('Set by a
+-- tech_signal 'With Intelligence profile (Grok): "..."', or an "investment themes" line,
+-- 'With Intelligence profile (theme line): "..."') or a person's own Tech choice ('Set by a
 -- person ...'), on the row or on another row of the same investor (same With Intelligence id).
 -- A technology tick from the alert text alone does not make a match.
 --
@@ -22,13 +23,13 @@ begin
     return new;
   end if;
   wi := case when jsonb_typeof(new.evidence) = 'object' then nullif(new.evidence ->> 'wi_investor_id', '') end;
-  quoted := (new.is_tech_investor is true and (new.tech_signal like 'With Intelligence profile (Grok): "%' or new.tech_signal like 'Set by a person%'))
+  quoted := (new.is_tech_investor is true and (new.tech_signal like 'With Intelligence profile (Grok): "%' or new.tech_signal like 'With Intelligence profile (theme line): "%' or new.tech_signal like 'Set by a person%'))
          or (wi is not null and exists (
                select 1 from wi_mandates w
                 where w.id is distinct from new.id and coalesce(w.validation_status, '') <> 'merged'
                   and jsonb_typeof(w.evidence) = 'object' and w.evidence ->> 'wi_investor_id' = wi
                   and w.is_tech_investor is true
-                  and (w.tech_signal like 'With Intelligence profile (Grok): "%' or w.tech_signal like 'Set by a person%')));
+                  and (w.tech_signal like 'With Intelligence profile (Grok): "%' or w.tech_signal like 'With Intelligence profile (theme line): "%' or w.tech_signal like 'Set by a person%')));
   if not quoted then
     new.new_qualification := 'uncertain'; new.qualification := 'uncertain';
     if new.new_fit_score > 0.74 then new.new_fit_score := 0.74; end if;

@@ -34,11 +34,17 @@ rules as the I-Connections section). Otherwise record both fields as not stated,
   - the firm's own use of technology or AI to run its portfolio or operations ("AI-enabled
     investment strategies", "uses AI in its investment process");
   - wanting tech-savvy managers or a manager's "technological / informational edge";
-  - a generic list of industries, themes or tags where technology is one item among many, with no
-    sentence saying the investor targets it;
+  - a generic list of industries or tags (With Intelligence's industry menu) where technology is one
+    item among many; an "investment themes" sentence is not a generic list (see above);
   - a market view ("the AI-driven economy") that is not a stated allocation;
   - the name of a plan or company ("Virginia Tech Foundation", "… Technologies"); biotech or
     healthcare alone.
+- **An "investment themes" line counts** (decided 11 Nov 2026): when the profile says "The investor's
+  primary investment themes over the next 12-18 months focus on artificial intelligence, … financial
+  technology, …" (or "Key investment themes include …") and at least one theme is technology (AI,
+  data, digital infrastructure, fintech, software, semiconductors, cybersecurity, blockchain, deep
+  tech), save `tech_focus: true` with that whole line as `tech_evidence`, unless the line is limited
+  to the private equity or venture book (then `private_markets_only`).
 - Technology mentioned **only** for private equity, private debt, venture or infrastructure →
   do not save; record `private_markets_only` with a note saying where (e.g. "Tech sector bias in
   its private equity programme only").

@@ -1497,7 +1497,7 @@ function techEvidenceOf(m) {
   const all = [m].concat(Array.isArray(m && m._intentions) ? m._intentions : []);
   for (const x of all) {
     const sig = String((x && x.tech_signal) || '').trim();
-    if (sig && x.is_tech_investor === true) return sig.replace(/^With Intelligence profile \(Grok\): /, 'With Intelligence profile: ');
+    if (sig && x.is_tech_investor === true) return sig.replace(/^With Intelligence profile \((Grok|theme line)\): /, 'With Intelligence profile: ');
   }
   return 'From the alert or mandate text (no quote stored)';
 }
@@ -1590,7 +1590,8 @@ const TECH_BY_PERSON = /^Set by a person/;
 function techSetByPerson(m) { return TECH_BY_PERSON.test(String((m && m.tech_signal) || '')); }
 // Technology backed by a With Intelligence quote (saved by Grok from the profile)
 // or set by a person: the only technology that can make a match (11 Nov 2026).
-const TECH_QUOTE = /^With Intelligence profile \(Grok\): "/;
+// Grok's profile quote, or a With Intelligence "investment themes" line (11 Nov 2026).
+const TECH_QUOTE = /^With Intelligence profile \((Grok|theme line)\): "/;
 function techQuoted(m) {
   if (!m) return false;
   if (techSetByPerson(m)) return m.is_tech_investor === true;
