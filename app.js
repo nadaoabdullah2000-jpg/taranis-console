@@ -1598,6 +1598,9 @@ function techSetByPerson(m) { return TECH_BY_PERSON.test(String((m && m.tech_sig
 // or set by a person: the only technology that can make a match (11 Nov 2026).
 // Grok's profile quote, or a With Intelligence "investment themes" line (11 Nov 2026).
 const TECH_QUOTE = /^With Intelligence profile \((Grok|theme line)\): "/;
+// A match whose technology is in the alert text only ranks at the bottom of Matched (11 Nov 2026).
+const LOW_MATCH_CAP = 0.89;
+function lowMatch(m) { return !!m && bandOf(m) === 'matched' && m.verdict_source !== 'manual' && techOf(m) && !techQuoted(m); }
 function techQuoted(m) {
   if (!m) return false;
   if (techSetByPerson(m)) return m.is_tech_investor === true;
@@ -1876,8 +1879,13 @@ function rescore(m) {
   // The technology tick only counts toward a match with a With Intelligence quote
   // (Grok's, from the profile) or a person's own Tech choice; a tick from the alert
   // text alone waits for a decision.
-  if (q === 'matched' && !(strong && techOnly && techQuoted(m))) { q = 'uncertain'; if (s !== null) s = Math.min(s, 0.74); }
-  return { band: band, q: q, s: s === null ? null : Math.round(s * 100) / 100 };
+  // Low match (11 Nov 2026): long/short + technology from the alert text only (no With
+  // Intelligence profile quote, no person's choice) is still a match, but ranked at the bottom of
+  // Matched: capped at 89%, below every quoted match (90% and up). Same as the database guard.
+  let low = false;
+  if (q === 'matched' && !(strong && techOnly)) { q = 'uncertain'; if (s !== null) s = Math.min(s, 0.74); }
+  else if (q === 'matched' && !techQuoted(m)) { low = true; if (s !== null) s = Math.min(s, LOW_MATCH_CAP); }
+  return { band: band, q: q, s: s === null ? null : Math.round(s * 100) / 100, low: low };
 }
 
 // The coarse qualification the workflow routes on, from the fine-grained band.
@@ -2081,7 +2089,7 @@ function critMeter(m) {
   const score = crit.filter(Boolean).length;
   const q     = bandOf(m);
   const ql = (q === 'rejected') ? 'reclaimed' : (BAND_LABEL[q] || q.replace(/_/g, ' '));
-  const qLabel = ql.charAt(0).toUpperCase() + ql.slice(1);
+  const qLabel = ql.charAt(0).toUpperCase() + ql.slice(1) + (lowMatch(m) ? ' (low match)' : '');
   const seg = el('div', { class: 'mcard-seg' });
   for (let i = 0; i < crit.length; i++) seg.appendChild(el('div', { class: 'seg' + (i < score ? ' on' : '') }));
   // The score the lists sort on, so "best match first" can be read off the cards.
@@ -2115,6 +2123,10 @@ function critRows(m) {
     const row  = el('div', { class: 'mcard-c' },
       el('span', { class: 'mk ' + cls }, mark),
       el('span', ev ? { class: 'mcard-ev', title: ev } : null, name));
+    if (st === 'yes' && name === 'Technology focus' && !techQuoted(m)) {
+      row.appendChild(el('span', { class: 'mcard-unk', title: 'Technology comes from the alert text; the With Intelligence profile has no quote for it yet.' },
+        '(alert text only, no profile quote)'));
+    }
     if (st === 'no' && i === 0 && newestIntentionNoLS(m)) {
       row.appendChild(el('span', { class: 'mcard-unk', title: 'The strategy tags still list long/short, but the investor\u2019s newest intention does not ask for it.' },
         'Not in the newest intention'));

@@ -49,9 +49,12 @@ test('equity_long_short reads as long/short', () => {
   const one = ctx.rescore({ ...base, investor_type: 'Insurance', strategies: ['equity_long_short'] });
   assert.equal(one.q, 'uncertain');
   assert.ok(one.s <= 0.74);
-  // Technology from the alert text alone does not make a match; a With Intelligence quote does.
+  // Technology from the alert text alone is a low match (11 Nov 2026): matched, but capped at 89%,
+  // below every quoted match; a With Intelligence quote makes a full match.
   const textOnly = ctx.rescore({ ...base, investor_type: 'Insurance', strategies: ['equity_long_short'], intention_summary: 'Wants technology managers.' });
-  assert.equal(textOnly.q, 'uncertain');
+  assert.equal(textOnly.q, 'matched');
+  assert.equal(textOnly.low, true);
+  assert.ok(textOnly.s <= 0.89);
   const both = ctx.rescore({ ...base, investor_type: 'Insurance', strategies: ['equity_long_short'], is_tech_investor: true,
     tech_signal: 'With Intelligence profile (Grok): "Favours technology-focused long/short managers."' });
   assert.equal(both.q, 'matched');
