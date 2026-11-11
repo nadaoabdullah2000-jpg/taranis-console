@@ -1,4 +1,4 @@
--- Schema 25b (11 Nov 2026), NOT YET APPLIED — waiting for research@taranis.net's approval.
+-- Schema 25b (11 Nov 2026), applied 11 Nov 2026 with the approval of research@taranis.net.
 -- Rule change: long/short or quant AND technology = Matched even when hedge fund investing is not
 -- confirmed on With Intelligence. The Taranis score gives long/short + tech 0.90 to 1.00 and nothing
 -- else reaches 0.90 (long/short alone or with space caps at 0.80; tech without long/short at 0.70), so
