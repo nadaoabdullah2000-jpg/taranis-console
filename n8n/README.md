@@ -63,10 +63,13 @@ Undo: publish 6bf8ba73-c4ac-4787-8b01-791306cd1f19 again.
 `wi_themes_reads` (`wi01d-themes-read.js`), paced, stopping on an expired token / sign-in / CAPTCHA.
 Read-only on wi_mandates. Previous branch code: `wi01d-scratch.before-2026-11-11.js`.
 
-## DRAFT (not published): equity in a hedge-fund context counts toward long/short (11 Nov 2026)
+## 11 Nov 2026: equity in a hedge-fund context counts toward long/short (published)
 "Apply Taranis Hard Criteria" (`wi01-apply-hard-criteria.js`): "equity", "equity hedge", "equity long/short", "equity l/s"
 or "fundamental equity" in a sentence about hedge funds, or as a strategy tag when hedge funds are among the asset
 classes, counts toward long/short. A tag beside other asset classes or a long-only tag counts toward review only
 (band 'strong', so Build Mandate SQL keeps it at 74% at most). Same rule as the console's equityInHf.
 Previous code: `wi01-apply-hard-criteria.before-2026-11-11d.js` (= published version 9b0c7bd1).
 Tests: `tests/wi01-manager-news.test.mjs` ("equity in a hedge-fund context ...").
+Published 11 Nov 2026 (approved by the user) as version 7f886bc2-9dda-4750-9ef8-8659bda8bc59 (the saved node writes
+the bullet in one split pattern as the character itself where the repo file writes \u2022; same behaviour).
+Undo: publish 9b0c7bd1-9fb9-4ea7-bef2-2e3869d7ef7b again.
