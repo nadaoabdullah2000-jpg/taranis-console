@@ -1279,9 +1279,9 @@ function iconnSection(d, state) {
         f0.notes ? el('span', null, String(f0.notes).replace(/^Not certain it is the same firm, so left blank\.\s*/, '')
           .replace(/^Possible match:[^)]*\)\.\s*/, '')) : null)));
   }
-  if (!links.length && gs !== 'found') box.appendChild(el('div', { class: 'iconn-v', style: 'font-weight:600' },
-    gs === 'candidate' ? 'Not confirmed on iConnections'
-      : 'Not on iConnections' + (gs === 'not_found' ? ' (checked' + (f0.read_on ? ' ' + fmtDate(f0.read_on) : '') + ')' : '')));
+  // One state per card: a confirmed link (above), a candidate (above), or not on iConnections.
+  if (!links.length && gs !== 'found' && gs !== 'candidate') box.appendChild(el('div', { class: 'iconn-v', style: 'font-weight:600' },
+    'Not on iConnections' + (gs === 'not_found' ? ' (checked' + (f0.read_on ? ' ' + fmtDate(f0.read_on) : '') + ')' : '')));
   for (const l of links) {
     const ppl = (Array.isArray(l.people) ? l.people : []).filter(Boolean);
     box.appendChild(el('div', { class: 'iconn-kv' },
@@ -1297,13 +1297,11 @@ function iconnSection(d, state) {
       gs === 'found' && l === links[0] ? el('span', null, 'found on iConnections by Grok' + (f0.read_on ? ', ' + fmtDate(f0.read_on) : '')) : null));
   }
   const f = d.firm || null, people = Array.isArray(d.people) ? d.people : [];
-  box.appendChild(el('div', { class: 'iconn-sub' }, 'Matching data (With Intelligence and iConnections, via Grok)'));
-  // The iConnections read alone (firm, link, status) is shown above; contact details come from the WI read.
+  // Firm contact details and people (from a With Intelligence read): shown only when loaded. The
+  // iConnections read itself (firm, link, status) is shown above.
   const hasDetails = f && ['website', 'firm_linkedin', 'general_email', 'phone', 'address', 'other_names'].some(k => f[k]);
-  if (!hasDetails && !people.length) {
-    box.appendChild(el('div', { class: 'iconn-none' }, 'Not filled yet.'));
-    return box;
-  }
+  if (!hasDetails && !people.length) return box;
+  box.appendChild(el('div', { class: 'iconn-sub' }, 'Contact details (With Intelligence, via Grok)'));
   const web = (u) => u && /^https?:\/\//i.test(u)
     ? el('a', { href: u, target: '_blank', rel: 'noopener noreferrer' }, u.replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, ''))
     : (u || null);
