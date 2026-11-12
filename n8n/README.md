@@ -73,3 +73,11 @@ Tests: `tests/wi01-manager-news.test.mjs` ("equity in a hedge-fund context ...")
 Published 11 Nov 2026 (approved by the user) as version 7f886bc2-9dda-4750-9ef8-8659bda8bc59 (the saved node writes
 the bullet in one split pattern as the character itself where the repo file writes \u2022; same behaviour).
 Undo: publish 9b0c7bd1-9fb9-4ea7-bef2-2e3869d7ef7b again.
+
+## WI 01d (umIcE6l9pLFuC5JH), scratch branch: Tech tier-1 check (12 Nov 2026)
+"Run iConnections lookup" now reads `wi_hf_targets` into `wi_hf_reads` (`wi01d-hf-read.js`): the profile and
+the newest intentions of the 8 direct-statement investors, plus a name search for a negative id (NPS). Paced,
+stops on an expired token / sign-in / CAPTCHA. Read-only on wi_mandates. The intentions endpoint returns the
+newest 10 only: `paginationFilters.start` and a larger `limit` are ignored, and schema lookups are disabled, so
+older intentions are not reachable with this query. Previous branch code: `wi01d-full-read.js` (targets from
+`wi_full_targets`).

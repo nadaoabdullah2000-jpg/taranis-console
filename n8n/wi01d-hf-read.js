@@ -37,7 +37,15 @@ async function gql(query, variables) {
 }
 const clean = (s) => String(s || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#0?39;/g, "'").replace(/\s+/g, ' ').trim();
 const out = [];
-const t = targets[0];                      // one investor per run: up to 7 calls, about 25 s
+const t = targets[0];
+// One-off: the paging fields of the intentions query, from the API's own schema (no investor data).
+if (String(t.wi_id) === 'introspect') {
+  await sleep(jitter(2000, 4000));
+  const r = await gql('query { pf: __type(name:"PaginationFilters"){ inputFields { name type { name kind ofType { name } } } } '
+    + 'q: __schema { queryType { fields { name args { name type { name kind ofType { name } } } } } } }', {});
+  const fields = r.data && r.data.q ? r.data.q.queryType.fields.filter(f => /intention|mandate/i.test(f.name)) : null;
+  return [row('introspect', r.kind === 'ok' ? 'ok' : r.kind, { pagination: r.data && r.data.pf, fields }, null, null, null, r.msg)];
+}
 const id = String(t.wi_id);
 await sleep(jitter(4000, 7000));
 const p = await gql(QP, { id });
@@ -54,12 +62,12 @@ const notes = []; let total = null, stop = null;
 if (prof) {
   // One call for the 60 newest: "start" is not honoured by this endpoint (each page came back as
   // the same newest 10), so the whole window is asked for at once.
-  for (let start = 0; start < 1; start += 1) {
-    await sleep(jitter(2000, 4000));
-    const r = await gql(QI, { b: JSON.stringify({ institutional_investor_id: id, sort: 'date', order: 'desc' }), p: { start: 0, limit: 60 } });
-    if (r.kind === 'auth_error' || r.kind === 'blocked') { stop = r; break; }
-    const d = r.data && r.data.postMandatesIntentions;
-    if (r.kind !== 'ok' || !d) { stop = { kind: 'partial', msg: r.msg || 'No intentions returned.' }; break; }
+  await sleep(jitter(2000, 4000));
+  const r = await gql(QI, { b: JSON.stringify({ institutional_investor_id: id, sort: 'date', order: 'desc' }), p: { start: 0, limit: 60 } });
+  const d = r.data && r.data.postMandatesIntentions;
+  if (r.kind === 'auth_error' || r.kind === 'blocked') stop = r;
+  else if (r.kind !== 'ok' || !d) stop = { kind: 'partial', msg: r.msg || 'No intentions returned.' };
+  else {
     total = d.pagination ? d.pagination.total : null;
     for (const x of (d.results || [])) notes.push({ date: x.date, type: x.entityType || null,
       status: x.status ? [x.status.name, x.status.sub_status && x.status.sub_status.name].filter(Boolean).join(' / ') : null,
