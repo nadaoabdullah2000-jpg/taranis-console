@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Builds the Grok fill workbook (12 Nov 2026) from the export rows.
+"""Builds the Grok fill workbook (12 Nov 2026) from the export rows. Grok fills it from
+With Intelligence (firm details, contacts) and iConnections (firm name and profile link,
+each contact's iConnections profile link).
 
 Input:  a JSON list (one object per investor, deduplicated by With Intelligence id) read from
         wi_mandates with the Opportunities filters: Matched, plus Review (uncertain) at 45% or
@@ -28,7 +30,7 @@ PRE = [  # (header, key, width)
     ('Type', 'type', 24),
     ('AUM band', 'aum_band', 14),
     ('Console row ids', 'ids', 16),
-    ('iConnections firm', 'firm', 28),
+    ('iConnections firm we linked', 'firm', 28),
     ('iConnections link', 'how', 20),
     ('iConnections contacts we hold', 'iconn_people', 36),
     ('Alert contact we hold', 'alert_contacts', 24),
@@ -36,11 +38,13 @@ PRE = [  # (header, key, width)
 GROK = [
     ('Name on profile', 30), ('Website', 28), ('Firm LinkedIn', 28), ('General email', 26),
     ('Phone', 18), ('Head-office address', 36), ('Other names', 30),
+    ('iConnections firm name', 28), ('iConnections profile link', 34),
     ('Read status', 12), ('Date read', 12), ('Notes', 40),
 ]
 CONTACTS = [
     ('Row', 6), ('With Intelligence id', 14), ('Investor name', 36), ('Contact name', 26),
     ('Title', 30), ('Email', 30), ('Phone', 18), ('LinkedIn', 30), ('Location', 20),
+    ('iConnections profile link', 34),
 ]
 
 FILL_PRE = PatternFill('solid', fgColor='DFEFF3')    # the app's soft teal: ours, keep as is

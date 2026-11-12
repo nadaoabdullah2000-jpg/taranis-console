@@ -1272,7 +1272,7 @@ function iconnSection(d, state) {
       el('span', null, 'Contacts'), el('span', null, ppl.length ? ppl.join(', ') : 'none named in the iConnections file')));
   }
   const f = d.firm || null, people = Array.isArray(d.people) ? d.people : [];
-  box.appendChild(el('div', { class: 'iconn-sub' }, 'Matching data (With Intelligence, via Grok)'));
+  box.appendChild(el('div', { class: 'iconn-sub' }, 'Matching data (With Intelligence and iConnections, via Grok)'));
   if (!f && !people.length) {
     box.appendChild(el('div', { class: 'iconn-none' }, 'Not filled yet.'));
     return box;
@@ -1284,6 +1284,8 @@ function iconnSection(d, state) {
     const kv = el('div', { class: 'iconn-kv' });
     const add = (k, v) => { if (v) kv.append(el('span', null, k), el('span', null, v)); };
     if (f.read_status && f.read_status !== 'read') add('Read', f.read_status);
+    add('iConnections name', f.iconn_firm_name);
+    add('iConnections profile', web(f.iconn_profile_url));
     add('Website', web(f.website));
     add('LinkedIn', web(f.firm_linkedin));
     add('Email', f.general_email);
@@ -1296,10 +1298,10 @@ function iconnSection(d, state) {
   }
   if (people.length) {
     box.appendChild(el('table', null,
-      el('thead', null, el('tr', null, ['Name', 'Title', 'Email', 'Phone', 'LinkedIn'].map(h => el('th', null, h)))),
+      el('thead', null, el('tr', null, ['Name', 'Title', 'Email', 'Phone', 'LinkedIn', 'iConnections'].map(h => el('th', null, h)))),
       el('tbody', null, people.map(p => el('tr', null,
         el('td', null, p.contact_name || ''), el('td', null, p.title || ''), el('td', null, p.email || ''),
-        el('td', null, p.phone || ''), el('td', null, web(p.linkedin) || ''))))));
+        el('td', null, p.phone || ''), el('td', null, web(p.linkedin) || ''), el('td', null, web(p.iconn_profile_url) || ''))))));
   }
   return box;
 }
@@ -2598,11 +2600,6 @@ function stayOnList(m, approval) {
   return (to) => settleCard(m, approval ? (to === 'approved' ? 'approved' : 'unapproved') : to);
 }
 
-function routeAfterQualification(m, to) {
-  if (String(to).toLowerCase() === 'rejected') return go('rejected');
-  oppsMode = scoreBand(m) === 'matched' ? 'matched' : 'review';
-  go('opps');
-}
 
 function ensureTodayCss() {
   if (document.getElementById('taranis-droplist-css')) return;
@@ -8980,7 +8977,7 @@ async function openMandate(m) {
           + 'color:var(--ink-3);margin-bottom:3px' }, 'Fit score'),
         el('div', { style: 'font-size:16px;font-weight:600;line-height:1.5' },
           scoreChip(matchScore(full), full))),
-      el('div', { style: 'margin-bottom:14px' }, qualificationControl(full, (to) => routeAfterQualification(full, to))),
+      el('div', { style: 'margin-bottom:14px' }, qualificationControl(full, () => openMandate(full))),
       field('Approved', full.approved_at
         ? (fmtDate(full.approved_at) + (full.approved_by ? '  by ' + full.approved_by : ''))
         : 'Not approved yet'),

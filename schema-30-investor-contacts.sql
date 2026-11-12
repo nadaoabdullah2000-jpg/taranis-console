@@ -1,6 +1,8 @@
--- schema-30 (12 Nov 2026, DRAFT: not applied until research@taranis.net approves)
+-- schema-30 (12 Nov 2026). Applied 12 Nov 2026 (approved by research@taranis.net) as migrations
+-- schema_30_investor_contacts and schema_30b_investor_contacts_read_only.
 -- Firm details and contacts that Grok reads from With Intelligence profiles (the Grok fill
--- workbook), shown in the iConnections section of the investor card.
+-- workbook), shown in the iConnections section of the investor card. iconn_firm_name and
+-- iconn_profile_url are read from iConnections, the rest from With Intelligence.
 --
 -- * wi_investor_contacts: one 'firm' row per investor (website, firm LinkedIn, general email,
 --   phone, address, other names, read status) and one 'person' row per contact. Keyed by the
@@ -33,6 +35,7 @@ create table if not exists public.wi_investor_contacts (
   general_email    text,
   address          text,
   other_names      text,
+  iconn_firm_name  text,                       -- the firm's name as iConnections shows it (Grok)
   read_status      text check (read_status in ('read', 'not found', 'blocked')),
   read_on          date,
   -- person row
@@ -42,9 +45,10 @@ create table if not exists public.wi_investor_contacts (
   linkedin         text,
   location         text,
   -- both
+  iconn_profile_url text,                      -- iConnections profile: the firm's (firm row) or the person's (person row)
   phone            text,
   notes            text,
-  source           text   not null default 'With Intelligence profile, read by Grok',
+  source           text   not null default 'With Intelligence and iConnections profiles, read by Grok',
   load_batch       text   not null,             -- e.g. 'grok-fill-2026-11-12'
   loaded_at        timestamptz not null default now(),
   loaded_by        text,
@@ -63,6 +67,9 @@ alter table public.wi_investor_contacts enable row level security;
 drop policy if exists wi_investor_contacts_read on public.wi_investor_contacts;
 create policy wi_investor_contacts_read on public.wi_investor_contacts for select using (is_console_user());
 grant select on public.wi_investor_contacts to authenticated;
+-- Supabase's default privileges also give authenticated write grants on a new table: take them back.
+revoke insert, update, delete, truncate on public.wi_investor_contacts from authenticated, anon;
+revoke all on public.wi_investor_contacts from anon;
 -- No write grants: loads run as reviewed SQL (dry run, one transaction, log, undo file).
 
 -- The card's iConnections section, in one call.
