@@ -24,15 +24,17 @@ test('a blank alert is filled, money in dollars, country from the full list', as
   assert.equal(m.aum_usd, 7210000);
   assert.equal(m.ticket_min_usd, 1000000);
   assert.equal(m.ticket_max_usd, 5000000);
-  assert.equal(m.investor_name, 'Mahi546');
+  assert.equal(m.investor_name, 'Mahi546 GmbH');
 });
 
-test('values the alert already has are kept (fill blanks only); the WI name goes to evidence', async () => {
+test('values the alert already has are kept (fill blanks only); the name is corrected and the old one kept', async () => {
   const [{ json: m }] = await run([{ investor_name: 'Mahi546', investor_country: 'AT', investor_type: 'SFO', aum_usd: 9000000, view_investor_url: URL1, evidence: '{}' }]);
   assert.equal(m.investor_type, 'SFO');
   assert.equal(m.aum_usd, 9000000);
-  assert.equal(JSON.parse(m.evidence).wi_profile_name, 'Mahi546 GmbH');
   assert.ok(!m._wi_filled.includes('aum_usd'));
+  assert.equal(m.investor_name, 'Mahi546 GmbH');
+  assert.equal(m._wi_name_from_alert, 'Mahi546');
+  assert.equal(JSON.parse(m.evidence).name_from_alert, 'Mahi546');
 });
 
 test('country names map to ISO codes; an unknown name stays blank', async () => {

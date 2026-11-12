@@ -1,4 +1,4 @@
--- 12 Nov 2026, DRAFT (run after research@taranis.net approves): country codes mangled by the
+-- 12 Nov 2026, APPLIED (approved by research@taranis.net): country codes mangled by the
 -- WI 01b / WI 01c fallback (first two letters of a country name missing from their short list).
 -- Scan: every row whose code is one the fallback can produce, checked against its city and against
 -- With Intelligence's own country (stored profile reads). Seven rows are wrong:

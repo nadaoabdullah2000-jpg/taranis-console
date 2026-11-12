@@ -1,4 +1,4 @@
-// WI 01b (9Zqd98cdXXPqI0oO), node "Units and profile link" — DRAFT 12 Nov 2026, not published.
+// WI 01b (9Zqd98cdXXPqI0oO), node "Units and profile link" — 12 Nov 2026 (approved by research@taranis.net).
 // Change from the published version: the band-guarded millions fix for AUM is removed, because
 // "Profile wins" now converts every With Intelligence amount to dollars itself (a second
 // conversion here could only be wrong). The profile link and evidence.wi_investor_id are unchanged.

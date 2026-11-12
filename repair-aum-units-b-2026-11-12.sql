@@ -1,4 +1,4 @@
--- 12 Nov 2026, DRAFT (run after research@taranis.net approves the dry-run list): the other 43 rows
+-- 12 Nov 2026, APPLIED (approved by research@taranis.net): the other 43 rows
 -- with AUM in millions (same WI 01c bug, enriched 5-11 Nov; 29 live, 11 merged, 3 pending).
 -- Each value x 1,000,000; dry run: every new value lies inside the row's own AUM band text.
 -- Part A (the 61 rows) is repair-aum-units-2026-11-12.sql.

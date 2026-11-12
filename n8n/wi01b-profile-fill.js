@@ -1,4 +1,4 @@
-// WI 01b (9Zqd98cdXXPqI0oO), node "Profile wins" — DRAFT 12 Nov 2026, not published.
+// WI 01b (9Zqd98cdXXPqI0oO), node "Profile wins" — 12 Nov 2026 (approved by research@taranis.net).
 // Changes from the published version (49e2bf27-3aaa-49d5-890d-17b9d0411a70):
 //   1. Units: With Intelligence gives money in millions of USD. AUM and ticket sizes are now
 //      always multiplied by 1,000,000 here (the band-guarded fix in "Units and profile link" only
@@ -7,8 +7,9 @@
 //      aliases). An unknown name leaves the country blank instead of taking its first two letters
 //      (that fallback stored Austria as AU, Slovenia as SL, Monaco as MO, Chile as CH).
 //   3. Fill blanks only: a value already on the mandate (from the alert) is kept; the profile only
-//      fills what is missing. With Intelligence's own name, when it differs, is kept in
-//      evidence.wi_profile_name instead of replacing investor_name.
+//      fills what is missing. The one exception is the investor's name (decided 12 Nov 2026): With
+//      Intelligence's name still corrects a mis-parsed alert name, and the alert's name is kept in
+//      evidence.name_from_alert; WI 01's Build Mandate SQL logs the change in wi_fill_log.
 // Unchanged: id resolution, throttle, token reminder, wi_summary (already fill-only), record_key.
 
 const H = this.helpers;
@@ -172,11 +173,22 @@ for (const it of mandates) {
       }
       // WI's own profile summary, kept in evidence.wi_summary for the console. Fill only.
       if (!has(ev.wi_summary) && has(inv.summary)) { ev.wi_summary = String(inv.summary).trim(); filled.push('wi_summary'); }
-      // WI's name, when it differs, is kept beside the alert's name rather than replacing it.
-      if (has(inv.name) && String(inv.name).trim() !== String(m.investor_name || '').trim()) ev.wi_profile_name = String(inv.name).trim();
       setEv(m, ev);
     }
-    if (!has(m.investor_name) && has(inv.name)) { m.investor_name = String(inv.name).trim(); filled.push('investor_name'); }
+    // ---- investor_name: With Intelligence's name corrects a mis-parsed alert name; the old name is
+    // kept (evidence.name_from_alert, and _wi_name_from_alert for WI 01 to log). record_key is kept, so a
+    // correction updates the same row.
+    if (has(inv.name)) {
+      const newName = String(inv.name).trim(), oldName = String(m.investor_name || '').trim();
+      if (newName !== oldName) {
+        if (oldName) {
+          m._wi_name_from_alert = oldName;
+          const ev2 = evObj(m);
+          if (ev2) { ev2.name_from_alert = oldName; setEv(m, ev2); }
+        }
+        m.investor_name = newName; m._wi_name_corrected = true; filled.push('investor_name');
+      }
+    }
     if (!has(m.record_key) && has(m.investor_name)) { m.record_key = recomputeKey(m); m._wi_key_minted = true; }
 
     m._wi_filled = filled;
