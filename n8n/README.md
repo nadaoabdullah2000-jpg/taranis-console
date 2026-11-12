@@ -81,3 +81,13 @@ stops on an expired token / sign-in / CAPTCHA. Read-only on wi_mandates. The int
 newest 10 only: `paginationFilters.start` and a larger `limit` are ignored, and schema lookups are disabled, so
 older intentions are not reachable with this query. Previous branch code: `wi01d-full-read.js` (targets from
 `wi_full_targets`).
+
+## WI 01c (OlWe4Wi6flt7bDtv) "Investor Enrichment Backfill": PAUSED 12 Nov 2026 (research@taranis.net)
+Unpublished (it ran every 3 hours). It re-enriched every row with `wi_enriched_at` null and OVERWROTE
+type, city, country, asset classes, tickets, AUM, AUM band, evidence (family names) and the investor
+name, writing AUM in millions and logging nothing. Its country fallback takes the first two letters of a
+name missing from its short list (Austria -> AU, Slovenia -> SL, Monaco -> MO). Do not re-enable without
+the user's OK; if needed again it must fill blanks only, write full dollars (x 1,000,000), map countries
+in full, and log to wi_fill_log. Repair: `repair-aum-units-2026-11-12.sql`.
+WI 01b (9Zqd98cdXXPqI0oO, live, called by WI 01) has the same country fallback, and its units fix only
+covers AUM bands of $100m and up (a "< $30m" or "$30m - $100m" profile keeps millions). Not changed.
