@@ -16,12 +16,13 @@ const store = {};
 const ctx = { Date, Number, JSON, Intl, Array, String, isFinite,
   localStorage: { getItem: (k) => store[k] || null, setItem: (k, v) => { store[k] = v; } },
   OPPS_COUNTRY_NAMES: { GB: 'United Kingdom', US: 'United States', CH: 'Switzerland' },
-  techOf: () => false, asText: (v) => Array.isArray(v) ? v.join(' ') : String(v || ''),
+  techOf: () => false, evidenceObj: (m) => (m && m.evidence && typeof m.evidence === 'object') ? m.evidence : {}, techSetByPerson: (m) => /^Set by a person/.test(String((m && m.tech_signal) || '')), asText: (v) => Array.isArray(v) ? v.join(' ') : String(v || ''),
   // The verdict as app.js reads it, and the criteria met (given on the test rows).
   bandOf: (m) => String((m && m.new_qualification) || (m && m.qualification) || 'uncertain').trim().toLowerCase(),
   critOf: (m) => (m && m._crit) || [false, false, false] };
 vm.createContext(ctx);
-vm.runInContext(grab('const LIST_SORTS = [', '// The Sort dropdown')
+vm.runInContext(grab('const RE_THEMES_LINE = ', 'function techOf(m, t) {')
+  + grab('const LIST_SORTS = [', '// The Sort dropdown')
   + grab('function assetMatches(', '// A row\'s verdict is new_qualification')
   + '\nthis.sortMandates = sortMandates; this.LIST_SORTS = LIST_SORTS; this.emergingOf = emergingOf; this.listPasses = listPasses; this.assetOptsFor = assetOptsFor; this.ASSET_OPTS = ASSET_OPTS;', ctx);
 const ids = (rows) => rows.map(r => r.id);
@@ -130,4 +131,21 @@ test('best match first: verdict before score, then score, then more criteria met
     { id: 16, new_qualification: 'uncertain', new_fit_score: 0.74, alert_date: '2026-11-10', _crit: [true, false, false] }   // 1 of 3, newer than #10
   ];
   assert.deepEqual(ids(ctx.sortMandates(rows, 'best')), [13, 12, 11, 16, 10, 14, 15]);
+});
+
+test('best match first: within a verdict, a stated tech interest before a themes line, before alert text (12 Nov 2026)', () => {
+  const grok = (q) => 'With Intelligence profile (Grok): "' + q + '"';
+  const rows = [
+    { id: 20, new_qualification: 'matched', new_fit_score: 1,    is_tech_investor: true, _crit: [true, true, true],
+      tech_signal: 'With Intelligence profile (theme line): "primary investment themes over the next 12-18 months target artificial intelligence"' },  // AARP-like
+    { id: 21, new_qualification: 'matched', new_fit_score: 0.9,  is_tech_investor: true, _crit: [true, true, false],
+      tech_signal: grok('Plans to increase its investments in AI and other high-growth companies.') },
+    { id: 22, new_qualification: 'matched', new_fit_score: 0.89, is_tech_investor: null, _crit: [true, true, false] },     // low match
+    { id: 23, new_qualification: 'matched', new_fit_score: 1,    is_tech_investor: true, _crit: [true, true, false],
+      tech_signal: grok('Key sectors of interest include AI and related technologies.') },
+    { id: 24, new_qualification: 'uncertain', new_fit_score: 0.74, is_tech_investor: true, _crit: [true, true, false],
+      tech_signal: grok('Key sectors of interest include AI.') }   // Review stays below every match
+  ];
+  // techOf is false in this harness, so #22 (no quote) is tier 4 here: still last of Matched.
+  assert.deepEqual(ids(ctx.sortMandates(rows, 'best')), [23, 21, 20, 22, 24]);
 });

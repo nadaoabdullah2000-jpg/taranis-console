@@ -1650,7 +1650,7 @@ function contextLines(m) {
 // (wi_themes_line; it already decided Tech / Space through the fields) and the discovery record
 // (discovery; its "via fund" names, e.g. "... Long Short Fund", are not the investor's mandate).
 const EVIDENCE_NOT_SCORED = ['passage', 'from_report', 'page', 'wi_summary', 'wi_industries', 'wi_intentions', 'wi_themes_line', 'discovery',
-  'equity_not_long_short', 'equity_long_short', 'equity_review_only'];
+  'equity_not_long_short', 'equity_long_short', 'equity_review_only', 'tech_hf_intention'];
 // "does not state hedge fund appetite" is silence, not a hedge-fund signal.
 const RE_NO_APPETITE = /(does not state|doesn't state|no) hedge.fund appetite( stated)?|hedge.fund appetite (is )?not stated/g;
 function evidenceText(ev) {
@@ -1736,6 +1736,35 @@ function techQuoted(m) {
   if (!m) return false;
   if (techSetByPerson(m)) return m.is_tech_investor === true;
   return m.is_tech_investor === true && TECH_QUOTE.test(String(m.tech_signal || ''));
+}
+// Tech evidence tier (12 Nov 2026), for "best match first" and the card's Tech line. Strongest first:
+//   1 stated: a hedge fund intention on the With Intelligence profile names a tech theme
+//     (evidence.tech_hf_intention, read from the stored profile intentions), or the profile
+//     states a technology / AI interest directly (Grok's quote that is not a themes line),
+//     or a person set Tech to yes;
+//   2 themes: only a general "primary investment themes" line names a tech theme;
+//   3 alert text: technology from the alert text only (the low match);
+//   4 none.
+// Read from the quote already stored (tech_signal); the best tier across the card's alerts counts.
+// Ordering only: no verdict or score depends on it.
+const RE_THEMES_LINE = /\binvestment themes?\b|\bprimary themes?\b|\bthemes? (?:over|for|include|focus)/i;
+function techHfIntention(x) { return x ? String(evidenceObj(x).tech_hf_intention || '') : ''; }
+function techTierOfRow(x) {
+  if (!x) return 4;
+  const sig = String(x.tech_signal || '');
+  if (techSetByPerson(x)) return x.is_tech_investor === true ? 1 : 4;
+  const quoted = x.is_tech_investor === true && /^With Intelligence profile \((Grok|theme line)\): "/.test(sig);
+  // Technology from the alert text only stays a low match (tier 3), whatever else is stored.
+  if (!quoted) return techOf(x) ? 3 : 4;
+  if (techHfIntention(x)) return 1;
+  return /^With Intelligence profile \(Grok\): "/.test(sig) && !RE_THEMES_LINE.test(sig.slice(33)) ? 1 : 2;
+}
+// Not cached: a Tech choice changes tech_signal on the row in place, and this is cheap.
+function techTier(m) {
+  if (!m || typeof m !== 'object') return 4;
+  let best = techTierOfRow(m);
+  for (const x of (Array.isArray(m._intentions) ? m._intentions : [])) best = Math.min(best, techTierOfRow(x));
+  return best;
 }
 function techOf(m, t) {
   if (techSetByPerson(m) && typeof m.is_tech_investor === 'boolean') return m.is_tech_investor;
@@ -2318,7 +2347,15 @@ function critRows(m) {
           : 'Long/short from equity in a hedge-fund context' + (evidenceObj(m).equity_long_short ? ': ' + evidenceObj(m).equity_long_short : '.') },
         how === 'review' ? '(equity tag only: review)' : '(equity in a hedge-fund context)'));
     }
-    if (st === 'yes' && name === 'Technology focus' && !techQuoted(m)) {
+    if (st === 'yes' && name === 'Technology focus' && techTier(m) <= 2) {
+      const hfq = [m].concat(Array.isArray(m._intentions) ? m._intentions : []).map(techHfIntention).find(Boolean) || '';
+      row.appendChild(el('span', { class: 'mcard-unk', title: techTier(m) === 1
+          ? (hfq ? 'A hedge fund intention names it: ' + hfq : 'With Intelligence states a technology or AI interest for this investor (or a person set Tech to yes).')
+            + ' Ranks first in "best match first".'
+          : 'Technology comes from a general "primary investment themes" line only. Ranks after a stated interest in "best match first".' },
+        techTier(m) === 1 ? (hfq ? 'in a hedge fund intention' : 'stated interest') : 'from themes line'));
+    }
+    if (st === 'yes' && name === 'Technology focus' && techTier(m) === 3) {
       row.appendChild(el('span', { class: 'mcard-unk', title: 'Technology comes from the alert text; the With Intelligence profile has no quote for it yet.' },
         '(alert text only, no profile quote)'));
     }
@@ -2773,7 +2810,9 @@ function sortMandates(rows, mode) {
   // Best match first (11 Nov 2026): the verdict first (Matched, Review, Needs
   // data, Low fit, then Rejected where a list shows it), then the score, then
   // the ties above. A review capped at 74% never ranks above a match.
-  const best = then(orderBy(sortVerdict, 1), orderBy(sortFit, -1), ...ties);
+  // Within a verdict, stronger technology evidence first (techTier, 12 Nov 2026): a stated
+  // tech / AI interest, then a themes line, then alert text only, then none.
+  const best = then(orderBy(sortVerdict, 1), orderBy(techTier, 1), orderBy(sortFit, -1), ...ties);
   const cmp = {
     best:       best,
     score_asc:  then(orderBy(sortFit, 1), ...ties),
