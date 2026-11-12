@@ -1,4 +1,4 @@
--- 12 Nov 2026, DRAFT (run only after research@taranis.net approves): KGI Life Insurance (row 32)
+-- 12 Nov 2026, APPLIED (approved by research@taranis.net): KGI Life Insurance (row 32)
 -- out of low match into a full match.
 --
 -- Why: its Technology came from the alert text only (low match, capped at 89%). Its With
