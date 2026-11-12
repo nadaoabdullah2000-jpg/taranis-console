@@ -2212,6 +2212,8 @@ function ensureMatchCss() {
   s.textContent =
     ".matchgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}"
   + ".mcard{background:var(--card);border:1px solid var(--rule);border-radius:12px;padding:18px 20px;display:flex;flex-direction:column;box-shadow:0 1px 2px rgba(16,35,58,.04),0 6px 16px rgba(16,35,58,.05)}"
+  + ".mcard-done{opacity:.72}"
+  + ".mcard-done-note{align-self:flex-start;margin:4px 0 8px;padding:3px 10px;border-radius:999px;background:var(--good-soft);color:var(--good);font-size:13px;font-weight:600}"
   + ".mcard.good{box-shadow:inset 3px 0 0 var(--good),0 1px 2px rgba(16,35,58,.04)}"
   + ".mcard.signal{box-shadow:inset 3px 0 0 var(--signal),0 1px 2px rgba(16,35,58,.04)}"
   + ".mcard.bad{box-shadow:inset 3px 0 0 var(--bad),0 1px 2px rgba(16,35,58,.04)}"
@@ -2269,20 +2271,24 @@ function critMeter(m) {
   const score = crit.filter(Boolean).length;
   const q     = bandOf(m);
   const ql = (q === 'rejected') ? 'reclaimed' : (BAND_LABEL[q] || q.replace(/_/g, ' '));
-  const qLabel = ql.charAt(0).toUpperCase() + ql.slice(1) + (lowMatch(m) ? ' (low match)' : '');
+  // Review reads "Review, needs confirmation": promising, not a confirmed match yet. A low
+  // match reads "Matched, low match" in the same form.
+  const qLabel = ql.charAt(0).toUpperCase() + ql.slice(1)
+    + (q === 'uncertain' ? ', needs confirmation' : lowMatch(m) ? ', low match' : '');
   const seg = el('div', { class: 'mcard-seg' });
   for (let i = 0; i < crit.length; i++) seg.appendChild(el('div', { class: 'seg' + (i < score ? ' on' : '') }));
   // The score the lists sort on, so "best match first" can be read off the cards.
   const fit = sortFit(m);
-  // A would-be match whose hedge fund investing is not confirmed becomes a
-  // review capped at 74% (the hedge fund rule), whatever its criteria: say so,
-  // so "1 of 3" and "2 of 3" at the same 74% are not read as the same fit.
+  // A would-be match whose hedge fund investing is not confirmed stays in Review at 74%
+  // (the hedge fund rule), whatever its criteria; the tooltip says why.
   const capped = q === 'uncertain' && fit === 0.74 && !sortHf(m);
-  const fitTxt = fit === null ? 'no score' : (capped ? 'capped at ' : '') + Math.round(fit * 100) + '%';
+  const fitTxt = fit === null ? 'no score' : Math.round(fit * 100) + '%';
   return [el('div', { class: 'mcard-score' },
     el('span', null, qLabel + ' \u00B7 ',
-      el('span', { class: 'mcard-fit', title: capped
-        ? 'Hedge fund investing not confirmed: a review is capped at 74%, whatever the criteria. Order of "Score: best match first": verdict, score, then criteria met.'
+      el('span', { class: 'mcard-fit', title: lowMatch(m)
+        ? 'Technology comes from the alert text only, not a With Intelligence profile quote. Order of "Score: best match first": verdict, score, then criteria met.'
+        : capped
+        ? 'Looks promising, but hedge fund investing is not confirmed yet, so it stays in Review until it is. Order of "Score: best match first": verdict, score, then criteria met.'
         : 'Fit score. Order of "Score: best match first": verdict, score, then criteria met.' }, fitTxt)),
     el('b', null, score + ' of ' + crit.length + ' criteria met')), seg,
     q === 'matched' && !sortHf(m)
@@ -2562,6 +2568,34 @@ function techControl(m, after) {
     }
   });
   return el('label', { class: 'field', style: 'margin-bottom:0' }, el('span', null, 'Tech'), sel);
+}
+
+// A verdict or approval made on a list card (Opportunities, Rejected): the page stays where it
+// is. The card says what was done and its verdict controls are switched off; the list itself
+// is redrawn the next time it is opened or filtered. Nothing here changes what is saved.
+const SETTLED_TEXT = { approved: 'Approved \u2713', unapproved: 'Approval withdrawn \u2713',
+  rejected: 'Rejected \u2713', matched: 'Marked as matched \u2713', uncertain: 'Sent to review \u2713' };
+const VERDICT_BUTTONS = new Set(['Approve', 'Withdraw approval', 'Mark as matched', 'Send to review', 'Reconsider', 'Reject']);
+function settleCard(m, to) {
+  const id = String((m && m.id) == null ? '' : m.id).replace(/"/g, '');
+  const text = SETTLED_TEXT[to] || ('Set to ' + String(to || '').replace(/_/g, ' ') + ' \u2713');
+  for (const card of document.querySelectorAll('main .mcard[data-mid="' + id + '"]')) {
+    card.classList.add('mcard-done');
+    for (const b of card.querySelectorAll('button')) if (VERDICT_BUTTONS.has(b.textContent.trim())) b.disabled = true;
+    for (const s of card.querySelectorAll('select')) s.disabled = true;
+    let note = card.querySelector('.mcard-done-note');
+    if (!note) {
+      note = el('div', { class: 'mcard-done-note', role: 'status' });
+      card.insertBefore(note, card.children[1] || null);
+    }
+    note.textContent = text;
+  }
+  OPPS_AT = 0;   // the next visit to Opportunities reads the list afresh
+}
+// For verdictActions / qualificationControl on a list card: approvals call after('approved')
+// or after('opps') (withdrawn), verdicts after(<new verdict>).
+function stayOnList(m, approval) {
+  return (to) => settleCard(m, approval ? (to === 'approved' ? 'approved' : 'unapproved') : to);
 }
 
 function routeAfterQualification(m, to) {
@@ -4903,7 +4937,7 @@ RENDER.opps = function (body) {
 
       grid.appendChild(matchCard(m, {
         tone,
-        controls: [qualificationControl(m, (to) => routeAfterQualification(m, to)),
+        controls: [qualificationControl(m, stayOnList(m)),
           techControl(m, () => redrawOpps())],
         actions: [
           { label: 'View the mandate', primary: true, run: () => { markSeen(m).catch(() => {}); openMandate(m); } },
@@ -4911,9 +4945,7 @@ RENDER.opps = function (body) {
           seen(m) ? null : { label: 'Mark as read', run: async () => {
               try { await markSeen(m); redrawOpps(); } catch (e) { toast(e.message, true); } } },
           m.linkedin_url ? { label: 'Check the network', run: () => act('li.check', { url: m.linkedin_url }, 'Checking') } : null
-        ].filter(Boolean).concat(verdictActions(m, (to) => {
-          go(to === 'rejected' ? 'rejected' : 'opps');
-        }))
+        ].filter(Boolean).concat(verdictActions(m, stayOnList(m), stayOnList(m, true)))
       }));
     }
     list.appendChild(el('p', { class: 'mono',
@@ -5450,21 +5482,22 @@ async function setQualification(m, to, said, after) {
   }
 }
 
-function verdictActions(m, after) {
+function verdictActions(m, after, afterApproval) {
   const q = verdictGroup(m);
   const acts = [];
+  const ap = afterApproval || after;
   acts.push(isApproved(m)
-    ? { label: 'Withdraw approval', run: () => setApproved(m, false, after) }
-    : { label: 'Approve',           run: () => setApproved(m, true,  after) });
+    ? { label: 'Withdraw approval', run: () => setApproved(m, false, ap) }
+    : { label: 'Approve',           run: () => setApproved(m, true,  ap) });
   if (q !== 'matched') {
     acts.push({ label: 'Mark as matched', run: () => setQualification(m, 'matched', 'Marked as matched.', after) });
   }
   if (q !== 'uncertain') {
     acts.push({ label: q === 'rejected' ? 'Reconsider' : 'Send to review',
-      run: () => setQualification(m, 'uncertain', 'Moved to Opportunities.', after) });
+      run: () => setQualification(m, 'uncertain', 'Sent to review.', after) });
   }
   if (q !== 'rejected') {
-    acts.push({ label: 'Reject', run: () => setQualification(m, 'rejected', 'Moved to Rejected.', after) });
+    acts.push({ label: 'Reject', run: () => setQualification(m, 'rejected', 'Rejected.', after) });
   }
   return acts;
 }
@@ -5683,13 +5716,11 @@ RENDER.rejected = function (body) {
     for (const m of rows) {
       grid.appendChild(matchCard(m, {
         tone: 'bad',
-        controls: [qualificationControl(m, (to) => routeAfterQualification(m, to)),
+        controls: [qualificationControl(m, stayOnList(m)),
           techControl(m, () => { all = null; load(); })],
         actions: [
           { label: 'View the mandate', primary: true, run: () => openMandate(m) }
-        ].concat(verdictActions(m, (to) => {
-          if (to === 'rejected') { all = null; load(); } else { routeAfterQualification(m, to); }
-        }))
+        ].concat(verdictActions(m, stayOnList(m), stayOnList(m, true)))
       }));
     }
     out.appendChild(el('p', { class: 'mono',
