@@ -83,6 +83,8 @@
   /* The palette has no red, and a failure cannot be signalled in
      teal. This brick is mixed to sit beside the ochre. */
   --bad:#A6402E;         --bad-soft:#F9E9E5;
+  /* indigo: the iConnections section on the investor card, a hue no verdict uses */
+  --iconn:#3D5AA8;       --iconn-soft:#EEF2FB;
 
   --shadow:0 1px 2px rgba(5,42,51,.05),0 8px 24px -12px rgba(5,42,51,.22);
   --rail:44px;
@@ -101,6 +103,7 @@
     --signal:#E0A64A; --signal-soft:#31270F;
     --quiet:#B5B37C;  --quiet-soft:#2A2A1A;
     --bad:#E08A76;    --bad-soft:#331812;
+    --iconn:#9DB2EA;  --iconn-soft:#18213D;
     --shadow:0 1px 2px rgba(0,0,0,.45),0 8px 24px -12px rgba(0,0,0,.65);
   }
 }
@@ -314,6 +317,16 @@ main{
 .callout.bad{border-left-color:var(--bad);background:var(--bad-soft)}
 .callout.bad .callout-v{color:var(--bad)}
 .callout.good{border-left-color:var(--good);background:var(--good-soft)}
+.iconn-sec{margin:14px 0 18px;padding:12px 15px 13px;border:1px solid var(--iconn);border-left-width:4px;border-radius:6px;background:var(--iconn-soft)}
+.iconn-sec h3{margin:0 0 8px;font-family:var(--font-body);font-size:13px;letter-spacing:.02em;font-weight:700;color:var(--iconn)}
+.iconn-sec .iconn-sub{margin:11px 0 5px;font-size:12px;font-weight:600;color:var(--iconn)}
+.iconn-sec .iconn-kv{display:grid;grid-template-columns:max-content 1fr;gap:3px 14px;font-size:13.5px}
+.iconn-sec .iconn-kv>span:nth-child(odd){color:var(--ink-3)}
+.iconn-sec .iconn-none{color:var(--ink-3);font-size:13.5px}
+.iconn-sec a{color:var(--iconn)}
+.iconn-sec table{border-collapse:collapse;width:100%;font-size:13px;margin-top:10px}
+.iconn-sec td,.iconn-sec th{text-align:left;padding:3px 10px 3px 0;vertical-align:top;border-top:1px solid color-mix(in srgb,var(--iconn) 22%,transparent)}
+.iconn-sec th{font-weight:600;color:var(--ink-3);border-top:0}
 .entry.bad .ev .k{color:var(--bad);opacity:.8}
 .entry.bad .ev{border-left-color:var(--bad)}
 .acts{display:flex;gap:6px;margin-top:11px;flex-wrap:wrap}
