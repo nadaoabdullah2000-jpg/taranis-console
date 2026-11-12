@@ -58,3 +58,9 @@ test('the strongest tier across the card\'s alerts counts', () => {
     { _intentions: [grok('Interested in AI, energy transition and biotech.')] });
   assert.equal(ctx.techTier(card), 1);
 });
+
+test('a direct statement checked as not in a hedge fund intention is tier 2 (evidence.tech_not_hf_intention)', () => {
+  const r = grok('with a focus on investments in technology and healthcare.');
+  assert.equal(ctx.techTier(r), 1);
+  assert.equal(ctx.techTier(Object.assign({}, r, { evidence: { tech_not_hf_intention: 'Checked 12 Nov 2026' } })), 2);
+});

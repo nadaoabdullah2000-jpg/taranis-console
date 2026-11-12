@@ -1,4 +1,4 @@
--- 12 Nov 2026, DRAFT (run only after research@taranis.net approves): Grok discovery staging,
+-- 12 Nov 2026, APPLIED (approved by research@taranis.net; 65 rows): Grok discovery staging,
 -- regions filled from the country rather than the profile.
 --
 -- grok.wi_discovered holds 74 rows with a region; every one is simply the country's continent

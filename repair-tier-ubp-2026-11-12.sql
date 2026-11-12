@@ -1,0 +1,10 @@
+-- 12 Nov 2026, APPLIED (approved by research@taranis.net).
+-- 1. Tech tier 1 -> 2 for Mubadala, NPS, SBP and Rockefeller: the live profile read showed their tech
+--    statement is not in a hedge fund intention. evidence.tech_not_hf_intention (with the reason) on their
+--    live rows; the console's techTier reads it. Backup: wi_mandates_backup_20261112_tier.
+--    Norway stays tier 1 pending Grok's check of "TMT specialists".
+-- 2. UBP (3223): evidence.tech_hf_intention removed (its "AI-led disruption" line is a market view, not Tech;
+--    the user's decision). Backup: wi_mandates_backup_20261112_ubp_hf.
+-- Both logged in wi_fill_log. No verdict or score changes.
+-- UNDO: update wi_mandates m set evidence = b.evidence from wi_mandates_backup_20261112_tier b where b.id = m.id;
+--       update wi_mandates m set evidence = b.evidence from wi_mandates_backup_20261112_ubp_hf b where b.id = m.id;

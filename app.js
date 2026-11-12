@@ -1782,6 +1782,8 @@ function techTierOfRow(x) {
   // Technology from the alert text only stays a low match (tier 3), whatever else is stored.
   if (!quoted) return techOf(x) ? 3 : 4;
   if (techHfIntention(x)) return 1;
+  // Checked on the live profile (12 Nov 2026): the tech statement is not in a hedge fund intention.
+  if (evidenceObj(x).tech_not_hf_intention) return 2;
   return /^With Intelligence profile \(Grok\): "/.test(sig) && !RE_THEMES_LINE.test(sig.slice(33)) ? 1 : 2;
 }
 // Not cached: a Tech choice changes tech_signal on the row in place, and this is cheap.
@@ -1864,11 +1866,13 @@ function equityInHf(m) {
     if (!RE_HF_WORD.test(sen)) continue;
     if (/\b(fundamental )?equit(y|ies)\b/.test(sen.replace(RE_EQ_NOT, ' '))) return ev.equity_review_only ? 'review' : 'text';
   }
+  // A hedge fund intention on the profile that names equity (evidence.equity_long_short, stored from
+  // the read) counts on its own, with or without an "equity" strategy tag (decided 12 Nov 2026).
+  if (ev.equity_long_short) return ev.equity_review_only ? 'review' : 'quote';
   const assets = jsonArr(m.asset_classes).map(a => String(a));
   const words = stratWords(m);
   if (!assets.some(a => /hedge/i.test(a)) || !words.some(s => RE_EQ_TAG.test(s.trim()))) return null;
   if (ev.equity_review_only) return 'review';
-  if (ev.equity_long_short) return 'quote';
   const onlyHf = assets.every(a => /hedge|alternative|absolute return/i.test(a));
   const longOnly = words.some(s => /long only|long-only|long bias/.test(s));
   return onlyHf && !longOnly ? 'tag' : 'review';
