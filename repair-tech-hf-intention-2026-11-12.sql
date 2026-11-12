@@ -1,4 +1,4 @@
--- 12 Nov 2026, DRAFT (run only after research@taranis.net approves): store, per investor, the
+-- 12 Nov 2026, APPLIED (approved by research@taranis.net; 21 rows, 21 log entries): store, per investor, the
 -- hedge fund intention on its With Intelligence profile that names a tech theme, so
 -- "best match first" ranks it in Tech tier 1 (above a general themes line such as AARP's).
 --
