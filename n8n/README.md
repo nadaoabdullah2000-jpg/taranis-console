@@ -73,3 +73,34 @@ Tests: `tests/wi01-manager-news.test.mjs` ("equity in a hedge-fund context ...")
 Published 11 Nov 2026 (approved by the user) as version 7f886bc2-9dda-4750-9ef8-8659bda8bc59 (the saved node writes
 the bullet in one split pattern as the character itself where the repo file writes \u2022; same behaviour).
 Undo: publish 9b0c7bd1-9fb9-4ea7-bef2-2e3869d7ef7b again.
+
+## WI 01d (umIcE6l9pLFuC5JH), scratch branch: Tech tier-1 check (12 Nov 2026)
+"Run iConnections lookup" now reads `wi_hf_targets` into `wi_hf_reads` (`wi01d-hf-read.js`): the profile and
+the newest intentions of the 8 direct-statement investors, plus a name search for a negative id (NPS). Paced,
+stops on an expired token / sign-in / CAPTCHA. Read-only on wi_mandates. The intentions endpoint returns the
+newest 10 only: `paginationFilters.start` and a larger `limit` are ignored, and schema lookups are disabled, so
+older intentions are not reachable with this query. Previous branch code: `wi01d-full-read.js` (targets from
+`wi_full_targets`).
+
+## WI 01c (OlWe4Wi6flt7bDtv) "Investor Enrichment Backfill": PAUSED 12 Nov 2026 (research@taranis.net)
+Unpublished (it ran every 3 hours). It re-enriched every row with `wi_enriched_at` null and OVERWROTE
+type, city, country, asset classes, tickets, AUM, AUM band, evidence (family names) and the investor
+name, writing AUM in millions and logging nothing. Its country fallback takes the first two letters of a
+name missing from its short list (Austria -> AU, Slovenia -> SL, Monaco -> MO). Do not re-enable without
+the user's OK; if needed again it must fill blanks only, write full dollars (x 1,000,000), map countries
+in full, and log to wi_fill_log. Repair: `repair-aum-units-2026-11-12.sql`.
+WI 01b (9Zqd98cdXXPqI0oO, live, called by WI 01) has the same country fallback, and its units fix only
+covers AUM bands of $100m and up (a "< $30m" or "$30m - $100m" profile keeps millions). Not changed.
+
+## 12 Nov 2026: enrichment fixed (approved by research@taranis.net)
+- WI 01b published as 4c25f319 (undo: 49e2bf27): money x 1,000,000 always, countries from the full ISO list,
+  fill blanks only; the investor name is still corrected from the profile, the alert's name kept in
+  evidence.name_from_alert. Copies: `wi01b-profile-fill.js`, `wi01b-units-and-link.js`. Tests: `tests/wi01b-profile-fill.test.mjs`.
+- WI 01 "Build Mandate SQL" published as 260f1c49 (undo: 7f886bc2): wi_enriched_at only when WI 01b enriched the
+  alert (kept on replay); a corrected name is logged in wi_fill_log in the same statement.
+  Previous code: `wi01-build-mandate-sql.before-2026-11-12.js`.
+- NOTE: WI 01's node "WI Profile Enrichment (disabled)" means WI 01b is not called at the moment; new alerts are
+  stored unenriched (tracking link, no profile fields) and only the backfill enriches them.
+- WI 01c rebuilt (`wi01c-backfill-fixed.js`, tests `tests/wi01c-backfill.test.mjs`), daily at 05:47 UTC instead of
+  every 3 hours, NOT published yet: unenriched alerts only, blanks only (guarded in SQL), dollars, ISO countries,
+  name correction kept and logged, every value in wi_fill_log, wi_enriched_at stamped once.
