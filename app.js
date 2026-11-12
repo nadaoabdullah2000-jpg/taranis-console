@@ -1261,7 +1261,27 @@ function iconnSection(d, state) {
   }
   d = d || {};
   const links = Array.isArray(d.links) ? d.links : [];
-  if (!links.length) box.appendChild(el('div', { class: 'iconn-v', style: 'font-weight:600' }, 'Not on iConnections'));
+  const f0 = d.firm || null, gs = f0 && f0.iconn_status;   // Grok's iConnections read (12 Nov 2026)
+  const ilink = (u, label) => u && /^https:\/\/app\.iconnections\.io\//.test(u)
+    ? el('a', { href: u, target: '_blank', rel: 'noopener noreferrer' }, label || 'Open on iConnections') : null;
+  if (gs === 'found' && !links.length) {
+    box.appendChild(el('div', { class: 'iconn-kv' },
+      el('span', null, 'Firm'), el('b', null, f0.iconn_firm_name || '\u2014'),
+      el('span', null, 'Profile'), el('span', null, ilink(f0.iconn_profile_url) || '\u2014'),
+      el('span', null, 'Checked'), el('span', null, 'found on iConnections by Grok' + (f0.read_on ? ', ' + fmtDate(f0.read_on) : ''))));
+  } else if (gs === 'candidate') {
+    box.appendChild(el('div', { class: 'iconn-cand', title: 'Grok was not sure this is the same firm. Not confirmed: for a person to review.' },
+      el('div', { class: 'iconn-cand-h' }, 'Possible match, not confirmed'),
+      el('div', { class: 'iconn-kv' },
+        el('span', null, 'Firm'), el('span', null, f0.iconn_firm_name || '\u2014'),
+        el('span', null, 'Profile'), el('span', null, ilink(f0.iconn_profile_url) || '\u2014'),
+        f0.notes ? el('span', null, 'Why unsure') : null,
+        f0.notes ? el('span', null, String(f0.notes).replace(/^Not certain it is the same firm, so left blank\.\s*/, '')
+          .replace(/^Possible match:[^)]*\)\.\s*/, '')) : null)));
+  }
+  if (!links.length && gs !== 'found') box.appendChild(el('div', { class: 'iconn-v', style: 'font-weight:600' },
+    gs === 'candidate' ? 'Not confirmed on iConnections'
+      : 'Not on iConnections' + (gs === 'not_found' ? ' (checked' + (f0.read_on ? ' ' + fmtDate(f0.read_on) : '') + ')' : '')));
   for (const l of links) {
     const ppl = (Array.isArray(l.people) ? l.people : []).filter(Boolean);
     box.appendChild(el('div', { class: 'iconn-kv' },
@@ -1269,11 +1289,18 @@ function iconnSection(d, state) {
       el('span', null, 'Link'), el('span', null,
         (/^Approved/.test(l.detail || '') ? 'approved by a person' : (ICONN_HOW[l.how] || l.how || ''))
         + (l.certain ? '' : ' (likely, not certain)')),
-      el('span', null, 'Contacts'), el('span', null, ppl.length ? ppl.join(', ') : 'none named in the iConnections file')));
+      el('span', null, 'Contacts'), el('span', null, ppl.length ? ppl.join(', ') : 'none named in the iConnections file'),
+      // Grok's read of the same firm: its profile link and when it was checked (once, on the first link).
+      gs === 'found' && l === links[0] ? el('span', null, 'Profile') : null,
+      gs === 'found' && l === links[0] ? el('span', null, ilink(f0.iconn_profile_url) || '\u2014') : null,
+      gs === 'found' && l === links[0] ? el('span', null, 'Checked') : null,
+      gs === 'found' && l === links[0] ? el('span', null, 'found on iConnections by Grok' + (f0.read_on ? ', ' + fmtDate(f0.read_on) : '')) : null));
   }
   const f = d.firm || null, people = Array.isArray(d.people) ? d.people : [];
   box.appendChild(el('div', { class: 'iconn-sub' }, 'Matching data (With Intelligence and iConnections, via Grok)'));
-  if (!f && !people.length) {
+  // The iConnections read alone (firm, link, status) is shown above; contact details come from the WI read.
+  const hasDetails = f && ['website', 'firm_linkedin', 'general_email', 'phone', 'address', 'other_names'].some(k => f[k]);
+  if (!hasDetails && !people.length) {
     box.appendChild(el('div', { class: 'iconn-none' }, 'Not filled yet.'));
     return box;
   }
@@ -1283,17 +1310,15 @@ function iconnSection(d, state) {
   if (f) {
     const kv = el('div', { class: 'iconn-kv' });
     const add = (k, v) => { if (v) kv.append(el('span', null, k), el('span', null, v)); };
-    if (f.read_status && f.read_status !== 'read') add('Read', f.read_status);
-    add('iConnections name', f.iconn_firm_name);
-    add('iConnections profile', web(f.iconn_profile_url));
+    if (f.read_status && f.read_status !== 'read' && !f.iconn_status) add('Read', f.read_status);
+    if (!f.iconn_status) { add('iConnections name', f.iconn_firm_name); add('iConnections profile', web(f.iconn_profile_url)); }
     add('Website', web(f.website));
     add('LinkedIn', web(f.firm_linkedin));
     add('Email', f.general_email);
     add('Phone', f.phone);
     add('Address', f.address);
     add('Other names', f.other_names);
-    add('Notes', f.notes);
-    if (f.read_on) add('Read on', fmtDate(f.read_on));
+    if (!f.iconn_status) { add('Notes', f.notes); if (f.read_on) add('Read on', fmtDate(f.read_on)); }
     if (kv.childNodes.length) box.appendChild(kv);
   }
   if (people.length) {
