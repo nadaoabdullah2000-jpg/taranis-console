@@ -1245,6 +1245,82 @@ function wiMatchLine(m) {
     el('b', null, WI_MATCH_TEXT[st]), note ? ' ' + note + (/[.!?]$/.test(note) ? '' : '.') : '');
 }
 
+/* The iConnections section of the investor card (indigo, set apart from the rest):
+   the linked iConnections firm(s) and the contact names the iConnections imports hold,
+   then the firm details and contacts read from the With Intelligence profile (the Grok
+   fill, schema-30 wi_investor_contacts). One call, console_investor_iconn. Display only. */
+const ICONN_HOW = { wi_id: 'linked by With Intelligence id', name: 'linked by name' };
+function iconnSection(d, state) {
+  const box = el('section', { class: 'iconn-sec', 'aria-label': 'iConnections' }, el('h3', null, 'iConnections'));
+  if (state === 'loading') { box.appendChild(el('div', { class: 'iconn-none' }, 'Reading iConnections…')); return box; }
+  if (state === 'missing') {
+    box.appendChild(el('div', { class: 'iconn-none' }, 'iConnections details are not available yet.')); return box;
+  }
+  if (state === 'error') {
+    box.appendChild(el('div', { class: 'iconn-none' }, 'iConnections details could not be read. Refresh to try again.')); return box;
+  }
+  d = d || {};
+  const links = Array.isArray(d.links) ? d.links : [];
+  if (!links.length) box.appendChild(el('div', { class: 'iconn-v', style: 'font-weight:600' }, 'Not on iConnections'));
+  for (const l of links) {
+    const ppl = (Array.isArray(l.people) ? l.people : []).filter(Boolean);
+    box.appendChild(el('div', { class: 'iconn-kv' },
+      el('span', null, 'Firm'), el('b', null, l.firm || '—'),
+      el('span', null, 'Link'), el('span', null,
+        (/^Approved/.test(l.detail || '') ? 'approved by a person' : (ICONN_HOW[l.how] || l.how || ''))
+        + (l.certain ? '' : ' (likely, not certain)')),
+      el('span', null, 'Contacts'), el('span', null, ppl.length ? ppl.join(', ') : 'none named in the iConnections file')));
+  }
+  const f = d.firm || null, people = Array.isArray(d.people) ? d.people : [];
+  box.appendChild(el('div', { class: 'iconn-sub' }, 'Matching data (With Intelligence, via Grok)'));
+  if (!f && !people.length) {
+    box.appendChild(el('div', { class: 'iconn-none' }, 'Not filled yet.'));
+    return box;
+  }
+  const web = (u) => u && /^https?:\/\//i.test(u)
+    ? el('a', { href: u, target: '_blank', rel: 'noopener noreferrer' }, u.replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, ''))
+    : (u || null);
+  if (f) {
+    const kv = el('div', { class: 'iconn-kv' });
+    const add = (k, v) => { if (v) kv.append(el('span', null, k), el('span', null, v)); };
+    if (f.read_status && f.read_status !== 'read') add('Read', f.read_status);
+    add('Website', web(f.website));
+    add('LinkedIn', web(f.firm_linkedin));
+    add('Email', f.general_email);
+    add('Phone', f.phone);
+    add('Address', f.address);
+    add('Other names', f.other_names);
+    add('Notes', f.notes);
+    if (f.read_on) add('Read on', fmtDate(f.read_on));
+    if (kv.childNodes.length) box.appendChild(kv);
+  }
+  if (people.length) {
+    box.appendChild(el('table', null,
+      el('thead', null, el('tr', null, ['Name', 'Title', 'Email', 'Phone', 'LinkedIn'].map(h => el('th', null, h)))),
+      el('tbody', null, people.map(p => el('tr', null,
+        el('td', null, p.contact_name || ''), el('td', null, p.title || ''), el('td', null, p.email || ''),
+        el('td', null, p.phone || ''), el('td', null, web(p.linkedin) || ''))))));
+  }
+  return box;
+}
+function iconnBlock(m) {
+  const wi = String((m && m.evidence && m.evidence.wi_investor_id) || '').trim();
+  const holder = el('div');
+  holder.appendChild(iconnSection(null, 'loading'));
+  (async () => {
+    let node;
+    try {
+      const d = await supaRpc('console_investor_iconn', { p_wi: wi || null, p_mandate: wi ? null : Number(m.id) });
+      node = iconnSection(d);
+    } catch (e) {
+      // Before schema-30 is applied the function is not there yet.
+      node = iconnSection(null, /console_investor_iconn|PGRST202|NO_SUPABASE|Could not find the function/i.test(String(e && e.message)) ? 'missing' : 'error');
+    }
+    clear(holder); holder.appendChild(node);
+  })();
+  return holder;
+}
+
 function taranisScorecard(m) {
   const st = critStatus(m);
   return TARANIS_CRITERIA.map((c, i) => ({
@@ -8774,6 +8850,7 @@ async function openMandate(m) {
     const wm = wiMatchLine(full);
     if (wm) host.appendChild(wm);
     host.appendChild(commentsBlock(Object.assign({}, full, { _intentions: m._intentions }), { open: true }));
+    host.appendChild(iconnBlock(full));
 
     if (full.linkedin_url) {
       const handle = String(full.linkedin_url)
