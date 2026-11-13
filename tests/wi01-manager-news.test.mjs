@@ -59,3 +59,16 @@ test('equity in a hedge-fund context counts toward long/short (11 Nov 2026)', ()
   const pe = run({ ...base, investor_name: 'F5', intention_summary: 'New private equity and hedge fund commitments; hedge funds alongside long-only equity.' });
   assert.equal(pe.sig_strong, false);
 });
+
+test('checked, no matching strategy is low fit; no hedge-fund strategy stated stays needs data (13 Nov 2026)', () => {
+  const hf = JSON.stringify(['Hedge Funds']);
+  assert.equal(run({ investor_name: 'X Pension', investor_type: 'Corporate D.B.', asset_classes: hf,
+    strategies: JSON.stringify(['Macro', 'Convertible Bonds', 'Commodities']) }).score_band, 'low');
+  assert.equal(run({ investor_name: 'Y Endowment', investor_type: 'Endowment', asset_classes: hf,
+    intention_summary: 'Planning to make new hedge fund commitments. Strategies: Event-Driven, Macro, and Multi-Strategy.' }).score_band, 'low');
+  assert.equal(run({ investor_name: 'Z Endowment', investor_type: 'Endowment', asset_classes: hf,
+    intention_summary: 'Planning to make new commitments over the next 12-18 months.' }).score_band, 'needs_data');
+  // a long menu is the whole With Intelligence menu: no conclusion
+  assert.equal(run({ investor_name: 'W Fund', investor_type: 'Pension', asset_classes: hf,
+    strategies: JSON.stringify(['macro', 'credit', 'event_driven', 'cta', 'multi_strategy']) }).score_band, 'needs_data');
+});

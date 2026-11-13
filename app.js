@@ -1673,7 +1673,7 @@ function contextLines(m) {
 // (wi_themes_line; it already decided Tech / Space through the fields) and the discovery record
 // (discovery; its "via fund" names, e.g. "... Long Short Fund", are not the investor's mandate).
 const EVIDENCE_NOT_SCORED = ['passage', 'from_report', 'page', 'wi_summary', 'wi_industries', 'wi_intentions', 'wi_themes_line', 'discovery',
-  'equity_not_long_short', 'equity_long_short', 'equity_review_only', 'tech_hf_intention', 'tech_quote_older', 'tech_not_hf_intention'];
+  'equity_not_long_short', 'equity_long_short', 'equity_review_only', 'tech_hf_intention', 'tech_quote_older', 'tech_not_hf_intention', 'no_matching_strategy'];
 // "does not state hedge fund appetite" is silence, not a hedge-fund signal.
 const RE_NO_APPETITE = /(does not state|doesn't state|no) hedge.fund appetite( stated)?|hedge.fund appetite (is )?not stated/g;
 function evidenceText(ev) {
@@ -2057,6 +2057,20 @@ function scoreBand(m) {
 /* The re-score rule in the browser — the same rule WI 01 (Apply Taranis Hard
    Criteria + Build Mandate SQL) applies, on the same 0..1 scale as the backfill. */
 const RE_EXCL = /\bcta\b|managed future|trend follow|global macro|macro strategy|macro fund|macro manager|discretionary macro|systematic macro|market neutral|market-neutral/;
+// Hedge-fund strategies that are not long/short, quant, technology or space (13 Nov 2026). An allocator whose
+// stated hedge-fund strategies are all of these was checked and has no matching strategy: Low fit, not
+// Needs data. Needs data stays for an allocator with no hedge-fund strategy stated at all. Same rule as WI 01.
+const RE_HF_STRAT = /\b(?:global )?macro\b|event[- ]driven|multi[- ]?strateg|relative value|\bcta\b|managed futures?|trend[- ]follow|market[- ]neutral|merger arbitrage|convertible arbitrage|fixed income arbitrage|statistical arbitrage|volatility|risk premia|insurance[- ]linked/;
+const RE_HF_SENT = /\bhedge[- ]funds?\b|\bhfs?\b|\bfund of hedge funds\b|\babsolute return\b/;
+function noMatchingStrategy(m) {
+  if (evidenceObj(m).no_matching_strategy) return true;
+  // Tags count only on a short list (3 or fewer, as for long/short): a long list is the investor's whole
+  // With Intelligence menu (decided 9 Nov 2026), and never when a long/short tag is on it.
+  const w = stratWords(m).map(x => String(x).toLowerCase());
+  if (w.length > 0 && w.length <= 3 && w.some(x => RE_HF_STRAT.test(x)) && !w.some(x => RE_STRONG_CORE.test(x))) return true;
+  const own = [m.intention_summary, m.requirements_raw, m.appetite_raw].map(x => String(x || '')).join(' ').toLowerCase();
+  return RE_HF_SENT.test(own) && RE_HF_STRAT.test(own);
+}
 const RE_NOT_ALLOCATOR = /private equity|venture capital|service provider|placement agent|law firm|real estate|infrastructure|data provider/;
 const IN_MARKET = new Set(['GB', 'UK', 'GBR', 'CH', 'CHE', 'US', 'USA', 'UNITEDSTATES', 'UNITEDKINGDOM', 'ENGLAND', 'SCOTLAND', 'SWITZERLAND']);
 const BAND_SCORE = { strong_tech: 1, strong: 0.90, tech: 0.60, hire: 0.60, low: 0.20 };
@@ -2098,7 +2112,8 @@ function rescore(m) {
     return { band: 'rejected', q: 'rejected', s: 0 };
   }
   const strong = isStrong(m, t), techOnly = !!techOf(m, t), space = !!spaceOf(m, t), tech = techOnly || space;
-  let band = strong ? (tech ? 'strong_tech' : 'strong') : tech ? 'tech' : RE_EXCL.test(mandateText(m)) ? 'low' : 'needs_data';
+  let band = strong ? (tech ? 'strong_tech' : 'strong') : tech ? 'tech'
+    : (RE_EXCL.test(mandateText(m)) || noMatchingStrategy(m)) ? 'low' : 'needs_data';
   // An allocator's hire is worth a look, never an automatic match.
   if (band.indexOf('strong') === 0 && /^people$/i.test(String(m.investor_tag || '').trim())) band = 'hire';
   const cc = String(m.investor_country || '').toUpperCase().replace(/[^A-Z]/g, '');
