@@ -18,7 +18,7 @@ vm.runInContext([
   grab('const KNOWN_MANAGERS', '\n'),
   grab('const REGION_NAMES', '// WI\'s tags and types as words'),
   grab('const MATCH_CRITERIA', 'function ensureMatchCss'),
-  'this.rescore = rescore; this.verdictReason = verdictReason;'
+  'this.rescore = rescore; this.verdictReason = verdictReason; this.lsTier = lsTier;'
 ].join('\n'), ctx);
 
 const base = { investor_country: 'US', investor_tag: null, asset_classes: ['Hedge Funds'], hf_evidence: 'confirmed',
@@ -82,17 +82,13 @@ test('checked, no matching strategy: short hedge-fund strategy list with no long
   assert.equal(ctx.rescore(none).q, 'needs_data');
 });
 
-test('a long/short tag buried in a long strategy list does not tick long/short (13 Nov 2026)', () => {
-  // 2885 Princeton-like: five tags, one long/short, no hedge fund intention naming long/short or equity.
+test('a long/short tag in a long strategy list counts unless the newest hedge fund intention contradicts it (13 Nov 2026)', () => {
   const menu = { ...base, asset_classes: ['Hedge Funds', 'Private Equity', 'Equity'], strategies: ['macro', 'event_driven', 'credit', 'relative_value', 'long/short equity'],
     intention_summary: 'Plans new hedge fund commitments.', is_tech_investor: true, tech_signal: 'With Intelligence profile (Grok): "Prioritizes technology."' };
-  assert.notEqual(ctx.rescore(menu).q, 'matched');
-  // the same tag on a short list (3 or fewer) still counts
-  assert.equal(ctx.rescore({ ...menu, strategies: ['macro', 'long/short equity'] }).q, 'matched');
-  // and long/short stated in the mandate's own text counts whatever the tags
-  assert.equal(ctx.rescore({ ...menu, intention_summary: 'Seeks equity long/short managers.' }).q, 'matched');
-  // a hedge fund intention naming equity, stored as evidence, counts (12 Nov 2026 rule)
-  assert.equal(ctx.rescore({ ...menu, evidence: { wi_investor_id: '1', equity_long_short: '"Strategies include equity, macro" (hedge fund intention, 2025-12-23)' } }).q, 'matched');
+  assert.equal(ctx.rescore(menu).q, 'matched');
+  // the newest hedge fund intention names other strategies only: the menu tag does not count
+  const contradicted = { ...menu, evidence: { wi_investor_id: '1', newest_intention_criteria: { long_short: false, at: '2026-11-13' } } };
+  assert.notEqual(ctx.rescore(contradicted).q, 'matched');
 });
 
 test('"quantitative analysis" in a due-diligence process is not quant (13 Nov 2026)', () => {
@@ -108,4 +104,14 @@ test('the hire cap is lifted only when long/short and Tech both come from the pr
   const quoted = { ...hire, evidence: { wi_investor_id: '1', equity_long_short: '"focusing on macro, multi-strategy, equity hedge" (hedge fund intention, 2026-10-06)' } };
   assert.equal(ctx.rescore(quoted).q, 'matched');
   assert.equal(ctx.rescore({ ...quoted, is_tech_investor: null, tech_signal: null, intention_summary: 'technology' }).band, 'hire'); // Tech from alert text: stays a hire
+});
+
+test('long/short evidence ranks: long/short equity, then equity hedge, then plain equity (13 Nov 2026)', () => {
+  const hf = { ...base, asset_classes: ['Hedge Funds'] };
+  assert.equal(ctx.lsTier({ ...hf, intention_summary: 'Seeks equity long/short managers.' }), 1);
+  assert.equal(ctx.lsTier({ ...hf, evidence: { wi_investor_id: '1', equity_long_short: '"commitments to event driven and equity hedge funds" (hedge fund intention, 2026-05-12)' } }), 2);
+  assert.equal(ctx.lsTier({ ...hf, evidence: { wi_investor_id: '1', equity_long_short: '"Strategies include relative value, equity, macro" (hedge fund intention, 2025-12-23)' } }), 3);
+  assert.equal(ctx.lsTier({ ...hf, strategies: ['equity'] }), 3);
+  assert.equal(ctx.lsTier({ ...hf, strategies: ['macro', 'credit', 'cta', 'relative value', 'long/short equity'] }), 2);  // menu tag: one step lower
+  assert.equal(ctx.lsTier({ ...hf, intention_summary: 'Wants 130/30 equity and long-only equity funds.', strategies: [] }), 4);
 });

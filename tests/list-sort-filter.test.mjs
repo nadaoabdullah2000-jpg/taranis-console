@@ -19,7 +19,9 @@ const ctx = { Date, Number, JSON, Intl, Array, String, isFinite,
   techOf: () => false, evidenceObj: (m) => (m && m.evidence && typeof m.evidence === 'object') ? m.evidence : {}, techSetByPerson: (m) => /^Set by a person/.test(String((m && m.tech_signal) || '')), asText: (v) => Array.isArray(v) ? v.join(' ') : String(v || ''),
   // The verdict as app.js reads it, and the criteria met (given on the test rows).
   bandOf: (m) => String((m && m.new_qualification) || (m && m.qualification) || 'uncertain').trim().toLowerCase(),
-  critOf: (m) => (m && m._crit) || [false, false, false] };
+  critOf: (m) => (m && m._crit) || [false, false, false],
+  // Long/short evidence rank (lsTier, 13 Nov 2026): given on the test rows, 1 when not given.
+  lsTier: (m) => (m && m._ls) || 1 };
 vm.createContext(ctx);
 vm.runInContext(grab('const RE_THEMES_LINE = ', 'function techOf(m, t) {')
   + grab('const LIST_SORTS = [', '// The Sort dropdown')
@@ -148,4 +150,11 @@ test('best match first: within a verdict, a stated tech interest before a themes
   ];
   // techOf is false in this harness, so #22 (no quote) is tier 4 here: still last of Matched.
   assert.deepEqual(ids(ctx.sortMandates(rows, 'best')), [23, 21, 20, 22, 24]);
+});
+
+test('best match first: within Matched, long/short equity before equity hedge before plain equity (13 Nov 2026)', () => {
+  const r = (id, ls, tier) => ({ id, new_qualification: 'matched', new_fit_score: 1, _ls: ls, is_tech_investor: true,
+    tech_signal: 'Set by a person: x' });
+  const out = ctx.sortMandates([r(1, 3), r(2, 1), r(3, 2)], 'best').map(m => m.id);
+  assert.deepEqual(out, [2, 3, 1]);
 });

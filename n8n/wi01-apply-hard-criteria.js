@@ -139,12 +139,7 @@ const STRONG = /long short|long\/short|long-short|l\/s|equity hedge|equity long(
 const EXCL = /\bcta\b|managed future|trend follow|global macro|macro strategy|macro fund|macro manager|discretionary macro|systematic macro|market neutral|market-neutral/;
 const txtS = (txt + ' ' + ttype);
 const sysOk = !EXCL.test(txtS);
-// Long/short is read from the mandate's own text, evidence and asset classes, not the strategy tags: a tag
-// counts only on a short list (tagStrong, 3 or fewer). A long/short tag in a long list is the investor's whole
-// With Intelligence menu (13 Nov 2026, decided by research@taranis.net). Same rule as the console's lsText().
-const txtLS = [m.intention_summary, m.requirements_raw, m.appetite_raw, evidenceText(m.evidence),
-  JSON.stringify(arr(m.asset_classes)), ttype].join(' ').toLowerCase().replace(NO_APPETITE, ' ');
-const txtN = txtLS.replace(NEG, ' ');
+const txtN = txtS.replace(NEG, ' ');
 // Strategy tags as words ("equity_long_short" -> "equity long short"). A tag
 // only counts when the mandate lists 3 strategies or fewer: on a long menu (a
 // pension's whole hedge-fund book) one long/short tag among many says little.
@@ -163,7 +158,7 @@ const strongCore = STRONG.test(txtN) || (sysOk && /systematic/.test(txtN)) || ta
 // listed / public equity without hedge-fund context.
 const EQ_TAG = /^(fundamental )?equit(y|ies)$|^equity (hedge|long ?\/ ?short|long short|l\/s)$/;
 const HF_WORD = /\bhedge[- ]funds?\b|\bhfs?\b|\bfund of hedge funds\b|\babsolute return\b/;
-const EQ_NOT = /private equity|equity market[- ]neutral|long[- ]only equit(y|ies)|equit(y|ies) long[- ]only|long[- ]only|(listed|public) equit(y|ies)/g;
+const EQ_NOT = /private equity|equity market[- ]neutral|long[- ]only equit(y|ies)|equit(y|ies) long[- ]only|long[- ]only|(listed|public) equit(y|ies)|1[2-5]0\s*\/\s*[2-5]0(?: equit(?:y|ies))?/g;
 let eqHow = null;
 {
   const own = [m.intention_summary, m.requirements_raw, m.appetite_raw].map(x => String(x || '')).join(' ').toLowerCase();
