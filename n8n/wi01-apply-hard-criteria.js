@@ -1,4 +1,27 @@
-const m = $json;
+const m0 = $json;
+// ---------- INHERITED EVIDENCE (DRAFT 13 Nov 2026) ----------
+// A new alert for an investor already enriched in the tool takes that investor's stored, checked evidence (node
+// "Load Investor Evidence"; m._inherit in tests): blanks only, never over what the alert itself says. The same
+// fields the console scores the investor's card on, so the new row and a console re-score give the same verdict.
+const inh = (() => {
+  if (m0._inherit) return m0._inherit;
+  try { const r = $('Load Investor Evidence').item.json; return r && r.inherit_from_id ? r : null; } catch (e) { return null; }
+})();
+const m = { ...m0 };
+const inherited = [];
+if (inh) {
+  let ev = m.evidence; for (let i = 0; i < 2 && typeof ev === 'string'; i++) { try { ev = JSON.parse(ev); } catch (e) { ev = null; } }
+  ev = ev && typeof ev === 'object' && !Array.isArray(ev) ? { ...ev } : {};
+  let ie = inh.inherit_evidence; for (let i = 0; i < 2 && typeof ie === 'string'; i++) { try { ie = JSON.parse(ie); } catch (e) { ie = null; } }
+  for (const [k, v] of Object.entries(ie && typeof ie === 'object' ? ie : {})) if (v !== null && v !== undefined && ev[k] === undefined) { ev[k] = v; inherited.push('evidence.' + k); }
+  m.evidence = typeof m0.evidence === 'string' ? JSON.stringify(ev) : ev;   // keep the type the next node expects
+  if ((m.is_tech_investor === null || m.is_tech_investor === undefined) && typeof inh.inherit_is_tech === 'boolean') {
+    m.is_tech_investor = inh.inherit_is_tech; m.tech_signal = inh.inherit_tech_signal; inherited.push('is_tech_investor');
+  }
+  if (m.is_space !== true && inh.inherit_is_space === true) { m.is_space = true; m.space_signal = inh.inherit_space_signal; inherited.push('is_space'); }
+  if (!m.hf_evidence && inh.inherit_hf_evidence) { m.hf_evidence = inh.inherit_hf_evidence; inherited.push('hf_evidence'); }
+  if (inherited.length) { m._inherited_from = inh.inherit_from_id; m._inherited = inherited; }
+}
 const arr = (v) => { if (Array.isArray(v)) return v; if (typeof v === 'string') { try { return JSON.parse(v || '[]'); } catch (e) { return []; } } return []; };
 const norm = (s) => String(s || '').toLowerCase().replace(/[_\-\/]+/g, ' ').replace(/\s+/g, ' ').trim();
 
@@ -261,7 +284,7 @@ return { json: { ...m,
   in_market: GBCHUS.includes(c),
   sig_strong: strong, sig_tech: tech, sig_space: space, sig_excluded: excl,
   is_space: space ? true : (String(txtS).trim() ? false : null),
-  space_signal: space ? 'Alert text mentions "' + spaceHit + '"' : (String(txtS).trim() ? 'Alert text: no space' : null),
+  space_signal: spaceHit ? 'Alert text mentions "' + spaceHit + '"' : space ? (m.space_signal || null) : (String(txtS).trim() ? 'Alert text: no space' : null),
   needs_data_reason,
   hard_fail_reasons: JSON.stringify(reasons),
   missing_hard_fields: JSON.stringify(missing),

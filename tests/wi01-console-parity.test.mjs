@@ -41,3 +41,22 @@ const cases = {
 for (const [name, c] of Object.entries(cases)) {
   test('console and WI 01 agree: ' + name, () => { const [a, b] = both(Object.assign({}, base, c)); assert.equal(b, a); });
 }
+
+test('a new alert for an enriched investor inherits its stored evidence and gets the card verdict (13 Nov 2026)', () => {
+  // Wyoming-like: the alert itself says nothing about long/short or technology.
+  const alert = Object.assign({}, base, { asset_classes: ['Hedge Funds', 'Equity'], intention_summary: 'Wyoming Retirement System names a new deputy CIO.', investor_tag: 'Intentions' });
+  const stored = { inherit_from_id: 1375,
+    inherit_evidence: { equity_long_short: '"commitments to event driven and equity hedge funds" (hedge fund intention, 2026-05-12)' },
+    inherit_is_tech: true, inherit_tech_signal: 'With Intelligence profile (Grok): "Primary themes include artificial intelligence."' };
+  const bare = wi01(alert);
+  assert.notEqual(norm(bare.score_band), 'strong');                       // without inheritance: scored lower
+  const w = wi01(Object.assign({}, alert, { _inherit: stored }));
+  assert.equal(w.score_band, 'strong_tech'); assert.equal(w.hard_status, 'pass');
+  assert.deepEqual(w._inherited, ['evidence.equity_long_short', 'is_tech_investor']);
+  // the console, re-scoring the row as stored, gives the same verdict
+  const row = Object.assign({}, alert, { evidence: w.evidence, is_tech_investor: w.is_tech_investor, tech_signal: w.tech_signal });
+  assert.equal(ctx.rescore(row).q, 'matched');
+  // never over the alert's own value: a person's "no" on the new row stays
+  const own = wi01(Object.assign({}, alert, { is_tech_investor: false, tech_signal: 'Set by a person: x', _inherit: stored }));
+  assert.equal(own.is_tech_investor, false); assert.ok(!own._inherited.includes('is_tech_investor'));
+});
