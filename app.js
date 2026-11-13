@@ -1673,7 +1673,7 @@ function contextLines(m) {
 // (wi_themes_line; it already decided Tech / Space through the fields) and the discovery record
 // (discovery; its "via fund" names, e.g. "... Long Short Fund", are not the investor's mandate).
 const EVIDENCE_NOT_SCORED = ['passage', 'from_report', 'page', 'wi_summary', 'wi_industries', 'wi_intentions', 'wi_themes_line', 'discovery',
-  'equity_not_long_short', 'equity_long_short', 'equity_review_only', 'tech_hf_intention'];
+  'equity_not_long_short', 'equity_long_short', 'equity_review_only', 'tech_hf_intention', 'tech_quote_older', 'tech_not_hf_intention'];
 // "does not state hedge fund appetite" is silence, not a hedge-fund signal.
 const RE_NO_APPETITE = /(does not state|doesn't state|no) hedge.fund appetite( stated)?|hedge.fund appetite (is )?not stated/g;
 function evidenceText(ev) {

@@ -29,7 +29,11 @@ const PM = /\b(private equity|venture|vc|early-stage|seed|buyouts?|growth capita
 const TECH_THEME = /\b(artificial intelligence|ai|machine learning|data|digital infrastructure|fintech|financial technology|software|semiconductors?|cyber ?security|blockchain|deep tech|technology|tech)\b/i;
 const SPACE_THEME = /(security|aerospace)\s?(and|&)\s?defen[cs]e|\bdefen[cs]e\b(?!ive)|\bspace\b|\baerospace\b|\bsatellites?\b/i;
 const EM = /\bemerging (?!markets?\b|-market)(?:[a-z\/ -]{0,30} )?managers?\b|first[- ]time (funds?|managers?)|new managers? program/i;
-const EM_NO = /\b(does not|doesn't|do not|will not|won't|not|no|never)\b[^.]{0,40}\b(consider\w*|invest\w*|back\w*|allocat\w*|open)\b[^.]{0,40}(emerging|first[- ]time)|\bnot open to (emerging|first[- ]time)/i;
+// A refusal of EMERGING managers only (fixed 13 Nov 2026): "does not consider first-time funds" turns away a
+// fund's first vintage, not emerging managers (UBP said yes to emerging managers and no to first-time funds).
+const EM_NO = /\b(does not|doesn't|do not|will not|won't|not|no|never)\b[^.]{0,40}\b(consider\w*|invest\w*|back\w*|allocat\w*|open)\b[^.]{0,40}emerging (?!markets?\b)|\bnot open to emerging (?!markets?\b)/i;
+// A sentence that only turns away first-time funds says nothing either way about emerging managers.
+const FT_ONLY_NO = /\b(does not|doesn't|do not|will not|won't|not|no|never)\b[^.]{0,40}first[- ]time/i;
 const EM_YES = /\b(consider\w*|open to|invest\w*|back\w*|allocat\w*|seed\w*|support\w*|interested|willing|looking for|look at|seek\w*|target\w*|hir\w+|evaluat\w*)\b|emerging managers? program/i;
 const sentences = (t) => String(t || '').split(/(?<=[.!?])\s+/);
 const kind = (note) => HF.test(note) ? 'HF' : PM.test(note) ? 'PE/VC' : 'general';
@@ -167,7 +171,7 @@ for (const m of rows) {
       for (const s of sentences(n.note)) {
         if (!EM.test(s)) continue;
         if (/\bnot operate\b|\bno formal\b/i.test(s)) { if (!emAmb) emAmb = s; continue; }   // ambiguous: not stated, quoted
-        const v = EM_NO.test(s) ? false : EM_YES.test(s) ? true : null;
+        const v = EM_NO.test(s) ? false : (FT_ONLY_NO.test(s) && !/emerging (?!markets?\b)/i.test(s)) ? null : EM_YES.test(s) ? true : null;
         if (v === null) continue;
         const k = kind(n.note);
         if (k === 'PE/VC') { if (!emPm) emPm = { v, s, d: n.date }; continue; }
@@ -177,7 +181,7 @@ for (const m of rows) {
     }
     if (!em && p.summary) for (const s of sentences(p.summary)) {
       if (!EM.test(s)) continue;
-      const v = EM_NO.test(s) ? false : EM_YES.test(s) ? true : null;
+      const v = EM_NO.test(s) ? false : (FT_ONLY_NO.test(s) && !/emerging (?!markets?\b)/i.test(s)) ? null : EM_YES.test(s) ? true : null;
       if (v !== null && !PM.test(s)) { em = { v, s, d: null, k: 'profile summary' }; break; }
     }
     if (!em && m.d_em !== null && m.d_em !== undefined && m.d_em_ev) em = { v: m.d_em, s: m.d_em_ev, d: null, k: 'Grok capture' };
