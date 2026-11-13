@@ -1,0 +1,16 @@
+-- 13 Nov 2026, APPLIED (approved by research@taranis.net): discovery rows at "needs data" re-scored by the rule,
+-- with the new rule "checked, no matching strategy (no long/short, Tech or Space) -> Low fit".
+--   3186 Carrington Wealth Management   needs_data -> Review 74% (long/short from its hedge fund intention; Tech a market view, not counted)
+--   3236 University of Utah Endowment   needs_data -> Low 20%    (HF intention: event-driven, macro, multi-strategy only)
+--   3228 Banque de Luxembourg Inv.      needs_data -> Low 20%    (long-only EM equity and EM debt fund of funds)
+--   3187 Memorial Hermann Pension Plan  needs_data -> Low 20%    (macro, convertible bonds, commodities; Tech No by a person)
+--   Cape Capital, UBS AM, Pictet Alternative Advisors, Piguet Galland stay needs data (no hedge-fund strategy stated).
+-- Ruth Mott Foundation inserted (row 3277, wi -643089399) as needs data: no intentions or hedge-fund strategies on file;
+-- live profile read pending (token expired 13 Nov).
+-- Backup: wi_mandates_backup_20261113_ndrescore. Logged in wi_fill_log. Evidence: equity_long_short (3186),
+-- no_matching_strategy (3236, 3228, 3187).
+-- UNDO: update wi_mandates m set qualification = b.qualification, new_qualification = b.new_qualification,
+--   new_fit_score = b.new_fit_score, fit_reason = b.fit_reason, evidence = b.evidence
+--   from wi_mandates_backup_20261113_ndrescore b where b.id = m.id;
+--   Ruth Mott: update wi_mandates set validation_status = 'merged' where id = 3277;   -- hides it (soft), and
+--   update grok.wi_discovered set review_status = 'staged' where wi_id = '-643089399';

@@ -193,6 +193,12 @@ const THEME_TECH = /\b(?:investment )?themes?\b[^.;]{0,40}?\b(?:over|for|include
 const techTxt = txtS.replace(/_/g, ' ').replace(TECH_OFF, ' ');
 const tech   = TECH.test(techTxt.replace(TECH_NAME, ' ').replace(TECH_PLURAL, ' technology ')) || THEME_TECH.test(techTxt);
 const excl   = EXCL.test(mandateTxt);
+// Checked, no matching strategy (13 Nov 2026; same rule as the console's noMatchingStrategy): hedge-fund
+// strategies are stated (as tags, or in an alert text about hedge funds) and none is long/short, quant, tech or
+// space -> low fit, not needs data. Needs data stays for an allocator with no hedge-fund strategy stated.
+const HF_STRAT = /\b(?:global )?macro\b|event[- ]driven|multi[- ]?strateg|relative value|\bcta\b|managed futures?|trend[- ]follow|market[- ]neutral|merger arbitrage|convertible arbitrage|fixed income arbitrage|statistical arbitrage|volatility|risk premia|insurance[- ]linked/;
+const hfStratStated = (stratWords.length > 0 && stratWords.length <= 3 && stratWords.some(w => HF_STRAT.test(w)) && !stratWords.some(w => STRONG.test(w)))
+  || (t => HF_WORD.test(t) && HF_STRAT.test(t))([m.intention_summary, m.requirements_raw, m.appetite_raw].map(x => String(x || '')).join(' ').toLowerCase());
 // Space (4 Nov 2026; security & defence counts too, 11 Nov 2026): replaces "buys hedge funds" as a scored point; scores
 // like technology. Explicit space wording only: not "office space", "in the AI
 // space" or "satellite allocations". Same rule as the console (RE_SPACE).
@@ -221,6 +227,7 @@ else if (strong && eqReviewOnly) { hard_status = 'uncertain'; band = 'strong'; n
 else if (strong) { hard_status = tech ? 'pass' : 'uncertain'; band = theme ? 'strong_tech' : 'strong'; notes.push('Strategy matches directly' + (eqHow && !strongCore ? ' (equity in a hedge-fund context)' : '') + (tech ? ' (+ technology)' : ' - no technology, so review, not a match') + (space ? ' (+ space)' : '')); }
 else if (theme)  { hard_status = 'uncertain'; band = 'tech';        notes.push('No strategy stated, ' + (tech ? 'technology' : 'space') + ' interest - kept for review'); }
 else if (excl)   { hard_status = 'uncertain'; band = 'low';         notes.push('CTA/macro/market-neutral and no L/S, quant or tech - low but kept'); }
+else if (hfStratStated) { hard_status = 'uncertain'; band = 'low'; notes.push('Checked, no matching strategy: hedge-fund strategies stated, none long/short, quant, tech or space - low fit'); }
 else             { hard_status = 'uncertain'; band = 'needs_data';  needs_data_reason = 'No strategy or tech signal in the text'; notes.push('Hedge-fund allocator, strategy not stated - needs data'); }
 
 return { json: { ...m,

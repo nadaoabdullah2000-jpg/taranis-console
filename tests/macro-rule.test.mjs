@@ -72,3 +72,12 @@ test('a mandate that is itself about macro or CTA is still low fit', () => {
   const shortList = ctx.rescore({ ...SURS, intention_summary: 'Mandate has been added.', strategies: ['CTA', 'Trend-Following'] });
   assert.equal(shortList.q, 'low');
 });
+
+test('checked, no matching strategy: short hedge-fund strategy list with no long/short, tech or space is Low fit (13 Nov 2026)', () => {
+  const mh = { ...base, investor_type: 'Corporate D.B.', asset_classes: ['Public Markets', 'Hedge Funds'], strategies: ['Macro', 'Convertible Bonds', 'Commodities'] };
+  assert.equal(ctx.rescore(mh).q, 'low');
+  const marked = { ...base, asset_classes: ['Hedge Funds'], strategies: ['Coinvestment'], evidence: { no_matching_strategy: 'Checked 13 Nov 2026' } };
+  assert.equal(ctx.rescore(marked).q, 'low');
+  const none = { ...base, asset_classes: ['Hedge Funds', 'Private Equity'], strategies: ['Corporate Bonds', 'Growth Capital'] };
+  assert.equal(ctx.rescore(none).q, 'needs_data');
+});
