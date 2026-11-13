@@ -13,7 +13,10 @@ const evidenceText = (ev) => {
   for (let i = 0; i < 2 && typeof x === 'string'; i++) { try { x = JSON.parse(x); } catch (e) { return String(ev); } }
   if (!x || typeof x !== 'object' || Array.isArray(x)) return JSON.stringify(x || {});
   const own = {};
-  for (const k of Object.keys(x)) if (['passage', 'from_report', 'page', 'wi_summary'].indexOf(k) < 0) own[k] = x[k];
+  // The same keys the console leaves out (EVIDENCE_NOT_SCORED): read-only context and stored decisions, never text to score.
+  for (const k of Object.keys(x)) if (['passage', 'from_report', 'page', 'wi_summary', 'wi_industries', 'wi_intentions', 'wi_themes_line', 'discovery',
+    'equity_not_long_short', 'equity_long_short', 'equity_review_only', 'tech_hf_intention', 'tech_quote_older', 'tech_not_hf_intention',
+    'no_matching_strategy'].indexOf(k) < 0) own[k] = x[k];
   return JSON.stringify(own);
 };
 const NO_APPETITE = /(does not state|doesn't state|no) hedge.fund appetite( stated)?|hedge.fund appetite (is )?not stated/g;
@@ -159,21 +162,28 @@ const strongCore = STRONG.test(txtN) || (sysOk && /systematic/.test(txtN)) || ta
 const EQ_TAG = /^(fundamental )?equit(y|ies)$|^equity (hedge|long ?\/ ?short|long short|l\/s)$/;
 const HF_WORD = /\bhedge[- ]funds?\b|\bhfs?\b|\bfund of hedge funds\b|\babsolute return\b/;
 const EQ_NOT = /private equity|equity market[- ]neutral|long[- ]only equit(y|ies)|equit(y|ies) long[- ]only|long[- ]only|(listed|public) equit(y|ies)|1[2-5]0\s*\/\s*[2-5]0(?: equit(?:y|ies))?/g;
+// Stored decisions on the row, read the same way as the console (13 Nov 2026): equity_not_long_short (checked: not
+// long/short), equity_long_short (a hedge fund intention naming equity), equity_review_only, and
+// newest_intention_criteria.long_short = false (the newest hedge fund intention names other strategies only).
+const evObj = (() => { let x = m.evidence; for (let i = 0; i < 2 && typeof x === 'string'; i++) { try { x = JSON.parse(x); } catch (e) { x = null; } }
+  return x && typeof x === 'object' && !Array.isArray(x) ? x : {}; })();
+const newestNoLS = !!(evObj.newest_intention_criteria && typeof evObj.newest_intention_criteria === 'object' && evObj.newest_intention_criteria.long_short === false);
 let eqHow = null;
-{
+if (!evObj.equity_not_long_short) {
   const own = [m.intention_summary, m.requirements_raw, m.appetite_raw].map(x => String(x || '')).join(' ').toLowerCase();
   for (const sen of own.split(/(?<=[.!?;\u2022])\s+/)) {
-    if (HF_WORD.test(sen) && /\b(fundamental )?equit(y|ies)\b/.test(sen.replace(EQ_NOT, ' '))) { eqHow = 'text'; break; }
+    if (HF_WORD.test(sen) && /\b(fundamental )?equit(y|ies)\b/.test(sen.replace(EQ_NOT, ' '))) { eqHow = evObj.equity_review_only ? 'review' : 'text'; break; }
   }
+  if (!eqHow && evObj.equity_long_short) eqHow = evObj.equity_review_only ? 'review' : 'quote';
   const assetNames = arr(m.asset_classes).map(a => String(a));
   if (!eqHow && assetNames.some(a => /hedge/i.test(a)) && stratWords.some(w => EQ_TAG.test(w.trim()))) {
     const onlyHf = assetNames.every(a => /hedge|alternative|absolute return/i.test(a));
     const longOnly = stratWords.some(w => /long only|long-only|long bias/.test(w));
-    eqHow = onlyHf && !longOnly ? 'tag' : 'review';
+    eqHow = evObj.equity_review_only ? 'review' : (onlyHf && !longOnly ? 'tag' : 'review');
   }
 }
-const strong = strongCore || !!eqHow;
-const eqReviewOnly = !strongCore && eqHow === 'review';
+const strong = !newestNoLS && (strongCore || !!eqHow);
+const eqReviewOnly = !newestNoLS && !strongCore && eqHow === 'review';
 // Technology as whole words: not biotech, techniques or technician. Clauses
 // that turn tech away ("avoid funds overly exposed to software and
 // technology") and plan or firm names ("Information Technology Industry",
@@ -191,20 +201,26 @@ const TECH_PLURAL = /\b(?:emerging|innovative|new|disruptive|digital|climate|cle
 // cybersecurity or deep tech counts as technology (11 Nov 2026). Same rule as the console (RE_THEME_TECH).
 const THEME_TECH = /\b(?:investment )?themes?\b[^.;]{0,40}?\b(?:over|for|include[sd]?|focus(?:es|ed)? on|are|is)\b[^.;]*?\b(?:artificial intelligence|ai|machine learning|data|digital infrastructure|blockchain|cyber ?security|deep tech)\b/i;
 const techTxt = txtS.replace(/_/g, ' ').replace(TECH_OFF, ' ');
-const tech   = TECH.test(techTxt.replace(TECH_NAME, ' ').replace(TECH_PLURAL, ' technology ')) || THEME_TECH.test(techTxt);
+const techText = TECH.test(techTxt.replace(TECH_NAME, ' ').replace(TECH_PLURAL, ' technology ')) || THEME_TECH.test(techTxt);
+// Technology as the console reads it (techOf): a person's Tech choice decides; otherwise the text, or a profile
+// quote already on the row (is_tech_investor true). A quote or a person's yes is "quoted" (techQuoted).
+const TECH_BY_PERSON = /^Set by a person/.test(String(m.tech_signal || ''));
+const tech = TECH_BY_PERSON && typeof m.is_tech_investor === 'boolean' ? m.is_tech_investor : (techText || m.is_tech_investor === true);
+const techQuoted = TECH_BY_PERSON ? m.is_tech_investor === true
+  : (m.is_tech_investor === true && /^With Intelligence profile \((Grok|theme line)\): "/.test(String(m.tech_signal || '')));
 const excl   = EXCL.test(mandateTxt);
 // Checked, no matching strategy (13 Nov 2026; same rule as the console's noMatchingStrategy): hedge-fund
 // strategies are stated (as tags, or in an alert text about hedge funds) and none is long/short, quant, tech or
 // space -> low fit, not needs data. Needs data stays for an allocator with no hedge-fund strategy stated.
 const HF_STRAT = /\b(?:global )?macro\b|event[- ]driven|multi[- ]?strateg|relative value|\bcta\b|managed futures?|trend[- ]follow|market[- ]neutral|merger arbitrage|convertible arbitrage|fixed income arbitrage|statistical arbitrage|volatility|risk premia|insurance[- ]linked/;
-const hfStratStated = (stratWords.length > 0 && stratWords.length <= 3 && stratWords.some(w => HF_STRAT.test(w)) && !stratWords.some(w => STRONG.test(w)))
+const hfStratStated = !!evObj.no_matching_strategy || (stratWords.length > 0 && stratWords.length <= 3 && stratWords.some(w => HF_STRAT.test(w)) && !stratWords.some(w => STRONG.test(w)))
   || (t => HF_WORD.test(t) && HF_STRAT.test(t))([m.intention_summary, m.requirements_raw, m.appetite_raw].map(x => String(x || '')).join(' ').toLowerCase());
 // Space (4 Nov 2026; security & defence counts too, 11 Nov 2026): replaces "buys hedge funds" as a scored point; scores
 // like technology. Explicit space wording only: not "office space", "in the AI
 // space" or "satellite allocations". Same rule as the console (RE_SPACE).
 const SPACE = /\b(space (economy|technology|technologies|tech|sector|industry|exploration|infrastructure|companies|startups?|ventures?|investing|investments?|theme)|spacetech|new space|outer space|satellite (operators?|compan(y|ies)|communications|constellations?|launch(es)?|imagery|broadband|internet|networks?)|aerospace|orbital|launch vehicles?|space-related|space and defen[cs]e|security (?:and|&) defen[cs]e|security & defen[cs]e)\b/i;
 const spaceHit = (txtS.match(SPACE) || [])[0] || null;
-const space = !!spaceHit;
+const space = !!spaceHit || m.is_space === true;   // a profile Space value on the row counts, as in the console (spaceOf)
 const theme = tech || space;
 
 const c = String(m.investor_country || '').toUpperCase().replace(/[^A-Z]/g, '');
@@ -220,7 +236,15 @@ if (m.open_to_emerging_managers === null || m.open_to_emerging_managers === unde
 // uncertain-> tech-only (rescue), CTA/macro/MN (low but kept), or no signal (needs-data)
 // Nothing here rejects for a thin record; that is what needs-data means.
 let hard_status, band, needs_data_reason = null;
-if (strong && itag === 'people') { hard_status = 'uncertain'; band = 'hire'; notes.push('An allocator\'s hire with a strategy match - worth a look, not an automatic match'); }
+// Hedge fund hard rule on the row (hf_evidence, set from the profile): not a hedge fund investor -> rejected, as in the console.
+if (/^(no|not_allocator)$/.test(String(m.hf_evidence || ''))) {
+  return { json: { ...m, hard_status: 'fail', us_review: false,
+    hard_fail_reasons: JSON.stringify(['Not a hedge fund investor (hf_evidence: ' + m.hf_evidence + ')']),
+    missing_hard_fields: JSON.stringify([]), soft_flags: JSON.stringify([]), hard_notes: JSON.stringify([]), needs_data_reason: null } };
+}
+// The hire cap is lifted when long/short (a hedge fund intention quote) and Technology (a quote) both come from the
+// profile (13 Nov 2026), as in the console.
+if (strong && itag === 'people' && !(eqHow === 'quote' && techQuoted)) { hard_status = 'uncertain'; band = 'hire'; notes.push('An allocator\'s hire with a strategy match - worth a look, not an automatic match'); }
 // Matched requires long/short (or quant) AND technology (11 Nov 2026): long/short
 // without technology (space does not count) passes to review, not to a match.
 else if (strong && eqReviewOnly) { hard_status = 'uncertain'; band = 'strong'; notes.push('Long/short from an equity tag beside other asset classes or a long-only tag - review, not a match'); }
