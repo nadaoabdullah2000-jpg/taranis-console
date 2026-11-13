@@ -104,3 +104,9 @@ covers AUM bands of $100m and up (a "< $30m" or "$30m - $100m" profile keeps mil
 - WI 01c rebuilt (`wi01c-backfill-fixed.js`, tests `tests/wi01c-backfill.test.mjs`), daily at 05:47 UTC instead of
   every 3 hours, NOT published yet: unenriched alerts only, blanks only (guarded in SQL), dollars, ISO countries,
   name correction kept and logged, every value in wi_fill_log, wi_enriched_at stamped once.
+
+## 13 Nov 2026: checked, no matching strategy -> low fit (approved by research@taranis.net)
+- WI 01 "Apply Taranis Hard Criteria" published as 7c8f1215 (undo: publish 299df613): hedge-fund strategies
+  stated (3 or fewer tags, or an alert text about hedge funds naming one) and none long/short, quant, tech or
+  space -> band low, not needs_data. Same rule as the console's noMatchingStrategy.
+  Copy: `wi01-apply-hard-criteria.js`; previous code: `wi01-apply-hard-criteria.before-2026-11-13.js`.
