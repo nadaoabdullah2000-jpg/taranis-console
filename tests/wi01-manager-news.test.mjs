@@ -72,3 +72,10 @@ test('checked, no matching strategy is low fit; no hedge-fund strategy stated st
   assert.equal(run({ investor_name: 'W Fund', investor_type: 'Pension', asset_classes: hf,
     strategies: JSON.stringify(['macro', 'credit', 'event_driven', 'cta', 'multi_strategy']) }).score_band, 'needs_data');
 });
+
+test('WI 01: "quantitative analysis" is not quant (13 Nov 2026)', () => {
+  const base = { investor_name: 'Some Pension', investor_type: 'Public D.B.', investor_country: 'US', asset_classes: JSON.stringify(['Hedge Funds', 'Equity']),
+    intention_summary: 'Plans new hedge fund commitments.', source_links: JSON.stringify([{ label: 'View investor', url: '' }]) };
+  assert.equal(run({ ...base, strategies: JSON.stringify(['macro', 'long/short equity']) }).sig_strong, true);
+  assert.equal(run({ ...base, intention_summary: 'The first step is focused on quantitative analysis of the manager.' }).sig_strong, false);
+});

@@ -135,7 +135,7 @@ if (notHedge) {
 // A strong word inside a refusal ("avoiding any systematic or quant") is dropped.
 // "equity long" never as "equity long-only" (the opposite of long/short);
 // "quant" never as "quantitative easing". Same rule as the console.
-const STRONG = /long short|long\/short|long-short|l\/s|equity hedge|equity long(?![ -]?only)|\bquant(?!itative (?:easing|tightening))/;
+const STRONG = /long short|long\/short|long-short|l\/s|equity hedge|equity long(?![ -]?only)|\bquant(?!itative (?:easing|tightening|analysis|due diligence|screening|assessment|review|research))/;
 const EXCL = /\bcta\b|managed future|trend follow|global macro|macro strategy|macro fund|macro manager|discretionary macro|systematic macro|market neutral|market-neutral/;
 const txtS = (txt + ' ' + ttype);
 const sysOk = !EXCL.test(txtS);
@@ -158,7 +158,7 @@ const strongCore = STRONG.test(txtN) || (sysOk && /systematic/.test(txtN)) || ta
 // listed / public equity without hedge-fund context.
 const EQ_TAG = /^(fundamental )?equit(y|ies)$|^equity (hedge|long ?\/ ?short|long short|l\/s)$/;
 const HF_WORD = /\bhedge[- ]funds?\b|\bhfs?\b|\bfund of hedge funds\b|\babsolute return\b/;
-const EQ_NOT = /private equity|equity market[- ]neutral|long[- ]only equit(y|ies)|equit(y|ies) long[- ]only|long[- ]only|(listed|public) equit(y|ies)/g;
+const EQ_NOT = /private equity|equity market[- ]neutral|long[- ]only equit(y|ies)|equit(y|ies) long[- ]only|long[- ]only|(listed|public) equit(y|ies)|1[2-5]0\s*\/\s*[2-5]0(?: equit(?:y|ies))?/g;
 let eqHow = null;
 {
   const own = [m.intention_summary, m.requirements_raw, m.appetite_raw].map(x => String(x || '')).join(' ').toLowerCase();

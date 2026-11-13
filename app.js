@@ -1707,12 +1707,12 @@ const RE_HEDGE = /hedge|alternative|absolute return|liquid alt/;
 // "equity long" is the start of "equity long/short" or "equity long-short",
 // never of "equity long-only" (the opposite); "quant" is a word, not the start
 // of "quantitative easing". Same rule as WI 01.
-const RE_STRONG = /long short|long\/short|long-short|l\/s|equity hedge|equity long(?![ -]?only)|\bquant(?!itative (?:easing|tightening))|systematic/;
+const RE_STRONG = /long short|long\/short|long-short|l\/s|equity hedge|equity long(?![ -]?only)|\bquant(?!itative (?:easing|tightening|analysis|due diligence|screening|assessment|review|research))|systematic/;
 // "systematic" alone is not long/short or quant: "systematic trend following"
 // is a CTA. It only counts when the text has no CTA, macro or market-neutral
 // wording. A strong word inside a refusal ("avoiding any systematic or quant
 // strategies") is dropped before matching. Same rule as WI 01.
-const RE_STRONG_CORE = /long short|long\/short|long-short|l\/s|equity hedge|equity long(?![ -]?only)|\bquant(?!itative (?:easing|tightening))/;
+const RE_STRONG_CORE = /long short|long\/short|long-short|l\/s|equity hedge|equity long(?![ -]?only)|\bquant(?!itative (?:easing|tightening|analysis|due diligence|screening|assessment|review|research))/;
 const RE_NEGATED = /(avoid[a-z]*|exclud[a-z]*|without|\bnot\b|\bno\b)\s[^.;,]{0,40}(systematic|quant[a-z]*|long.?short|l\/s)/g;
 // Technology as whole words, so biotech, techniques and technician do not
 // count. Before matching, the text loses any clause that turns tech away
@@ -1824,10 +1824,10 @@ function hedgeStatus(m, t) {
 function stratWords(m) {
   return jsonArr(m.strategies).map(s => String(s).toLowerCase().replace(/_/g, ' '));
 }
-// A rescore from the investor's newest intention can find that it no longer asks
-// for long/short (evidence.newest_intention_criteria.long_short = false, set 11 Nov
-// 2026). That wins over the older strategy tags, so the card shows long/short as
-// not met instead of a tick from the tag list.
+// The investor's newest HEDGE FUND intention no longer asks for long/short
+// (evidence.newest_intention_criteria.long_short = false). Set 11 Nov 2026 from the newest intention of any
+// asset class; since 13 Nov 2026 (decided by research@taranis.net) only a hedge fund intention can set it,
+// so a newer real-estate or infrastructure note never hides an older hedge fund ask for long/short.
 function newestIntentionNoLS(m) {
   let ev = m && (m.evidence_scored || m.evidence);
   for (let i = 0; i < 2 && typeof ev === 'string'; i++) { try { ev = JSON.parse(ev); } catch (_) { ev = null; } }
@@ -1841,7 +1841,7 @@ function newestIntentionNoLS(m) {
 // or listed / public equity without hedge-fund context. Returns how it was found, or null.
 const RE_EQ_TAG = /^(fundamental )?equit(y|ies)$|^equity (hedge|long ?\/ ?short|long short|l\/s)$/;
 const RE_HF_WORD = /\bhedge[- ]funds?\b|\bhfs?\b|\bfund of hedge funds\b|\babsolute return\b/;
-const RE_EQ_NOT = /private equity|equity market[- ]neutral|long[- ]only equit(y|ies)|equit(y|ies) long[- ]only|long[- ]only|(listed|public) equit(y|ies)/g;
+const RE_EQ_NOT = /private equity|equity market[- ]neutral|long[- ]only equit(y|ies)|equit(y|ies) long[- ]only|long[- ]only|(listed|public) equit(y|ies)|1[2-5]0\s*\/\s*[2-5]0(?: equit(?:y|ies))?/g;
 // How the equity tick was found, and whether it may make a match (decided 11 Nov 2026):
 //   'text'   a sentence about hedge funds names equity                          -> may match
 //   'quote'  evidence.equity_long_short holds the hedge-fund intention (or the user's decision) -> may match
@@ -1876,6 +1876,12 @@ function equityInHf(m) {
   return onlyHf && !longOnly ? 'tag' : 'review';
 }
 // Long/short without the equity rule (the wording and short tag lists that always counted).
+// The mandate's own text, evidence and asset classes, without the strategy tags (used to rank the
+// long/short evidence, lsTier below).
+function lsText(m) {
+  return [m.intention_summary, m.requirements_raw, m.appetite_raw, evidenceText(m.evidence),
+    JSON.stringify(jsonArr(m.asset_classes)), m.investor_type].join(' ').toLowerCase().replace(RE_NO_APPETITE, ' ');
+}
 function isStrongCore(m, t) {
   if (newestIntentionNoLS(m)) return false;
   const u = t.replace(RE_NEGATED, ' ');
@@ -1893,6 +1899,37 @@ function isStrong(m, t) {
   if (w.length > 0 && w.length <= 3
     && w.some(s => RE_STRONG_CORE.test(s) || (sysOk && /systematic/.test(s)))) return true;
   return !!equityInHf(m);
+}
+// How strong the long/short evidence is, strongest first (13 Nov 2026, decided by research@taranis.net),
+// for "Best match first" within a verdict:
+//   1 "long/short equity" / "equity long/short" (or l/s, long-short), or quant / systematic, stated
+//   2 "equity hedge fund" / "equity hedge"
+//   3 plain "equity" in a hedge fund intention, or as a tag when hedge funds are the asset class
+//   4 no long/short tick
+// The text, the hedge fund intention quote (evidence.equity_long_short) and the tags all count; a tag in a
+// long list is the investor's whole menu, so it ranks one step lower than the same words said in text.
+// Long-only, market-neutral, 130/30 and private equity never count (RE_EQ_NOT, RE_NEGATED).
+const RE_LS_EXPLICIT = /long[ -]?\/?[ -]?short|\bl\/s\b|equity long(?![ -]?only)|\bquant(?!itative (?:easing|tightening|analysis|due diligence|screening|assessment|review|research))|systematic/;
+const RE_LS_EQHEDGE = /equity hedge/;
+function lsTierOfRow(x) {
+  if (!x) return 4;
+  const t = sigText(x);
+  if (!isStrong(x, t)) return 4;
+  const own = lsText(x).replace(RE_NEGATED, ' ').replace(RE_EQ_NOT, ' ');
+  const quote = String(evidenceObj(x).equity_long_short || '').toLowerCase().replace(RE_EQ_NOT, ' ');
+  const words = stratWords(x);
+  const tags = words.join(' | ').replace(RE_EQ_NOT, ' ');
+  const shortList = words.length > 0 && words.length <= 3;
+  if (RE_LS_EXPLICIT.test(own) || RE_LS_EXPLICIT.test(quote) || (shortList && RE_LS_EXPLICIT.test(tags))) return 1;
+  if (RE_LS_EQHEDGE.test(own) || RE_LS_EQHEDGE.test(quote) || (shortList && RE_LS_EQHEDGE.test(tags))) return 2;
+  if (RE_LS_EXPLICIT.test(tags)) return 2;          // "long/short equity" only as a tag in a long menu
+  return 3;
+}
+function lsTier(m) {
+  if (!m || typeof m !== 'object') return 4;
+  let best = lsTierOfRow(m);
+  for (const x of (Array.isArray(m._intentions) ? m._intentions : [])) best = Math.min(best, lsTierOfRow(x));
+  return best;
 }
 
 // A manager's own news is not an allocator's mandate: anything typed as a hedge
@@ -2115,7 +2152,11 @@ function rescore(m) {
   let band = strong ? (tech ? 'strong_tech' : 'strong') : tech ? 'tech'
     : (RE_EXCL.test(mandateText(m)) || noMatchingStrategy(m)) ? 'low' : 'needs_data';
   // An allocator's hire is worth a look, never an automatic match.
-  if (band.indexOf('strong') === 0 && /^people$/i.test(String(m.investor_tag || '').trim())) band = 'hire';
+  // Lifted (13 Nov 2026, decided by research@taranis.net) when both long/short and Technology come from the
+  // investor's own With Intelligence profile: a hedge fund intention quote (evidence.equity_long_short) and a
+  // quoted Tech (techQuoted). Tags alone, or alert text alone, keep the hire cap.
+  if (band.indexOf('strong') === 0 && /^people$/i.test(String(m.investor_tag || '').trim())
+      && !(equityInHf(m) === 'quote' && techQuoted(m))) band = 'hire';
   const cc = String(m.investor_country || '').toUpperCase().replace(/[^A-Z]/g, '');
   let s = taranisScore(band, strong, techOnly, space, m.open_to_emerging_managers === true,
     IN_MARKET.has(cc) && m.open_to_emerging_managers !== false);
@@ -2630,7 +2671,8 @@ function techControl(m, after) {
     title: 'Is this investor looking for technology? Your answer re-scores the row.' });
   for (const [v, label] of TECH_CHOICES) {
     const o = el('option', { value: v },
-      v === '' ? (techOf(Object.assign({}, m, { tech_signal: null }), undefined) ? 'Not set (text says yes)' : 'Not set') : label);
+      v === '' ? (techQuoted(m) ? 'Not set (With Intelligence says yes)'
+        : techOf(Object.assign({}, m, { tech_signal: null }), undefined) ? 'Not set (alert text says yes)' : 'Not set') : label);
     if (v === cur) o.selected = true;
     sel.appendChild(o);
   }
@@ -2852,9 +2894,10 @@ function sortMandates(rows, mode) {
   // Best match first (11 Nov 2026): the verdict first (Matched, Review, Needs
   // data, Low fit, then Rejected where a list shows it), then the score, then
   // the ties above. A review capped at 74% never ranks above a match.
-  // Within a verdict, stronger technology evidence first (techTier, 12 Nov 2026): a stated
+  // Within a verdict, stronger long/short evidence first (lsTier, 13 Nov 2026: long/short equity, then
+  // equity hedge, then plain equity), then stronger technology evidence (techTier, 12 Nov 2026): a stated
   // tech / AI interest, then a themes line, then alert text only, then none.
-  const best = then(orderBy(sortVerdict, 1), orderBy(techTier, 1), orderBy(sortFit, -1), ...ties);
+  const best = then(orderBy(sortVerdict, 1), orderBy(lsTier, 1), orderBy(techTier, 1), orderBy(sortFit, -1), ...ties);
   const cmp = {
     best:       best,
     score_asc:  then(orderBy(sortFit, 1), ...ties),
