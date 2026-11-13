@@ -1707,12 +1707,12 @@ const RE_HEDGE = /hedge|alternative|absolute return|liquid alt/;
 // "equity long" is the start of "equity long/short" or "equity long-short",
 // never of "equity long-only" (the opposite); "quant" is a word, not the start
 // of "quantitative easing". Same rule as WI 01.
-const RE_STRONG = /long short|long\/short|long-short|l\/s|equity hedge|equity long(?![ -]?only)|\bquant(?!itative (?:easing|tightening))|systematic/;
+const RE_STRONG = /long short|long\/short|long-short|l\/s|equity hedge|equity long(?![ -]?only)|\bquant(?!itative (?:easing|tightening|analysis|due diligence|screening|assessment|review|research))|systematic/;
 // "systematic" alone is not long/short or quant: "systematic trend following"
 // is a CTA. It only counts when the text has no CTA, macro or market-neutral
 // wording. A strong word inside a refusal ("avoiding any systematic or quant
 // strategies") is dropped before matching. Same rule as WI 01.
-const RE_STRONG_CORE = /long short|long\/short|long-short|l\/s|equity hedge|equity long(?![ -]?only)|\bquant(?!itative (?:easing|tightening))/;
+const RE_STRONG_CORE = /long short|long\/short|long-short|l\/s|equity hedge|equity long(?![ -]?only)|\bquant(?!itative (?:easing|tightening|analysis|due diligence|screening|assessment|review|research))/;
 const RE_NEGATED = /(avoid[a-z]*|exclud[a-z]*|without|\bnot\b|\bno\b)\s[^.;,]{0,40}(systematic|quant[a-z]*|long.?short|l\/s)/g;
 // Technology as whole words, so biotech, techniques and technician do not
 // count. Before matching, the text loses any clause that turns tech away
@@ -1824,10 +1824,10 @@ function hedgeStatus(m, t) {
 function stratWords(m) {
   return jsonArr(m.strategies).map(s => String(s).toLowerCase().replace(/_/g, ' '));
 }
-// A rescore from the investor's newest intention can find that it no longer asks
-// for long/short (evidence.newest_intention_criteria.long_short = false, set 11 Nov
-// 2026). That wins over the older strategy tags, so the card shows long/short as
-// not met instead of a tick from the tag list.
+// The investor's newest HEDGE FUND intention no longer asks for long/short
+// (evidence.newest_intention_criteria.long_short = false). Set 11 Nov 2026 from the newest intention of any
+// asset class; since 13 Nov 2026 (decided by research@taranis.net) only a hedge fund intention can set it,
+// so a newer real-estate or infrastructure note never hides an older hedge fund ask for long/short.
 function newestIntentionNoLS(m) {
   let ev = m && (m.evidence_scored || m.evidence);
   for (let i = 0; i < 2 && typeof ev === 'string'; i++) { try { ev = JSON.parse(ev); } catch (_) { ev = null; } }
@@ -1876,9 +1876,17 @@ function equityInHf(m) {
   return onlyHf && !longOnly ? 'tag' : 'review';
 }
 // Long/short without the equity rule (the wording and short tag lists that always counted).
+// The text long/short is read from: the mandate's own text, its evidence and asset classes, but not its
+// strategy tags. Tags count only on a short list (3 or fewer, below); a long/short tag in a long list is the
+// investor's whole With Intelligence menu and must not tick long/short through the text test (13 Nov 2026,
+// decided by research@taranis.net: sigText carries every tag, so the 3-tag limit was being bypassed).
+function lsText(m) {
+  return [m.intention_summary, m.requirements_raw, m.appetite_raw, evidenceText(m.evidence),
+    JSON.stringify(jsonArr(m.asset_classes)), m.investor_type].join(' ').toLowerCase().replace(RE_NO_APPETITE, ' ');
+}
 function isStrongCore(m, t) {
   if (newestIntentionNoLS(m)) return false;
-  const u = t.replace(RE_NEGATED, ' ');
+  const u = lsText(m).replace(RE_NEGATED, ' ');
   const sysOk = !RE_EXCL.test(t);
   if (RE_STRONG_CORE.test(u) || (sysOk && /systematic/.test(u))) return true;
   const w = stratWords(m);
@@ -1886,7 +1894,7 @@ function isStrongCore(m, t) {
 }
 function isStrong(m, t) {
   if (newestIntentionNoLS(m)) return false;
-  const u = t.replace(RE_NEGATED, ' ');
+  const u = lsText(m).replace(RE_NEGATED, ' ');
   const sysOk = !RE_EXCL.test(t);
   if (RE_STRONG_CORE.test(u) || (sysOk && /systematic/.test(u))) return true;
   const w = stratWords(m);
@@ -2115,7 +2123,11 @@ function rescore(m) {
   let band = strong ? (tech ? 'strong_tech' : 'strong') : tech ? 'tech'
     : (RE_EXCL.test(mandateText(m)) || noMatchingStrategy(m)) ? 'low' : 'needs_data';
   // An allocator's hire is worth a look, never an automatic match.
-  if (band.indexOf('strong') === 0 && /^people$/i.test(String(m.investor_tag || '').trim())) band = 'hire';
+  // Lifted (13 Nov 2026, decided by research@taranis.net) when both long/short and Technology come from the
+  // investor's own With Intelligence profile: a hedge fund intention quote (evidence.equity_long_short) and a
+  // quoted Tech (techQuoted). Tags alone, or alert text alone, keep the hire cap.
+  if (band.indexOf('strong') === 0 && /^people$/i.test(String(m.investor_tag || '').trim())
+      && !(equityInHf(m) === 'quote' && techQuoted(m))) band = 'hire';
   const cc = String(m.investor_country || '').toUpperCase().replace(/[^A-Z]/g, '');
   let s = taranisScore(band, strong, techOnly, space, m.open_to_emerging_managers === true,
     IN_MARKET.has(cc) && m.open_to_emerging_managers !== false);

@@ -81,3 +81,31 @@ test('checked, no matching strategy: short hedge-fund strategy list with no long
   const none = { ...base, asset_classes: ['Hedge Funds', 'Private Equity'], strategies: ['Corporate Bonds', 'Growth Capital'] };
   assert.equal(ctx.rescore(none).q, 'needs_data');
 });
+
+test('a long/short tag buried in a long strategy list does not tick long/short (13 Nov 2026)', () => {
+  // 2885 Princeton-like: five tags, one long/short, no hedge fund intention naming long/short or equity.
+  const menu = { ...base, asset_classes: ['Hedge Funds', 'Private Equity', 'Equity'], strategies: ['macro', 'event_driven', 'credit', 'relative_value', 'long/short equity'],
+    intention_summary: 'Plans new hedge fund commitments.', is_tech_investor: true, tech_signal: 'With Intelligence profile (Grok): "Prioritizes technology."' };
+  assert.notEqual(ctx.rescore(menu).q, 'matched');
+  // the same tag on a short list (3 or fewer) still counts
+  assert.equal(ctx.rescore({ ...menu, strategies: ['macro', 'long/short equity'] }).q, 'matched');
+  // and long/short stated in the mandate's own text counts whatever the tags
+  assert.equal(ctx.rescore({ ...menu, intention_summary: 'Seeks equity long/short managers.' }).q, 'matched');
+  // a hedge fund intention naming equity, stored as evidence, counts (12 Nov 2026 rule)
+  assert.equal(ctx.rescore({ ...menu, evidence: { wi_investor_id: '1', equity_long_short: '"Strategies include equity, macro" (hedge fund intention, 2025-12-23)' } }).q, 'matched');
+});
+
+test('"quantitative analysis" in a due-diligence process is not quant (13 Nov 2026)', () => {
+  const dd = { ...base, investor_type: 'Asset Manager', intention_summary: 'The first step is focused on quantitative analysis of the manager.' };
+  assert.notEqual(ctx.rescore(dd).band.indexOf('strong'), 0);
+  assert.equal(ctx.rescore({ ...dd, intention_summary: 'Favors quantitative strategies.' }).band, 'strong');
+});
+
+test('the hire cap is lifted only when long/short and Tech both come from the profile (13 Nov 2026)', () => {
+  const hire = { ...base, investor_tag: 'People', investor_type: 'Endowment', strategies: ['equity', 'long/short equity'],
+    is_tech_investor: true, tech_signal: 'With Intelligence profile (Grok): "The investor\'s investment theme over the next 12-18 months is artificial intelligence."' };
+  assert.equal(ctx.rescore(hire).band, 'hire');                       // tags only: stays a hire
+  const quoted = { ...hire, evidence: { wi_investor_id: '1', equity_long_short: '"focusing on macro, multi-strategy, equity hedge" (hedge fund intention, 2026-10-06)' } };
+  assert.equal(ctx.rescore(quoted).q, 'matched');
+  assert.equal(ctx.rescore({ ...quoted, is_tech_investor: null, tech_signal: null, intention_summary: 'technology' }).band, 'hire'); // Tech from alert text: stays a hire
+});

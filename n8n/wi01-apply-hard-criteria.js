@@ -135,11 +135,16 @@ if (notHedge) {
 // A strong word inside a refusal ("avoiding any systematic or quant") is dropped.
 // "equity long" never as "equity long-only" (the opposite of long/short);
 // "quant" never as "quantitative easing". Same rule as the console.
-const STRONG = /long short|long\/short|long-short|l\/s|equity hedge|equity long(?![ -]?only)|\bquant(?!itative (?:easing|tightening))/;
+const STRONG = /long short|long\/short|long-short|l\/s|equity hedge|equity long(?![ -]?only)|\bquant(?!itative (?:easing|tightening|analysis|due diligence|screening|assessment|review|research))/;
 const EXCL = /\bcta\b|managed future|trend follow|global macro|macro strategy|macro fund|macro manager|discretionary macro|systematic macro|market neutral|market-neutral/;
 const txtS = (txt + ' ' + ttype);
 const sysOk = !EXCL.test(txtS);
-const txtN = txtS.replace(NEG, ' ');
+// Long/short is read from the mandate's own text, evidence and asset classes, not the strategy tags: a tag
+// counts only on a short list (tagStrong, 3 or fewer). A long/short tag in a long list is the investor's whole
+// With Intelligence menu (13 Nov 2026, decided by research@taranis.net). Same rule as the console's lsText().
+const txtLS = [m.intention_summary, m.requirements_raw, m.appetite_raw, evidenceText(m.evidence),
+  JSON.stringify(arr(m.asset_classes)), ttype].join(' ').toLowerCase().replace(NO_APPETITE, ' ');
+const txtN = txtLS.replace(NEG, ' ');
 // Strategy tags as words ("equity_long_short" -> "equity long short"). A tag
 // only counts when the mandate lists 3 strategies or fewer: on a long menu (a
 // pension's whole hedge-fund book) one long/short tag among many says little.
