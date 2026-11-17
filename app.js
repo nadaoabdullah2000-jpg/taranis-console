@@ -1376,8 +1376,6 @@ const TABS = [
   // Not the hidden 'iconn' export matcher further down, which stays as it is.
   { id: 'oppsiconn', icon: '⇄', label: 'iConnections', title: 'iConnections', group: 'wi', sub2: true,
     sub: 'Allocators from iConnections.' },
-  { id: 'oppsiconnok', icon: '→', label: 'Approved', title: 'Approved iConnections allocators', group: 'wi', sub3: true,
-    sub: 'The iConnections allocators a person has approved.' },
   // Empty for now (17 Nov 2026): directly under iConnections, at the same level.
   { id: 'preqin',   icon: '◈', label: 'Preqin',        title: 'Preqin', group: 'wi', sub2: true,
     sub: 'Investors from Preqin.' },
@@ -10415,9 +10413,6 @@ function importIconnections() {
 // Placeholder views (17 Nov 2026): no data is read yet.
 RENDER.oppsiconn = function (body) {
   body.appendChild(empty('Nothing here yet', 'iConnections allocators will be listed here.'));
-};
-RENDER.oppsiconnok = function (body) {
-  body.appendChild(empty('Nothing here yet', 'Approved iConnections allocators will be listed here.'));
 };
 RENDER.preqin = function (body) {
   body.appendChild(empty('Nothing here yet', 'Preqin investors will be listed here.'));

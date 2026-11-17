@@ -44,19 +44,18 @@ test('iConnections, its Approved sub-tab and Preqin open their own empty panels'
 
     const order = await p.evaluate(() => [...document.querySelectorAll('.navbtn')].map(b => b.getAttribute('data-tab')));
     const at = id => order.indexOf(id);
-    assert.ok(at('opps') >= 0 && at('oppsiconn') > at('approvals') && at('oppsiconnok') === at('oppsiconn') + 1
-      && at('preqin') === at('oppsiconnok') + 1 && at('rejected') === at('preqin') + 1,
-      'iConnections, its Approved, then Preqin sit under Opportunities: ' + order.join(','));
+    assert.ok(at('opps') >= 0 && at('oppsiconn') > at('approvals') && at('oppsiconnok') === -1
+      && at('preqin') === at('oppsiconn') + 1 && at('rejected') === at('preqin') + 1,
+      'iConnections, then Preqin sit under Opportunities (no iConnections Approved sub-tab): ' + order.join(','));
     assert.equal(at('iconn'), -1, 'the export matcher stays out of the nav');
     assert.equal(await p.evaluate(() => typeof RENDER.iconn), 'function', 'the export matcher is still registered');
 
-    const pad = await p.evaluate(() => Object.fromEntries(['oppsiconn', 'oppsiconnok', 'preqin'].map(id =>
+    const pad = await p.evaluate(() => Object.fromEntries(['oppsiconn', 'preqin'].map(id =>
       [id, document.querySelector('.navbtn[data-tab="' + id + '"]').style.paddingLeft])));
-    assert.deepEqual(pad, { oppsiconn: '42px', oppsiconnok: '58px', preqin: '42px' });
+    assert.deepEqual(pad, { oppsiconn: '42px', preqin: '42px' });
 
     for (const [id, title, line] of [
       ['oppsiconn', 'iConnections', 'iConnections allocators will be listed here.'],
-      ['oppsiconnok', 'Approved iConnections allocators', 'Approved iConnections allocators will be listed here.'],
       ['preqin', 'Preqin', 'Preqin investors will be listed here.']]) {
       await p.click('.navbtn[data-tab="' + id + '"]');
       await p.waitForFunction(t => document.getElementById('pg-title').textContent === t
