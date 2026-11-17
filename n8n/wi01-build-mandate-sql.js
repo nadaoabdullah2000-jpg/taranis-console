@@ -69,7 +69,7 @@ if (String(m.hard_status || '').toLowerCase() === 'fail' || m.qualification === 
   if (newQ === 'uncertain' && (band === 'strong' || band === 'strong_tech') && newS !== null && newS > 0.74) newS = 0.74;
 }
 
-const q = 'INSERT INTO wi_mandates (record_key,raw_email_id,block_index,investor_name,organization_name,contact_name,investor_country,investor_city,investor_type,investor_tag,asset_classes,strategies,ticket_min_usd,ticket_max_usd,aum_usd,aum_band,open_to_emerging_managers,open_to_new_relationships,open_to_emerging_markets,alert_type,alert_date,allocation_timing,intention_summary,requirements_raw,appetite_raw,evidence,qualification,fit_score,fit_reason,hard_fail_reasons,missing_hard_fields,positive_signals,risks,missing_information,view_article_url,view_intention_url,view_investor_url,source_links,linkedin_url,source_message_id,source_email_date,new_qualification,new_fit_score,is_space,space_signal,wi_enriched_at) VALUES ('
+const q = 'INSERT INTO wi_mandates (record_key,raw_email_id,block_index,investor_name,organization_name,contact_name,investor_country,investor_city,investor_type,investor_tag,asset_classes,strategies,ticket_min_usd,ticket_max_usd,aum_usd,aum_band,open_to_emerging_managers,open_to_new_relationships,open_to_emerging_markets,alert_type,alert_date,allocation_timing,intention_summary,requirements_raw,appetite_raw,evidence,qualification,fit_score,fit_reason,hard_fail_reasons,missing_hard_fields,positive_signals,risks,missing_information,view_article_url,view_intention_url,view_investor_url,source_links,linkedin_url,source_message_id,source_email_date,new_qualification,new_fit_score,is_space,space_signal,wi_enriched_at,is_tech_investor,tech_signal,hf_evidence) VALUES ('
   + [e(m.record_key), n(m.raw_email_id), n(m.block_index),
      e(m.investor_name), e(m.organization_name), e(m.contact_name),
      e(m.investor_country), e(m.investor_city), e(m.investor_type), e(m.investor_tag),
@@ -84,7 +84,9 @@ const q = 'INSERT INTO wi_mandates (record_key,raw_email_id,block_index,investor
      e(m.source_message_id), m.source_email_date ? e(m.source_email_date) : 'NULL',
      e(newQ), n(newS), b(m.is_space), e(m.space_signal),
      // Enriched only when WI 01b actually read the profile (12 Nov 2026): the backfill picks up the rest.
-     m._wi_enriched === true ? 'NOW()' : 'NULL'
+     m._wi_enriched === true ? 'NOW()' : 'NULL',
+     // Inherited from the investor's stored evidence (node "Load Investor Evidence", 13 Nov 2026), blanks only.
+     b(typeof m.is_tech_investor === 'boolean' ? m.is_tech_investor : null), e(m.tech_signal), e(m.hf_evidence)
   ].join(',')
   // Reprocessing must refresh the VERDICT AND THE REASONS FOR IT. Updating the
   // qualification while leaving hard_fail_reasons untouched left records showing
@@ -130,16 +132,35 @@ const q = 'INSERT INTO wi_mandates (record_key,raw_email_id,block_index,investor
   + 'view_intention_url=COALESCE(EXCLUDED.view_intention_url,wi_mandates.view_intention_url),'
   + 'source_links=COALESCE(EXCLUDED.source_links,wi_mandates.source_links),'
   + 'wi_enriched_at=COALESCE(EXCLUDED.wi_enriched_at,wi_mandates.wi_enriched_at),'
+  // Never over a value already on the row (a person's Tech choice, a checked hf_evidence).
+  + 'is_tech_investor=COALESCE(wi_mandates.is_tech_investor,EXCLUDED.is_tech_investor),'
+  + 'tech_signal=CASE WHEN wi_mandates.is_tech_investor IS NULL THEN EXCLUDED.tech_signal ELSE wi_mandates.tech_signal END,'
+  + 'hf_evidence=COALESCE(wi_mandates.hf_evidence,EXCLUDED.hf_evidence),'
   + 'updated_at=NOW()'
   + ' RETURNING id,record_key,qualification,new_qualification,new_fit_score,investor_name,organization_name,contact_name,investor_country,investor_city,investor_type,investor_tag,strategies,ticket_min_usd,ticket_max_usd,aum_usd,aum_band,allocation_timing,fit_score,fit_reason,intention_summary,view_article_url,view_intention_url,view_investor_url,linkedin_url;';
 
 // A name WI 01b corrected from the With Intelligence profile is logged with the alert's name
 // (12 Nov 2026), in the same statement, so the change can be seen and undone.
 let query = q;
+const wiId = m._wi_investor_id ? e(String(m._wi_investor_id)) : 'NULL';
+const logs = [];
 if (m._wi_name_corrected === true && String(m._wi_name_from_alert || '').trim()) {
-  const wiId = m._wi_investor_id ? e(String(m._wi_investor_id)) : 'NULL';
+  logs.push("SELECT up.id, up.investor_name, 'investor_name', " + e(m._wi_name_from_alert) + ", up.investor_name, "
+    + "'WI 01b name correction from the With Intelligence profile', " + wiId + ' FROM up');
+}
+// Evidence inherited from the investor's best stored row (13 Nov 2026): one log line per field, naming the row.
+if (Array.isArray(m._inherited) && m._inherited.length && m._inherited_from) {
+  let ev = m.evidence; for (let i = 0; i < 2 && typeof ev === 'string'; i++) { try { ev = JSON.parse(ev); } catch (x) { ev = {}; } }
+  ev = ev && typeof ev === 'object' ? ev : {};
+  for (const f of m._inherited) {
+    const v = f.indexOf('evidence.') === 0 ? ev[f.slice(9)] : f === 'is_tech_investor' ? m.is_tech_investor + ' (' + (m.tech_signal || '') + ')'
+      : f === 'is_space' ? 'true (' + (m.space_signal || '') + ')' : m[f];
+    logs.push("SELECT up.id, up.investor_name, " + e(f) + ", NULL, " + e(typeof v === 'string' ? v : JSON.stringify(v)) + ", "
+      + e('Inherited at intake from row ' + m._inherited_from + ' (the investor\'s stored evidence)') + ", " + wiId + ' FROM up');
+  }
+}
+if (logs.length) {
   query = 'WITH up AS (' + q.replace(/;\s*$/, '') + '), lg AS (INSERT INTO wi_fill_log (mandate_id, investor_name, field, old_value, new_value, source, wi_investor_id) '
-    + "SELECT up.id, up.investor_name, 'investor_name', " + e(m._wi_name_from_alert) + ", up.investor_name, "
-    + "'WI 01b name correction from the With Intelligence profile', " + wiId + ' FROM up) SELECT * FROM up;';
+    + logs.join(' UNION ALL ') + ') SELECT * FROM up;';
 }
 return { json: { ...m, _query: query, _skipped: false } };
