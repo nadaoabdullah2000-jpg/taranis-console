@@ -1372,6 +1372,12 @@ const TABS = [
     sub: 'The live pipeline. Filter by read and by approved rather than moving between queues.' },
   { id: 'approvals',icon: '\u2192', label: 'Approved',      title: 'Approved Opportunities', group: 'wi', sub2: true,
     sub: 'The ones a person has approved. A subset of Opportunities, not a separate list.' },
+  // Empty for now (17 Nov 2026): the iConnections allocators under Opportunities, and their Approved subset.
+  // Not the hidden 'iconn' export matcher further down, which stays as it is.
+  { id: 'oppsiconn', icon: '⇄', label: 'iConnections', title: 'iConnections', group: 'wi', sub2: true,
+    sub: 'Allocators from iConnections.' },
+  { id: 'oppsiconnok', icon: '→', label: 'Approved', title: 'Approved iConnections allocators', group: 'wi', sub3: true,
+    sub: 'The iConnections allocators a person has approved.' },
   { id: 'rejected', icon: '\u25BD', label: 'Rejected',      title: 'Rejected', group: 'wi',
     sub: 'Screened out on two or more criteria. Kept so you can see what was turned away, and why.' },
   { id: 'hedgefunds', icon: '\u25C6', label: 'Hedge funds', title: 'Hedge funds in the alerts', group: 'wi',
@@ -1380,6 +1386,9 @@ const TABS = [
     sub: 'Filed by publication, each with a summary written beside it so you need not open the PDF.' },
   { id: 'validate', icon: '\u2713', label: 'To validate',   title: 'To validate', group: 'wi', sub2: true,
     sub: 'Investors read out of a report wait here. Nothing in this list reaches Opportunities, Find or Ask until you confirm it.' },
+  // Empty for now (17 Nov 2026).
+  { id: 'preqin',   icon: '◈', label: 'Preqin',        title: 'Preqin',
+    sub: 'Investors from Preqin.' },
   { id: 'contacts', archived: true, icon: '\u25A0', label: 'Contacts',     title: 'Contacts',
     sub: 'The fundraising book. Who knows Taranis, when you last emailed, and what is owed.' },
   { id: 'notes', archived: true,    icon: '\u25A5', label: 'Notes',        title: 'Notes',
@@ -1433,7 +1442,7 @@ function buildNav() {
       class: 'navbtn', type: 'button', 'data-tab': t.id,
       onclick: () => go(t.id)
     }, el('span', { class: 'ic' }, t.icon), el('span', null, t.label));
-    if (t.group) b.style.paddingLeft = t.sub2 ? '42px' : '26px';
+    if (t.group) b.style.paddingLeft = t.sub3 ? '58px' : t.sub2 ? '42px' : '26px';
     if (t.foot) b.style.marginTop = '18px';
     list.appendChild(b);
   }
@@ -10408,6 +10417,17 @@ function importIconnections() {
   ICONN.result = null; ICONN.runId = null;
   go('iconn');
 }
+
+// Placeholder views (17 Nov 2026): no data is read yet.
+RENDER.oppsiconn = function (body) {
+  body.appendChild(empty('Nothing here yet', 'iConnections allocators will be listed here.'));
+};
+RENDER.oppsiconnok = function (body) {
+  body.appendChild(empty('Nothing here yet', 'Approved iConnections allocators will be listed here.'));
+};
+RENDER.preqin = function (body) {
+  body.appendChild(empty('Nothing here yet', 'Preqin investors will be listed here.'));
+};
 
 RENDER.iconn = function (body) {
   clear(body);
