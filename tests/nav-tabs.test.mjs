@@ -45,14 +45,14 @@ test('iConnections, its Approved sub-tab and Preqin open their own empty panels'
     const order = await p.evaluate(() => [...document.querySelectorAll('.navbtn')].map(b => b.getAttribute('data-tab')));
     const at = id => order.indexOf(id);
     assert.ok(at('opps') >= 0 && at('oppsiconn') > at('approvals') && at('oppsiconnok') === at('oppsiconn') + 1
-      && at('rejected') === at('oppsiconnok') + 1, 'iConnections and its Approved sit under Opportunities: ' + order.join(','));
-    assert.ok(at('preqin') > at('validate'), 'Preqin is in the nav');
+      && at('preqin') === at('oppsiconnok') + 1 && at('rejected') === at('preqin') + 1,
+      'iConnections, its Approved, then Preqin sit under Opportunities: ' + order.join(','));
     assert.equal(at('iconn'), -1, 'the export matcher stays out of the nav');
     assert.equal(await p.evaluate(() => typeof RENDER.iconn), 'function', 'the export matcher is still registered');
 
     const pad = await p.evaluate(() => Object.fromEntries(['oppsiconn', 'oppsiconnok', 'preqin'].map(id =>
       [id, document.querySelector('.navbtn[data-tab="' + id + '"]').style.paddingLeft])));
-    assert.deepEqual(pad, { oppsiconn: '42px', oppsiconnok: '58px', preqin: '' });
+    assert.deepEqual(pad, { oppsiconn: '42px', oppsiconnok: '58px', preqin: '42px' });
 
     for (const [id, title, line] of [
       ['oppsiconn', 'iConnections', 'iConnections allocators will be listed here.'],

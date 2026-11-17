@@ -1378,6 +1378,9 @@ const TABS = [
     sub: 'Allocators from iConnections.' },
   { id: 'oppsiconnok', icon: '→', label: 'Approved', title: 'Approved iConnections allocators', group: 'wi', sub3: true,
     sub: 'The iConnections allocators a person has approved.' },
+  // Empty for now (17 Nov 2026): directly under iConnections, at the same level.
+  { id: 'preqin',   icon: '◈', label: 'Preqin',        title: 'Preqin', group: 'wi', sub2: true,
+    sub: 'Investors from Preqin.' },
   { id: 'rejected', icon: '\u25BD', label: 'Rejected',      title: 'Rejected', group: 'wi',
     sub: 'Screened out on two or more criteria. Kept so you can see what was turned away, and why.' },
   { id: 'hedgefunds', icon: '\u25C6', label: 'Hedge funds', title: 'Hedge funds in the alerts', group: 'wi',
@@ -1386,9 +1389,6 @@ const TABS = [
     sub: 'Filed by publication, each with a summary written beside it so you need not open the PDF.' },
   { id: 'validate', icon: '\u2713', label: 'To validate',   title: 'To validate', group: 'wi', sub2: true,
     sub: 'Investors read out of a report wait here. Nothing in this list reaches Opportunities, Find or Ask until you confirm it.' },
-  // Empty for now (17 Nov 2026).
-  { id: 'preqin',   icon: '◈', label: 'Preqin',        title: 'Preqin',
-    sub: 'Investors from Preqin.' },
   { id: 'contacts', archived: true, icon: '\u25A0', label: 'Contacts',     title: 'Contacts',
     sub: 'The fundraising book. Who knows Taranis, when you last emailed, and what is owed.' },
   { id: 'notes', archived: true,    icon: '\u25A5', label: 'Notes',        title: 'Notes',
