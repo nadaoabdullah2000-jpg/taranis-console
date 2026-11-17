@@ -1,0 +1,7 @@
+-- 17 Nov 2026, APPLIED (decided by the user): Okabena Investment Services (row 2956) kept Matched, score 0.75 -> 0.95,
+-- manual verdict. Reason: equity interest in its hedge fund book read as long/short; AI and security & defense themes
+-- (Tech and Space, from its With Intelligence themes line); open to emerging managers. Backup:
+-- wi_mandates_backup_20261117_okabena. Logged in wi_fill_log.
+-- UNDO: update wi_mandates m set new_qualification = b.new_qualification, new_fit_score = b.new_fit_score,
+--   verdict_source = b.verdict_source, verdict_set_by = b.verdict_set_by, verdict_set_at = b.verdict_set_at,
+--   fit_reason = b.fit_reason from wi_mandates_backup_20261117_okabena b where b.id = m.id;
