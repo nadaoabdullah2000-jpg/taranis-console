@@ -148,8 +148,9 @@ test('best match first: within a verdict, a stated tech interest before a themes
     { id: 24, new_qualification: 'uncertain', new_fit_score: 0.74, is_tech_investor: true, _crit: [true, true, false],
       tech_signal: grok('Key sectors of interest include AI.') }   // Review stays below every match
   ];
-  // techOf is false in this harness, so #22 (no quote) is tier 4 here: still last of Matched.
-  assert.deepEqual(ids(ctx.sortMandates(rows, 'best')), [23, 21, 20, 22, 24]);
+  // 17 Nov 2026: the score comes first within a verdict (100% above 90% above 89%), then the evidence tiers:
+  // #23 (stated tech) before #20 (themes line) at 100%.
+  assert.deepEqual(ids(ctx.sortMandates(rows, 'best')), [23, 20, 21, 22, 24]);
 });
 
 test('best match first: within Matched, long/short equity before equity hedge before plain equity (13 Nov 2026)', () => {

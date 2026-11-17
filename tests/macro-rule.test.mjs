@@ -43,8 +43,8 @@ test('a CTA or macro tag in a long strategy menu does not make the row low fit',
 test('equity_long_short reads as long/short', () => {
   const r = ctx.rescore(NYCF);
   assert.equal(r.band, 'strong');
-  assert.equal(r.q, 'uncertain');           // hedge fund investing unconfirmed caps it at review
-  assert.equal(r.s, 0.74);
+  assert.equal(r.q, 'uncertain');           // long/short without technology waits for a decision
+  assert.equal(r.s, 0.65);                  // L+E (17 Nov 2026 table)
   // Matched requires long/short AND technology (11 Nov 2026): long/short alone waits for a decision.
   const one = ctx.rescore({ ...base, investor_type: 'Insurance', strategies: ['equity_long_short'] });
   assert.equal(one.q, 'uncertain');
@@ -97,13 +97,25 @@ test('"quantitative analysis" in a due-diligence process is not quant (13 Nov 20
   assert.equal(ctx.rescore({ ...dd, intention_summary: 'Favors quantitative strategies.' }).band, 'strong');
 });
 
-test('the hire cap is lifted only when long/short and Tech both come from the profile (13 Nov 2026)', () => {
+test('a People alert is scored on its evidence, with no flat hire cap (17 Nov 2026)', () => {
   const hire = { ...base, investor_tag: 'People', investor_type: 'Endowment', strategies: ['equity', 'long/short equity'],
     is_tech_investor: true, tech_signal: 'With Intelligence profile (Grok): "The investor\'s investment theme over the next 12-18 months is artificial intelligence."' };
-  assert.equal(ctx.rescore(hire).band, 'hire');                       // tags only: stays a hire
-  const quoted = { ...hire, evidence: { wi_investor_id: '1', equity_long_short: '"focusing on macro, multi-strategy, equity hedge" (hedge fund intention, 2026-10-06)' } };
-  assert.equal(ctx.rescore(quoted).q, 'matched');
-  assert.equal(ctx.rescore({ ...quoted, is_tech_investor: null, tech_signal: null, intention_summary: 'technology' }).band, 'hire'); // Tech from alert text: stays a hire
+  const r = ctx.rescore(hire);
+  assert.equal(r.q, 'matched'); assert.equal(r.s, 0.95);              // L+T+E
+  const noTech = ctx.rescore({ ...hire, is_tech_investor: null, tech_signal: null });
+  assert.equal(noTech.q, 'uncertain'); assert.equal(noTech.s, 0.65);   // L+E
+});
+
+test('the 17 Nov 2026 score table', () => {
+  const L = { strategies: ['long/short equity'] }, T = { is_tech_investor: true, tech_signal: 'With Intelligence profile (Grok): "AI."' };
+  const S = { is_space: true }, noE = { open_to_emerging_managers: null }, E = { open_to_emerging_managers: true };
+  const sc = (...parts) => ctx.rescore(Object.assign({}, base, ...parts)).s;
+  assert.equal(sc(L, noE), 0.60); assert.equal(sc(L, E), 0.65); assert.equal(sc(L, S, noE), 0.70); assert.equal(sc(L, S, E), 0.74);
+  assert.equal(sc(L, T, noE), 0.90); assert.equal(sc(L, T, E), 0.95); assert.equal(sc(L, T, S, noE), 0.95); assert.equal(sc(L, T, S, E), 1);
+  assert.equal(sc(T, noE), 0.55); assert.equal(sc(T, E), 0.60); assert.equal(sc(T, S, noE), 0.65); assert.equal(sc(T, S, E), 0.70);
+  assert.equal(sc(S, noE), 0.40); assert.equal(sc(S, E), 0.45);
+  assert.equal(ctx.rescore(Object.assign({}, base, L, T, noE)).q, 'matched');
+  assert.equal(ctx.rescore(Object.assign({}, base, L, S, E)).q, 'uncertain');
 });
 
 test('long/short evidence ranks: long/short equity, then equity hedge, then plain equity (13 Nov 2026)', () => {
