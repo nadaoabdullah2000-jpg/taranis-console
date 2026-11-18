@@ -52,8 +52,14 @@ if (String(t.wi_id) === 'introspect') {
 // then every term below newest-first, and oldest-first too when a term has more than 10 matches. Each term's
 // coverage (matches seen / total) is kept, so a term with more than 20 matches is reported as not fully read.
 // Read-only; staged in wi_hf_reads under 'full:<id>'. 2-3 s between calls.
-const FULL_TERMS = ['long/short', 'equity hedge', 'hedged equity', 'equity long', 'quant', 'quantitative', 'systematic', 'hedge fund',
-  'technology', 'artificial intelligence', 'AI', 'software', 'semiconductor', 'space', 'defense', 'defence'];
+// Terms (the user's list of 18 Nov): 'ls' = long/short match terms (a row is a removal only if all are empty and
+// fully covered); 'flag' = shown to the user, never counted; 'info' = context and the technology / space themes.
+const FULL_TERMS = [
+  ...['long/short', 'long short', 'long-short', 'l/s', 'equity hedge', 'equity hedge fund', 'equity hedge funds', 'hedged equity',
+    'long/short equity', 'equity long/short'].map(w => [w, 'ls']),
+  ...['long-biased', 'long bias', 'market-neutral', 'market neutral'].map(w => [w, 'flag']),
+  ...['quant', 'quantitative', 'systematic', 'hedge fund', 'technology', 'artificial intelligence', 'AI', 'software', 'semiconductor',
+    'space', 'defense', 'defence'].map(w => [w, 'info'])];
 const FM = /^full:(-?\d+)$/.exec(String(t.wi_id));
 if (FM) {
   const fid = FM[1];
@@ -71,8 +77,8 @@ if (FM) {
     const r = await gql(QI, { b: JSON.stringify(Object.assign({ institutional_investor_id: fid, sort: 'date', order }, extra)), p: { start: 0, limit: 10 } });
     return r;
   };
-  const jobs = [['newest', {}, 'desc'], ['oldest', {}, 'asc']].concat(FULL_TERMS.map(w => [w, { note: w }, 'desc']));
-  for (const [label, extra, order] of jobs) {
+  const jobs = [['newest', {}, 'desc', 'base'], ['oldest', {}, 'asc', 'base']].concat(FULL_TERMS.map(([w, k]) => [w, { note: w }, 'desc', k]));
+  for (const [label, extra, order, kind] of jobs) {
     const r = await call(extra, order);
     if (r.kind === 'auth_error' || r.kind === 'blocked') return [row(t.wi_id, r.kind, { prof, coverage: cov }, total, [...seen.values()], null, r.msg)];
     const d = r.data && r.data.postMandatesIntentions; const xs = (d && d.results) || [];
@@ -87,9 +93,9 @@ if (FM) {
       take(xs2, label);
       got = new Set(xs.concat(xs2).map(x => String(x.id))).size;
     }
-    if (label !== 'newest' && label !== 'oldest') cov.push({ term: label, total: tot, seen: got, full: tot === null ? false : got >= tot, err: r.kind === 'ok' ? (r.msg || null) : r.msg });
+    if (label !== 'newest' && label !== 'oldest') cov.push({ term: label, kind, total: tot, seen: got, full: tot === null ? false : got >= tot, err: r.kind === 'ok' ? (r.msg || null) : r.msg });
   }
-  const partial = cov.some(c => !c.full);
+  const partial = cov.some(c => c.kind === 'ls' && !c.full);
   return [row(t.wi_id, partial ? 'partial' : 'ok', { prof, coverage: cov }, total, [...seen.values()], null, partial ? 'some terms have more than 20 matches' : 'full read 18 Nov')];
 }
 // Probe (18 Nov 2026, approved by the user): can the intentions query reach past the newest 10? For one
