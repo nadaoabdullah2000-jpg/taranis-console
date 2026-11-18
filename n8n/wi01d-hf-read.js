@@ -62,10 +62,15 @@ const FULL_TERMS = [
     'space', 'defense', 'defence'].map(w => [w, 'info'])];
 // Each investor is read in two targets so one code run stays under n8n's time limit: 'full:<id>' reads the newest
 // and oldest 10 and the 'ls' and 'flag' terms; 'info:<id>' reads the 'info' terms.
-const FM = /^(full|info):(-?\d+)$/.exec(String(t.wi_id));
+// Investors with many matching notes need more calls: they are read in four targets instead, 'fa:' (newest and
+// oldest 10 + the first five 'ls' terms), 'fb:' (the other 'ls' terms + 'flag'), 'ia:' and 'ib:' (half the
+// 'info' terms each), so no code run passes n8n's 60-second limit (ERS Texas timed out on 18 Nov).
+const FM = /^(full|info|fa|fb|ia|ib):(-?\d+)$/.exec(String(t.wi_id));
 if (FM) {
   const fid = FM[2];
   const part = FM[1];
+  const LS_T = FULL_TERMS.filter(([, k]) => k === 'ls'), FLAG_T = FULL_TERMS.filter(([, k]) => k === 'flag'), INFO_T = FULL_TERMS.filter(([, k]) => k === 'info');
+  const PART_TERMS = { full: LS_T.concat(FLAG_T), info: INFO_T, fa: LS_T.slice(0, 5), fb: LS_T.slice(5).concat(FLAG_T), ia: INFO_T.slice(0, 6), ib: INFO_T.slice(6) };
   await sleep(jitter(4000, 7000));
   const p = await gql(QP, { id: fid });
   if (p.kind === 'auth_error' || p.kind === 'blocked') return [row(t.wi_id, p.kind, null, null, null, null, p.msg)];
@@ -80,8 +85,8 @@ if (FM) {
     const r = await gql(QI, { b: JSON.stringify(Object.assign({ institutional_investor_id: fid, sort: 'date', order }, extra)), p: { start: 0, limit: 10 } });
     return r;
   };
-  const terms = FULL_TERMS.filter(([, k]) => part === 'info' ? k === 'info' : k !== 'info');
-  const jobs = (part === 'full' ? [['newest', {}, 'desc', 'base'], ['oldest', {}, 'asc', 'base']] : []).concat(terms.map(([w, k]) => [w, { note: w }, 'desc', k]));
+  const terms = PART_TERMS[part];
+  const jobs = (part === 'full' || part === 'fa' ? [['newest', {}, 'desc', 'base'], ['oldest', {}, 'asc', 'base']] : []).concat(terms.map(([w, k]) => [w, { note: w }, 'desc', k]));
   for (const [label, extra, order, kind] of jobs) {
     const r = await call(extra, order);
     if (r.kind === 'auth_error' || r.kind === 'blocked') return [row(t.wi_id, r.kind, { prof, coverage: cov }, total, [...seen.values()], null, r.msg)];
