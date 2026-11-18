@@ -46,6 +46,52 @@ if (String(t.wi_id) === 'introspect') {
   const fields = r.data && r.data.q ? r.data.q.queryType.fields.filter(f => /intention|mandate/i.test(f.name)) : null;
   return [row('introspect', r.kind === 'ok' ? 'ok' : r.kind, { pagination: r.data && r.data.pf, fields }, null, null, null, r.msg)];
 }
+// Full read (18 Nov 2026, approved by the user), target 'full:<id>'. The intentions query returns 10 notes per
+// call and ignores paging, but its "note" key is a whole-word text search over the investor's whole history
+// (probe of 18 Nov: Kairos "long/short" -> exactly its 3 known notes, 2024). So: the newest 10, the oldest 10,
+// then every term below newest-first, and oldest-first too when a term has more than 10 matches. Each term's
+// coverage (matches seen / total) is kept, so a term with more than 20 matches is reported as not fully read.
+// Read-only; staged in wi_hf_reads under 'full:<id>'. 2-3 s between calls.
+const FULL_TERMS = ['long/short', 'equity hedge', 'hedged equity', 'equity long', 'quant', 'quantitative', 'systematic', 'hedge fund',
+  'technology', 'artificial intelligence', 'AI', 'software', 'semiconductor', 'space', 'defense', 'defence'];
+const FM = /^full:(-?\d+)$/.exec(String(t.wi_id));
+if (FM) {
+  const fid = FM[1];
+  await sleep(jitter(4000, 7000));
+  const p = await gql(QP, { id: fid });
+  if (p.kind === 'auth_error' || p.kind === 'blocked') return [row(t.wi_id, p.kind, null, null, null, null, p.msg)];
+  const prof = p.kind === 'ok' && p.data ? p.data.searchInvestor : null;
+  if (!prof) return [row(t.wi_id, 'no_profile', null, null, null, null, p.msg)];
+  const seen = new Map(); const cov = []; let total = null;
+  const take = (xs, label) => { for (const x of xs) { const k = String(x.id); const e = seen.get(k) || { id: k, date: x.date, type: x.entityType || null,
+    status: x.status ? [x.status.name, x.status.sub_status && x.status.sub_status.name].filter(Boolean).join(' / ') : null,
+    asset_class: x.asset_class ? x.asset_class.name : null, note: clean(x.note).slice(0, 4000), via: [] }; if (e.via.indexOf(label) < 0) e.via.push(label); seen.set(k, e); } };
+  const call = async (extra, order) => {
+    await sleep(jitter(2000, 3000));
+    const r = await gql(QI, { b: JSON.stringify(Object.assign({ institutional_investor_id: fid, sort: 'date', order }, extra)), p: { start: 0, limit: 10 } });
+    return r;
+  };
+  const jobs = [['newest', {}, 'desc'], ['oldest', {}, 'asc']].concat(FULL_TERMS.map(w => [w, { note: w }, 'desc']));
+  for (const [label, extra, order] of jobs) {
+    const r = await call(extra, order);
+    if (r.kind === 'auth_error' || r.kind === 'blocked') return [row(t.wi_id, r.kind, { prof, coverage: cov }, total, [...seen.values()], null, r.msg)];
+    const d = r.data && r.data.postMandatesIntentions; const xs = (d && d.results) || [];
+    const tot = d && d.pagination ? d.pagination.total : null;
+    if (label === 'newest') total = tot;
+    take(xs, label);
+    let got = xs.length;
+    if (label !== 'newest' && label !== 'oldest' && tot > 10) {
+      const r2 = await call(extra, 'asc');
+      if (r2.kind === 'auth_error' || r2.kind === 'blocked') return [row(t.wi_id, r2.kind, { prof, coverage: cov }, total, [...seen.values()], null, r2.msg)];
+      const xs2 = (r2.data && r2.data.postMandatesIntentions && r2.data.postMandatesIntentions.results) || [];
+      take(xs2, label);
+      got = new Set(xs.concat(xs2).map(x => String(x.id))).size;
+    }
+    if (label !== 'newest' && label !== 'oldest') cov.push({ term: label, total: tot, seen: got, full: tot === null ? false : got >= tot, err: r.kind === 'ok' ? (r.msg || null) : r.msg });
+  }
+  const partial = cov.some(c => !c.full);
+  return [row(t.wi_id, partial ? 'partial' : 'ok', { prof, coverage: cov }, total, [...seen.values()], null, partial ? 'some terms have more than 20 matches' : 'full read 18 Nov')];
+}
 // Probe (18 Nov 2026, approved by the user): can the intentions query reach past the newest 10? For one
 // investor ('probe:<id>'), try one filter or paging form per call and record what came back (count, the
 // newest and oldest date, the asset classes), so it shows which forms the endpoint honours. Read-only.
