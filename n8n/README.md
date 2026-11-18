@@ -90,14 +90,16 @@ long/short re-read that would drop to Needs data, one company at a time, with a 
 the intentions query honours. Before copies: `wi01d-load-batch.before-2026-11-18.sql` (both batch queries),
 `wi01d-hf-read.before-2026-11-18.js`.
 
-## WI 01 "Split Digest into Mandates": buttons written "View&nbsp;..." (18 Nov 2026, NOT published yet)
+## WI 01 "Split Digest into Mandates": buttons written "View&nbsp;..." (18 Nov 2026, published)
 With Intelligence digests write the item buttons as `View&nbsp;mandate` / `View&nbsp;investor` / `View&nbsp;intention`;
 the button pattern only allowed a plain space, so items were cut only at "View article" buttons. An item without its
 own article (e.g. "Mandate has been added - POBA") ran into the next item and took that item's article link, and
 neighbouring intention / profile alerts were merged into one block (raw email 608: 8 blocks before, 27 after).
 Fix: `View(?:\s|&nbsp;| )+` in the button pattern (`wi01-split-digest.js`; before: `wi01-split-digest.before-2026-11-18.js`).
 `wi01-deterministic-extraction.js` is a copy of the unchanged "Deterministic Extraction" node, used by the test.
-Test: `tests/wi01-split-digest.test.mjs`. Live version is still 322d1d3e; publish only after the user's go.
+Test: `tests/wi01-split-digest.test.mjs`.
+Published 18 Nov 2026 (approved by the user) as version 7e204dd6-c51a-4b49-86f8-ed479139b1c3.
+Undo: publish 322d1d3e-4762-4cd9-975c-9744f1276def again.
 
 ## WI 01c (OlWe4Wi6flt7bDtv) "Investor Enrichment Backfill": PAUSED 12 Nov 2026 (research@taranis.net)
 Unpublished (it ran every 3 hours). It re-enriched every row with `wi_enriched_at` null and OVERWROTE
