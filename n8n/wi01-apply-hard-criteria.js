@@ -265,12 +265,10 @@ if (/^(no|not_allocator)$/.test(String(m.hf_evidence || ''))) {
     hard_fail_reasons: JSON.stringify(['Not a hedge fund investor (hf_evidence: ' + m.hf_evidence + ')']),
     missing_hard_fields: JSON.stringify([]), soft_flags: JSON.stringify([]), hard_notes: JSON.stringify([]), needs_data_reason: null } };
 }
-// The hire cap is lifted when long/short (a hedge fund intention quote) and Technology (a quote) both come from the
-// profile (13 Nov 2026), as in the console.
-if (strong && itag === 'people' && !(eqHow === 'quote' && techQuoted)) { hard_status = 'uncertain'; band = 'hire'; notes.push('An allocator\'s hire with a strategy match - worth a look, not an automatic match'); }
+// A People alert (an allocator's hire) is scored on its evidence like any other row (17 Nov 2026): no hire band.
 // Matched requires long/short (or quant) AND technology (11 Nov 2026): long/short
 // without technology (space does not count) passes to review, not to a match.
-else if (strong && eqReviewOnly) { hard_status = 'uncertain'; band = 'strong'; notes.push('Long/short from an equity tag beside other asset classes or a long-only tag - review, not a match'); }
+if (strong && eqReviewOnly) { hard_status = 'uncertain'; band = 'strong'; notes.push('Long/short from an equity tag beside other asset classes or a long-only tag - review, not a match'); }
 else if (strong) { hard_status = tech ? 'pass' : 'uncertain'; band = theme ? 'strong_tech' : 'strong'; notes.push('Strategy matches directly' + (eqHow && !strongCore ? ' (equity in a hedge-fund context)' : '') + (tech ? ' (+ technology)' : ' - no technology, so review, not a match') + (space ? ' (+ space)' : '')); }
 else if (theme)  { hard_status = 'uncertain'; band = 'tech';        notes.push('No strategy stated, ' + (tech ? 'technology' : 'space') + ' interest - kept for review'); }
 else if (excl)   { hard_status = 'uncertain'; band = 'low';         notes.push('CTA/macro/market-neutral and no L/S, quant or tech - low but kept'); }

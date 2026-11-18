@@ -499,8 +499,8 @@ function scoreChip(v, m) {
     box.appendChild(el('p', { class: 'mono', style: 'font-size:10px;letter-spacing:.14em;'
       + 'text-transform:none;--lbl:1;color:var(--ink-3);margin:22px 0 8px' }, 'What the number means'));
     for (const [k, d] of [
-      ['Matched',       '0.75 and up. Long/short equity or quant stated.'],
-      ['Review',        '0.30 to 0.74. Technology interest, strategy not stated. A person decides.'],
+      ['Matched',       '0.90 and up (0.89 when Technology is from the alert text only). Long/short and Technology; Space and emerging managers add 5 points each, 1.00 with all four.'],
+      ['Review',        '0.40 to 0.74. Long/short without Technology (0.60 to 0.74), Technology without long/short (0.55 to 0.70), or Space only. A person decides.'],
       ['Low',           'Below 0.30. CTA, macro or market-neutral only. The wrong fit, but kept, not turned away.'],
       ['Needs data',    'No score. A hedge-fund allocator whose strategy the alert never stated.'],
       ['Rejected',      'Not a hedge-fund allocator, or not an investor mandate at all. The only reject.']
@@ -1372,6 +1372,13 @@ const TABS = [
     sub: 'The live pipeline. Filter by read and by approved rather than moving between queues.' },
   { id: 'approvals',icon: '\u2192', label: 'Approved',      title: 'Approved Opportunities', group: 'wi', sub2: true,
     sub: 'The ones a person has approved. A subset of Opportunities, not a separate list.' },
+  // Empty for now (17 Nov 2026): the iConnections allocators under Opportunities, and their Approved subset.
+  // Not the hidden 'iconn' export matcher further down, which stays as it is.
+  { id: 'oppsiconn', icon: '⇄', label: 'iConnections', title: 'iConnections', group: 'wi', sub2: true,
+    sub: 'Allocators from iConnections.' },
+  // Empty for now (17 Nov 2026): directly under iConnections, at the same level.
+  { id: 'preqin',   icon: '◈', label: 'Preqin',        title: 'Preqin', group: 'wi', sub2: true,
+    sub: 'Investors from Preqin.' },
   { id: 'rejected', icon: '\u25BD', label: 'Rejected',      title: 'Rejected', group: 'wi',
     sub: 'Screened out on two or more criteria. Kept so you can see what was turned away, and why.' },
   { id: 'hedgefunds', icon: '\u25C6', label: 'Hedge funds', title: 'Hedge funds in the alerts', group: 'wi',
@@ -1433,7 +1440,7 @@ function buildNav() {
       class: 'navbtn', type: 'button', 'data-tab': t.id,
       onclick: () => go(t.id)
     }, el('span', { class: 'ic' }, t.icon), el('span', null, t.label));
-    if (t.group) b.style.paddingLeft = t.sub2 ? '42px' : '26px';
+    if (t.group) b.style.paddingLeft = t.sub3 ? '58px' : t.sub2 ? '42px' : '26px';
     if (t.foot) b.style.marginTop = '18px';
     list.appendChild(b);
   }
@@ -2110,32 +2117,30 @@ function noMatchingStrategy(m) {
 }
 const RE_NOT_ALLOCATOR = /private equity|venture capital|service provider|placement agent|law firm|real estate|infrastructure|data provider/;
 const IN_MARKET = new Set(['GB', 'UK', 'GBR', 'CH', 'CHE', 'US', 'USA', 'UNITEDSTATES', 'UNITEDKINGDOM', 'ENGLAND', 'SCOTLAND', 'SWITZERLAND']);
-const BAND_SCORE = { strong_tech: 1, strong: 0.90, tech: 0.60, hire: 0.60, low: 0.20 };
-// The Taranis score (6 Nov 2026). L = long/short or quant, T = technology,
-// S = space (explicit space wording), E = invests in emerging managers
-// (open_to_emerging_managers true; unknown counts as no).
-//   L+T+E 1.00 - the only way to 100%
-//   L+T   0.90            L+S+E 0.80   L+E 0.80   L+S 0.78   L 0.75
-//   T+E   0.65   T 0.60   S+E 0.55     S 0.50     (review: no L)
-// Space instead of technology caps at 80%. The GB / CH / US bonus (+0.05,
-// not for an investor that refuses emerging managers) never lifts a row past
-// its cap: 0.95 without all three, 0.80 with L but no T, 0.70 with no L.
-// hire 0.60 and low 0.20 (each +0.05 with the bonus) and needs data (no score) are unchanged. Same rule as
-// WI 01 (Build Mandate SQL).
-function taranisScore(band, L, T, S, E, bonusOk) {
+// The Taranis score (17 Nov 2026, decided by the user; replaces the 6 Nov table). L = long/short or quant,
+// T = technology, S = space, E = invests in emerging managers (true; unknown counts as no).
+//   L+T+S+E 1.00 - the only way to 100%
+//   L+T+S 0.95   L+T+E 0.95   L+T 0.90                      -> Matched (above 0.75)
+//   L+S+E 0.74   L+S 0.70     L+E 0.65     L 0.60            -> Review (no Technology)
+//   T+S+E 0.70   T+S 0.65     T+E 0.60     T 0.55            -> Review (no long/short)
+//   S+E 0.45     S 0.40                                       -> Review
+//   low 0.20, needs data no score.
+// Long/short always ranks above the same evidence without it. No country bonus: geography is shown as
+// context, not scored. A People alert (an allocator's hire) is scored on its evidence like any other row.
+// Same table as WI 01 (Build Mandate SQL).
+const BAND_SCORE = { strong_tech: 1, strong: 0.60, tech: 0.55, low: 0.20 };
+function taranisScore(band, L, T, S, E) {
   if (band === 'needs_data') return null;
-  let s, cap;
-  if (band === 'low')       { s = 0.20; cap = 0.25; }
-  else if (band === 'hire') { s = 0.60; cap = 0.65; }
-  else if (L && T)  { s = E ? 1.00 : 0.90; cap = E ? 1.00 : 0.95; }
-  else if (L)  { s = S ? (E ? 0.80 : 0.78) : (E ? 0.80 : 0.75); cap = 0.80; }
-  else if (T)  { s = E ? 0.65 : 0.60; cap = 0.70; }
-  else if (S)  { s = E ? 0.55 : 0.50; cap = 0.70; }
+  if (band === 'low') return 0.20;
+  let s;
+  if (L && T)  s = 0.90 + (S ? 0.05 : 0) + (E ? 0.05 : 0);
+  else if (L)  s = S && E ? 0.74 : S ? 0.70 : E ? 0.65 : 0.60;
+  else if (T)  s = S && E ? 0.70 : S ? 0.65 : E ? 0.60 : 0.55;
+  else if (S)  s = E ? 0.45 : 0.40;
   else return null;
-  if (bonusOk && s < cap) s = Math.min(cap, s + 0.05);
   return Math.round(s * 100) / 100;
 }
-const BAND_QUAL  = { strong_tech: 'matched', strong: 'matched', tech: 'uncertain', hire: 'uncertain', low: 'low', needs_data: 'needs_data' };
+const BAND_QUAL  = { strong_tech: 'matched', strong: 'matched', tech: 'uncertain', low: 'low', needs_data: 'needs_data' };
 
 function rescore(m) {
   const t = sigText(m);
@@ -2151,15 +2156,9 @@ function rescore(m) {
   const strong = isStrong(m, t), techOnly = !!techOf(m, t), space = !!spaceOf(m, t), tech = techOnly || space;
   let band = strong ? (tech ? 'strong_tech' : 'strong') : tech ? 'tech'
     : (RE_EXCL.test(mandateText(m)) || noMatchingStrategy(m)) ? 'low' : 'needs_data';
-  // An allocator's hire is worth a look, never an automatic match.
-  // Lifted (13 Nov 2026, decided by research@taranis.net) when both long/short and Technology come from the
-  // investor's own With Intelligence profile: a hedge fund intention quote (evidence.equity_long_short) and a
-  // quoted Tech (techQuoted). Tags alone, or alert text alone, keep the hire cap.
-  if (band.indexOf('strong') === 0 && /^people$/i.test(String(m.investor_tag || '').trim())
-      && !(equityInHf(m) === 'quote' && techQuoted(m))) band = 'hire';
-  const cc = String(m.investor_country || '').toUpperCase().replace(/[^A-Z]/g, '');
-  let s = taranisScore(band, strong, techOnly, space, m.open_to_emerging_managers === true,
-    IN_MARKET.has(cc) && m.open_to_emerging_managers !== false);
+  // A People alert (an allocator's hire) is scored on its evidence like any other row (17 Nov 2026); the
+  // flat "hire" cap is gone.
+  let s = taranisScore(band, strong, techOnly, space, m.open_to_emerging_managers === true);
   // Hedge fund hard rule: only a confirmed hedge fund investor can be matched.
   const hf = m && m.hf_evidence ? String(m.hf_evidence) : null;
   if (hf === 'no' || hf === 'not_allocator') return { band: 'rejected', q: 'rejected', s: 0 };
@@ -2282,7 +2281,7 @@ function verdictReason(m) {
     s = strong || tech || space ? [strongBit, techBit, hs === 'yes' ? hedge : ''].filter(Boolean).join(', ')
       : 'Matched by the re-score, though the stored fields no longer show a long/short, quant or technology signal';
   } else if (band === 'uncertain') {
-    if (strong && /^people$/i.test(String(m.investor_tag || '').trim())) s = 'An allocator\u2019s hire: worth a look, never an automatic match';
+    if (strong && !tech) s = capFirst(strongBit) + (space ? ', space interest' : '') + ', but no technology interest stated: worth a look';
     else if ((tech || space) && !strong) s = capFirst(techBit) + ', but no long/short or quant stated: worth a look';
     else s = 'Held for a person to look at: ' + [strongBit, techBit, hedge].filter(Boolean).join(', ');
   } else if (band === 'low') {
@@ -2897,7 +2896,9 @@ function sortMandates(rows, mode) {
   // Within a verdict, stronger long/short evidence first (lsTier, 13 Nov 2026: long/short equity, then
   // equity hedge, then plain equity), then stronger technology evidence (techTier, 12 Nov 2026): a stated
   // tech / AI interest, then a themes line, then alert text only, then none.
-  const best = then(orderBy(sortVerdict, 1), orderBy(lsTier, 1), orderBy(techTier, 1), orderBy(sortFit, -1), ...ties);
+  // 17 Nov 2026: within a verdict the score comes first (100% above 95% above 90%), then the long/short and
+  // Technology evidence tiers break ties between equal scores.
+  const best = then(orderBy(sortVerdict, 1), orderBy(sortFit, -1), orderBy(lsTier, 1), orderBy(techTier, 1), ...ties);
   const cmp = {
     best:       best,
     score_asc:  then(orderBy(sortFit, 1), ...ties),
@@ -10408,6 +10409,14 @@ function importIconnections() {
   ICONN.result = null; ICONN.runId = null;
   go('iconn');
 }
+
+// Placeholder views (17 Nov 2026): no data is read yet.
+RENDER.oppsiconn = function (body) {
+  body.appendChild(empty('Nothing here yet', 'iConnections allocators will be listed here.'));
+};
+RENDER.preqin = function (body) {
+  body.appendChild(empty('Nothing here yet', 'Preqin investors will be listed here.'));
+};
 
 RENDER.iconn = function (body) {
   clear(body);

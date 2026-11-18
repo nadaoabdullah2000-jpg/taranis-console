@@ -30,31 +30,24 @@ const j = (v) => {
 };
 
 // ---------- THE RE-SCORE VERDICT ----------
-// new_qualification / new_fit_score are what the console reads. The Taranis
-// score (6 Nov 2026), the same rule as the console (taranisScore in app.js):
-// L = long/short or quant, T = technology, S = space (explicit wording),
-// E = invests in emerging managers (true; unknown counts as no).
-//   L+T+E 1.00 - the only way to 100%
-//   L+T   0.90            L+S+E 0.80   L+E 0.80   L+S 0.78   L 0.75
-//   T+E   0.65   T 0.60   S+E 0.55     S 0.50     (review: no L)
-// GB / CH / US +0.05 (not for an investor that refuses emerging managers),
-// never past the cap: 0.95 without all three, 0.80 with L but no T, 0.70 with
-// no L. hire 0.60, low 0.20, needs_data no score.
-// Matched requires long/short AND technology (11 Nov 2026): strong (long/short only)
-// waits for a decision; strong_tech is a match only when the technology signal is
-// technology itself, not space. Either way a review is capped at 0.74.
+// new_qualification / new_fit_score are what the console reads. The Taranis score (17 Nov 2026), the same
+// table as the console (taranisScore in app.js). L = long/short or quant, T = technology, S = space,
+// E = invests in emerging managers (true; unknown counts as no). No country bonus; no hire band.
+//   L+T+S+E 1.00   L+T+S 0.95   L+T+E 0.95   L+T 0.90            -> Matched
+//   L+S+E 0.74     L+S 0.70     L+E 0.65     L 0.60              -> Review (no technology)
+//   T+S+E 0.70     T+S 0.65     T+E 0.60     T 0.55              -> Review (no long/short)
+//   S+E 0.45       S 0.40       low 0.20     needs data no score
+// Matched requires long/short AND technology (space is not technology); a review never goes above 0.74.
 const BAND_Q = { strong: 'uncertain', strong_tech: 'matched', tech: 'uncertain', hire: 'uncertain', low: 'low', needs_data: 'needs_data' };
-function taranisScore(band, L, T, S, E, bonusOk) {
+function taranisScore(band, L, T, S, E) {
   if (band === 'low') return 0.20;
-  if (band === 'hire') return 0.60;
   if (band === 'needs_data') return null;
-  let s, cap;
-  if (L && T)  { s = E ? 1.00 : 0.90; cap = E ? 1.00 : 0.95; }
-  else if (L)  { s = S ? (E ? 0.80 : 0.78) : (E ? 0.80 : 0.75); cap = 0.80; }
-  else if (T)  { s = E ? 0.65 : 0.60; cap = 0.70; }
-  else if (S)  { s = E ? 0.55 : 0.50; cap = 0.70; }
+  let s;
+  if (L && T)  s = 0.90 + (S ? 0.05 : 0) + (E ? 0.05 : 0);
+  else if (L)  s = S && E ? 0.74 : S ? 0.70 : E ? 0.65 : 0.60;
+  else if (T)  s = S && E ? 0.70 : S ? 0.65 : E ? 0.60 : 0.55;
+  else if (S)  s = E ? 0.45 : 0.40;
   else return null;
-  if (bonusOk && s < cap) s = Math.min(cap, s + 0.05);
   return Math.round(s * 100) / 100;
 }
 let newQ, newS;
@@ -64,9 +57,9 @@ if (String(m.hard_status || '').toLowerCase() === 'fail' || m.qualification === 
   const band = BAND_Q[m.score_band] ? m.score_band : 'needs_data';
   newQ = BAND_Q[band];
   newS = taranisScore(band, m.sig_strong === true, m.sig_tech === true, m.sig_space === true,
-    m.open_to_emerging_managers === true, m.in_market === true && m.open_to_emerging_managers !== false);
+    m.open_to_emerging_managers === true);
   if (newQ === 'matched' && !(m.sig_strong === true && m.sig_tech === true)) newQ = 'uncertain';
-  if (newQ === 'uncertain' && (band === 'strong' || band === 'strong_tech') && newS !== null && newS > 0.74) newS = 0.74;
+  if (newQ === 'uncertain' && newS !== null && newS > 0.74) newS = 0.74;
 }
 
 const q = 'INSERT INTO wi_mandates (record_key,raw_email_id,block_index,investor_name,organization_name,contact_name,investor_country,investor_city,investor_type,investor_tag,asset_classes,strategies,ticket_min_usd,ticket_max_usd,aum_usd,aum_band,open_to_emerging_managers,open_to_new_relationships,open_to_emerging_markets,alert_type,alert_date,allocation_timing,intention_summary,requirements_raw,appetite_raw,evidence,qualification,fit_score,fit_reason,hard_fail_reasons,missing_hard_fields,positive_signals,risks,missing_information,view_article_url,view_intention_url,view_investor_url,source_links,linkedin_url,source_message_id,source_email_date,new_qualification,new_fit_score,is_space,space_signal,wi_enriched_at,is_tech_investor,tech_signal,hf_evidence) VALUES ('

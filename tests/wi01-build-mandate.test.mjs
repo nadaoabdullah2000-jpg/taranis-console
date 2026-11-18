@@ -9,9 +9,11 @@ const q = (m) => new Function('$json', code)(Object.assign({ investor_name: 'X',
 // new_qualification and new_fit_score are the last two-but-two values of the insert: read them from the SQL.
 const verdict = (sql) => { const m = /'(matched|uncertain|low|needs_data|rejected)',\s*(NULL|[\d.]+),\s*(?:NULL|true|false),\s*(?:NULL|'[^']*'),\s*(?:NULL|NOW\(\)),\s*(?:NULL|true|false),\s*(?:NULL|'(?:[^']|'')*'),\s*(?:NULL|'[^']*')\)/.exec(sql); return m ? [m[1], m[2]] : null; };
 
-test('long/short without technology is a review at 0.74 at most', () => {
+test('long/short without technology is a review (17 Nov 2026 table: L+E 0.65, L+S+E 0.74)', () => {
   const v = verdict(q({ hard_status: 'uncertain', score_band: 'strong', sig_strong: true, sig_tech: false, in_market: true, open_to_emerging_managers: true }));
-  assert.deepEqual(v, ['uncertain', '0.74']);
+  assert.deepEqual(v, ['uncertain', '0.65']);
+  const s = verdict(q({ hard_status: 'uncertain', score_band: 'strong_tech', sig_strong: true, sig_tech: false, sig_space: true, open_to_emerging_managers: true }));
+  assert.deepEqual(s, ['uncertain', '0.74']);
 });
 test('long/short + space is not a match', () => {
   const v = verdict(q({ hard_status: 'uncertain', score_band: 'strong_tech', sig_strong: true, sig_tech: false, sig_space: true }));
