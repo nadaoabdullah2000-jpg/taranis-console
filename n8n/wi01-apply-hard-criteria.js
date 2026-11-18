@@ -1,12 +1,12 @@
-const m0 = $json;
-// ---------- INHERITED EVIDENCE (DRAFT 13 Nov 2026) ----------
+// ---------- INHERITED EVIDENCE (DRAFT 13 Nov 2026; wiring 17 Nov 2026) ----------
 // A new alert for an investor already enriched in the tool takes that investor's stored, checked evidence (node
 // "Load Investor Evidence"; m._inherit in tests): blanks only, never over what the alert itself says. The same
 // fields the console scores the investor's card on, so the new row and a console re-score give the same verdict.
-const inh = (() => {
-  if (m0._inherit) return m0._inherit;
-  try { const r = $('Load Investor Evidence').item.json; return r && r.inherit_from_id ? r : null; } catch (e) { return null; }
-})();
+// "Load Investor Evidence" (Postgres) replaces the item with its one result row, so when the input is that row the
+// alert is read from the node before it, "Key Fields Present?" (the item that reached this node before step 2).
+const fromDb = !!$json && Object.prototype.hasOwnProperty.call($json, 'inherit_from_id');
+const m0 = fromDb ? $('Key Fields Present?').item.json : $json;
+const inh = m0._inherit ? m0._inherit : (fromDb && $json.inherit_from_id ? $json : null);
 const m = { ...m0 };
 const inherited = [];
 if (inh) {
