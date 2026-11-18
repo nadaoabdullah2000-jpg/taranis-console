@@ -46,6 +46,33 @@ if (String(t.wi_id) === 'introspect') {
   const fields = r.data && r.data.q ? r.data.q.queryType.fields.filter(f => /intention|mandate/i.test(f.name)) : null;
   return [row('introspect', r.kind === 'ok' ? 'ok' : r.kind, { pagination: r.data && r.data.pf, fields }, null, null, null, r.msg)];
 }
+// Probe (18 Nov 2026, approved by the user): can the intentions query reach past the newest 10? For one
+// investor ('probe:<id>'), try one filter or paging form per call and record what came back (count, the
+// newest and oldest date, the asset classes), so it shows which forms the endpoint honours. Read-only.
+if (/^probe:-?\d+$/.test(String(t.wi_id))) {
+  const pid = String(t.wi_id).slice(6);
+  const base = { institutional_investor_id: pid, sort: 'date', order: 'desc' };
+  const V = [['base', {}, null], ['order asc', { order: 'asc' }, null],
+    ['date_to', { date_to: '2024-01-01' }, null], ['end_date', { end_date: '2024-01-01' }, null],
+    ['to_date', { to_date: '2024-01-01' }, null], ['date_end', { date_end: '2024-01-01' }, null],
+    ['date lte', { date: { lte: '2024-01-01' } }, null], ['date range', { date_range: { to: '2024-01-01' } }, null],
+    ['asset_class', { asset_class: 'Hedge Funds' }, null], ['asset_classes', { asset_classes: ['Hedge Funds'] }, null],
+    ['entityType', { entityType: 'Intention' }, null], ['entity_type', { entity_type: 'Intention' }, null],
+    ['page 2', {}, { page: 2, limit: 10 }], ['offset 10', {}, { offset: 10, limit: 10 }], ['start 10 limit 10', {}, { start: 10, limit: 10 }]];
+  const res = [];
+  for (const [name, extra, pg] of V) {
+    await sleep(jitter(2000, 3000));
+    const r = await gql(QI, { b: JSON.stringify(Object.assign({}, base, extra)), p: pg || { start: 0, limit: 10 } });
+    if (r.kind === 'auth_error' || r.kind === 'blocked') return [row(t.wi_id, r.kind, { probe: res }, null, null, null, r.msg)];
+    const d = r.data && r.data.postMandatesIntentions;
+    const xs = (d && d.results) || [];
+    const ds = xs.map(x => String(x.date || '').slice(0, 10)).filter(Boolean).sort();
+    res.push({ v: name, kind: r.kind, msg: r.msg ? String(r.msg).slice(0, 160) : null, total: d && d.pagination ? d.pagination.total : null,
+      n: xs.length, oldest: ds[0] || null, newest: ds[ds.length - 1] || null,
+      ids: xs.map(x => x.id).slice(0, 10), ac: [...new Set(xs.map(x => x.asset_class && x.asset_class.name).filter(Boolean))] });
+  }
+  return [row(t.wi_id, 'ok', { probe: res }, null, null, null, 'probe')];
+}
 const id = String(t.wi_id);
 await sleep(jitter(4000, 7000));
 const p = await gql(QP, { id });
