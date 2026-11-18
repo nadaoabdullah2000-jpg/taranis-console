@@ -49,10 +49,13 @@ if (String(t.wi_id) === 'introspect') {
 // Probe (18 Nov 2026, approved by the user): can the intentions query reach past the newest 10? For one
 // investor ('probe:<id>'), try one filter or paging form per call and record what came back (count, the
 // newest and oldest date, the asset classes), so it shows which forms the endpoint honours. Read-only.
-if (/^probe:-?\d+$/.test(String(t.wi_id))) {
-  const pid = String(t.wi_id).slice(6);
+// The variants may also come from the target's name, as JSON [[label, extra body keys, paging or null], ...].
+const PM = /^probe:(-?\d+)/.exec(String(t.wi_id));
+if (PM) {
+  const pid = PM[1];
   const base = { institutional_investor_id: pid, sort: 'date', order: 'desc' };
-  const V = [['base', {}, null], ['order asc', { order: 'asc' }, null],
+  let named = null; try { named = /^\s*\[/.test(String(t.name || '')) ? JSON.parse(t.name) : null; } catch (_) { named = null; }
+  const V = named || [['base', {}, null], ['order asc', { order: 'asc' }, null],
     ['date_to', { date_to: '2024-01-01' }, null], ['end_date', { end_date: '2024-01-01' }, null],
     ['to_date', { to_date: '2024-01-01' }, null], ['date_end', { date_end: '2024-01-01' }, null],
     ['date lte', { date: { lte: '2024-01-01' } }, null], ['date range', { date_range: { to: '2024-01-01' } }, null],
