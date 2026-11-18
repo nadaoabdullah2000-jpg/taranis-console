@@ -82,6 +82,14 @@ newest 10 only: `paginationFilters.start` and a larger `limit` are ignored, and 
 older intentions are not reachable with this query. Previous branch code: `wi01d-full-read.js` (targets from
 `wi_full_targets`).
 
+## WI 01d (umIcE6l9pLFuC5JH), 18 Nov 2026: enrichment of the 84 Needs-data rows and intentions probe (approved by the user)
+Not published (manual triggers only); read-only on wi_mandates. "Load Batch" now picks only the 84 rows of the
+long/short re-read that would drop to Needs data, one company at a time, with a 6 s "Pause" node between reads
+(stages into wi_profile_reads). "Load iConn Batch" reads the '18 Nov probe' / '18 Nov full read' targets.
+"Search WI (iConn)" (`wi01d-hf-read.js`) gains a probe mode ('probe:<id>') that tests which filter or paging forms
+the intentions query honours. Before copies: `wi01d-load-batch.before-2026-11-18.sql` (both batch queries),
+`wi01d-hf-read.before-2026-11-18.js`.
+
 ## WI 01c (OlWe4Wi6flt7bDtv) "Investor Enrichment Backfill": PAUSED 12 Nov 2026 (research@taranis.net)
 Unpublished (it ran every 3 hours). It re-enriched every row with `wi_enriched_at` null and OVERWROTE
 type, city, country, asset classes, tickets, AUM, AUM band, evidence (family names) and the investor
