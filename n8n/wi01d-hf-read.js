@@ -60,9 +60,12 @@ const FULL_TERMS = [
   ...['long-biased', 'long bias', 'market-neutral', 'market neutral'].map(w => [w, 'flag']),
   ...['quant', 'quantitative', 'systematic', 'hedge fund', 'technology', 'artificial intelligence', 'AI', 'software', 'semiconductor',
     'space', 'defense', 'defence'].map(w => [w, 'info'])];
-const FM = /^full:(-?\d+)$/.exec(String(t.wi_id));
+// Each investor is read in two targets so one code run stays under n8n's time limit: 'full:<id>' reads the newest
+// and oldest 10 and the 'ls' and 'flag' terms; 'info:<id>' reads the 'info' terms.
+const FM = /^(full|info):(-?\d+)$/.exec(String(t.wi_id));
 if (FM) {
-  const fid = FM[1];
+  const fid = FM[2];
+  const part = FM[1];
   await sleep(jitter(4000, 7000));
   const p = await gql(QP, { id: fid });
   if (p.kind === 'auth_error' || p.kind === 'blocked') return [row(t.wi_id, p.kind, null, null, null, null, p.msg)];
@@ -77,7 +80,8 @@ if (FM) {
     const r = await gql(QI, { b: JSON.stringify(Object.assign({ institutional_investor_id: fid, sort: 'date', order }, extra)), p: { start: 0, limit: 10 } });
     return r;
   };
-  const jobs = [['newest', {}, 'desc', 'base'], ['oldest', {}, 'asc', 'base']].concat(FULL_TERMS.map(([w, k]) => [w, { note: w }, 'desc', k]));
+  const terms = FULL_TERMS.filter(([, k]) => part === 'info' ? k === 'info' : k !== 'info');
+  const jobs = (part === 'full' ? [['newest', {}, 'desc', 'base'], ['oldest', {}, 'asc', 'base']] : []).concat(terms.map(([w, k]) => [w, { note: w }, 'desc', k]));
   for (const [label, extra, order, kind] of jobs) {
     const r = await call(extra, order);
     if (r.kind === 'auth_error' || r.kind === 'blocked') return [row(t.wi_id, r.kind, { prof, coverage: cov }, total, [...seen.values()], null, r.msg)];
