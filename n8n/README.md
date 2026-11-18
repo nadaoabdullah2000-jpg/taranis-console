@@ -111,17 +111,31 @@ covers AUM bands of $100m and up (a "< $30m" or "$30m - $100m" profile keeps mil
   space -> band low, not needs_data. Same rule as the console's noMatchingStrategy.
   Copy: `wi01-apply-hard-criteria.js`; previous code: `wi01-apply-hard-criteria.before-2026-11-13.js`.
 
-## 13 Nov 2026: WI 01 scores like the console (approved by research@taranis.net) - PENDING PUBLISH
-n8n was unreachable when this was approved; nothing below is live yet. Current live version: 7c8f1215 (= undo for both steps).
-- Step 1 (approved): "Apply Taranis Hard Criteria" <- `wi01-apply-hard-criteria.step1-parity-2026-11-13.js`.
+## 13 Nov 2026: WI 01 scores like the console (approved by research@taranis.net) - step 1 PUBLISHED 17 Nov 2026
+n8n was unreachable when this was approved. Step 1 was published on 17 Nov 2026 after a fresh go in session.
+- Step 1 (published 17 Nov 2026 as **0867eacd**; undo: publish 7c8f1215): "Apply Taranis Hard Criteria" <-
+  `wi01-apply-hard-criteria.step1-parity-2026-11-13.js`. Check after publishing: row 3293 (MassPRIM, the newest WI 01
+  row) rescored with the console's rescore() and the step-1 code gives uncertain / strong on both, the same as stored.
   "quantitative analysis" is not quant; 130/30 never counts as long/short; the evidence keys the console does not score
   are skipped (discovery, wi_industries, wi_intentions, stored decisions); stored decisions on the row are read like the
   console (newest_intention_criteria, equity_long_short, equity_not_long_short, equity_review_only, no_matching_strategy,
   a person's Tech choice, profile Tech/Space, hf_evidence no/not_allocator); hire cap lifted only for profile-quoted
   long/short + Tech. Parity on the 485 live non-rejected rows: same band and verdict 485/485
   (`tests/wi01-console-parity.test.mjs`). Previous code: `wi01-apply-hard-criteria.before-2026-11-13b.js` (= 7c8f1215).
-- Step 2 (DRAFT, to be shown before publishing): inheritance at intake. New Postgres node "Load Investor Evidence"
-  (`wi01-load-investor-evidence.sql`) between "WI Profile Enrichment" and "Apply Taranis Hard Criteria";
+- Step 2 (published 17 Nov 2026 as **3c1a4277**; undo: publish 0867eacd): inheritance at intake. New Postgres node
+  "Load Investor Evidence" (`wi01-load-investor-evidence.sql`, credential "Postgres account", Always Output Data) on the
+  true output of "Key Fields Present?" (which follows "WI Profile Enrichment"), before "Apply Taranis Hard Criteria". The
+  query always returns one row per alert (nulls when nothing is stored), so no alert is dropped; the node replaces the
+  item, so the Apply code reads the alert from `$('Key Fields Present?').item.json`. The node holds the query without
+  its comment lines. Previous Apply code: `wi01-apply-hard-criteria.before-2026-11-17.js` (= 0867eacd);
   "Apply Taranis Hard Criteria" <- `wi01-apply-hard-criteria.js` (fills blanks from it); "Build Mandate SQL" <-
   `wi01-build-mandate-sql.js` (saves is_tech_investor / tech_signal / hf_evidence, never over a value on the row, and logs
   every inherited field in wi_fill_log). Previous code: `wi01-build-mandate-sql.before-2026-11-13.js`.
+
+## 18 Nov 2026: WI 01 uses the 17 Nov score table (approved by research@taranis.net) - PUBLISHED
+- Published 18 Nov 2026 as **322d1d3e**; undo: publish 3c1a4277.
+- "Build Mandate SQL" <- `wi01-build-mandate-sql.js` (17 Nov table: L+T+S+E 1.00, L+T+S / L+T+E 0.95, L+T 0.90;
+  L+S+E 0.74, L+S 0.70, L+E 0.65, L 0.60; T+S+E 0.70, T+S 0.65, T+E 0.60, T 0.55; S+E 0.45, S 0.40; low 0.20;
+  no country bonus, no hire score, every review capped at 0.74).
+- "Apply Taranis Hard Criteria" <- `wi01-apply-hard-criteria.js` (People alerts scored on their evidence, no hire band;
+  the "Load Investor Evidence" wiring from step 2 kept). Saved draft checked equal to the repo copies before publishing.

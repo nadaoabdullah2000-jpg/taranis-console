@@ -60,3 +60,22 @@ test('a new alert for an enriched investor inherits its stored evidence and gets
   const own = wi01(Object.assign({}, alert, { is_tech_investor: false, tech_signal: 'Set by a person: x', _inherit: stored }));
   assert.equal(own.is_tech_investor, false); assert.ok(!own._inherited.includes('is_tech_investor'));
 });
+
+test('wired as in n8n: the input is the Load Investor Evidence row and the alert comes from Key Fields Present? (17 Nov 2026)', () => {
+  const alert = Object.assign({}, base, { asset_classes: JSON.stringify(['Hedge Funds', 'Equity']), strategies: JSON.stringify([]),
+    intention_summary: 'Wyoming Retirement System names a new deputy CIO.', investor_tag: 'Intentions' });
+  const run = (dbRow) => new Function('$json', '$', code)(dbRow, (n) => { assert.equal(n, 'Key Fields Present?'); return { item: { json: alert } }; }).json;
+  const stored = { inherit_from_id: 1375,
+    inherit_evidence: { equity_long_short: '"commitments to event driven and equity hedge funds" (hedge fund intention, 2026-05-12)' },
+    inherit_is_tech: true, inherit_tech_signal: 'With Intelligence profile (Grok): "Primary themes include artificial intelligence."',
+    inherit_is_space: null, inherit_space_signal: null, inherit_hf_evidence: null };
+  const w = run(stored);
+  assert.equal(w.investor_name, 'Some Pension'); assert.ok(!('inherit_from_id' in w));
+  assert.equal(w.score_band, 'strong_tech'); assert.equal(w._inherited_from, 1375);
+  // nothing stored for this investor: a row of nulls, the alert is scored on its own, nothing inherited
+  const none = run({ inherit_from_id: null, inherit_evidence: null, inherit_is_tech: null, inherit_tech_signal: null,
+    inherit_is_space: null, inherit_space_signal: null, inherit_hf_evidence: null });
+  assert.equal(none.investor_name, 'Some Pension'); assert.equal(none._inherited, undefined);
+  assert.equal(none.score_band, wi01(Object.assign({}, base, { asset_classes: ['Hedge Funds', 'Equity'], strategies: [],
+    intention_summary: 'Wyoming Retirement System names a new deputy CIO.', investor_tag: 'Intentions' })).score_band);
+});
