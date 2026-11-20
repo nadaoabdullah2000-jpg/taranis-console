@@ -98,7 +98,7 @@ else if (/market trend|service provider|people|investor information|article|perf
 // theirs by referring back - "The pension system is...", "It has..." - so that
 // determiner is the boundary. Far more reliable than guessing where a proper
 // noun stops.
-const STOP_AT = '(?=\\s+(?:The|This|That|These|It|Its|They|He|She|In|Following)\\s|\\s*Asset\\s*class|\\s*Region\\s*:|$)';
+const STOP_AT = '(?=\\s+(?:The|This|That|These|It|Its|They|He|She|In|Following|No|As|According)\\s|\\s*Asset\\s*class|\\s*Region\\s*:|$)';
 
 // WI sends UTF-8 that some forwards mangle into latin-1, so an apostrophe
 // arrives as a stray character. Left alone, "Houston Police Officers Pension
@@ -113,7 +113,8 @@ let namedSubject = null;
 
 // ANNOUNCEMENT first: when it matches, the name is stated outright.
 const annRe = new RegExp(
-  '\\b(?:mandate|intention|investor|profile|consultant)\\s+has\\s+been\\s+added\\s*[-\\u2013\\u2014:]\\s*([^.|]{3,90}?)' + STOP_AT, 'i');
+  // "...has been updated - X" too (20 Nov 2026): the MassPRIM mandate update of 19 Nov produced no row.
+  '\\b(?:mandate|intention|investor|profile|consultant)\\s+has\\s+been\\s+(?:added|updated)\\s*[-\\u2013\\u2014:]\\s*([^.|]{3,90}?)' + STOP_AT, 'i');
 const ann = readable.match(annRe);
 if (ann) namedSubject = ann[1];
 
@@ -147,10 +148,17 @@ if (namedSubject) {
 let fromHeadline = null;
 if (headline) {
   const VERBS = /\b(starts?|seeks?|plans?|looks?|eyes|hires?|adds?|targets?|launch(?:es)?|weighs?|mulls?|taps?|backs?|commits?|allocat(?:es|ing)|explor(?:es|ing)|consider(?:s|ing)|expand(?:s|ing)|boosts?|cuts?|reviews?|appoints?|names?|picks?|selects?|issues?|opens?|to\s+\w+|is\s+\w+ing|has\s+\w+ed|wants?|prepar(?:es|ing)|shifts?|moves?|raises?|doubl(?:es|ing)|trims?|drops?|returns?|revamps?|rethinks?|steps?)\b/i;
-  const m = demojibake(headline).match(VERBS);
+  // 20 Nov 2026: more headline verbs ("DL Family Office plots shift...", "Firethorn Wealth looking at...",
+  // "DAI Advisors tilting towards...", "Ballast Rock keen on..."). Lower-case only, so a firm whose name
+  // holds the word ("Scout Investments", "Keen Capital") is never cut there.
+  const VERBS_LC = /\b(?:plots?|tilt(?:s|ing)|keen|looking|eyeing|scouts?|preps?|readies|shut(?:s|ting)?|pivots?|leans?|favou?rs?|ponders?|interested|falls?|joins?|debuts?|recruits?|readying|shuttering|deepens?|beefs?|sees|exits?|departs?|poaches?|lands?|closes?)\b/;
   const hl = demojibake(headline);
-  let cand = m ? hl.slice(0, m.index).trim() : hl.split(/[,:—-]/)[0].trim();
-  cand = cand.replace(/^(the|a|an)\s+/i, '').replace(/[.,;:]+$/, '').trim();
+  const m1 = hl.match(VERBS), m2 = hl.match(VERBS_LC);
+  const m = m1 && m2 ? (m1.index <= m2.index ? m1 : m2) : (m1 || m2);
+  // A hyphen inside a word ("co-founder", "multi-family") is not a break: only a spaced dash is (20 Nov 2026).
+  let cand = m ? hl.slice(0, m.index).trim() : hl.split(/\s+[-–—]\s+|[,:]/)[0].trim();
+  cand = cand.split(/\s*,\s*/)[0];   // a name ends at a comma too ("BlueMountain co-founder, former colleagues prep...")
+  cand = cand.replace(/^(the|a|an)\s+/i, '').replace(/[.,;:]+$/, '').replace(/['’]s$/, '').trim();
   const words = cand.split(/\s+/);
   if (words.length > 6) cand = words.slice(0, 6).join(' ');
   if (cand.length >= 3 && cand.length <= 80 && !/[<>{}]/.test(cand) && !/\.(png|jpg|gif)/i.test(cand)) {
