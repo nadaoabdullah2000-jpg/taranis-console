@@ -2360,7 +2360,25 @@ function ensureMatchCss() {
   + ".mcard-int-d{font-size:12px;letter-spacing:.01em;text-transform:none;--lbl:1;color:var(--ink-3)}"
   + ".mcard-int-t{font-variant-numeric:tabular-nums;color:var(--ink-3);font-size:11.5px;white-space:nowrap}"
   + ".mcard-int-s{display:block;line-height:1.5;overflow-wrap:break-word;word-break:normal}"
-  + ".mcard-hfnote{font-size:11.5px;color:var(--signal);margin:6px 0 2px}";
+  + ".mcard-hfnote{font-size:11.5px;color:var(--signal);margin:6px 0 2px}"
+  // Risks and next step (all cards).
+  + ".mcard-intel{margin-top:12px;display:flex;flex-direction:column;gap:5px;font-size:12.5px;line-height:1.45;color:var(--ink-2)}"
+  + ".mcard-intel-l{display:flex;gap:8px}.mcard-intel-l .k{flex:none;width:68px;color:var(--ink-3);font-size:12px}"
+  + ".mcard-intel-l.risk span:last-child{color:var(--bad)}"
+  // Source variants: same card, the source's own accent (iConnections purple, Preqin green).
+  + ".mcard.v-iconn{--v:var(--iconn-purple);--v-soft:var(--iconn-purple-soft)}.mcard.v-preqin{--v:var(--preqin);--v-soft:var(--preqin-soft)}"
+  + ".mcard.v-iconn,.mcard.v-preqin{border-top:3px solid var(--v);box-shadow:0 1px 2px rgba(16,35,58,.04),0 6px 16px rgba(16,35,58,.05)}"
+  + ".mcard.v-iconn .mcard-h,.mcard.v-preqin .mcard-h{color:var(--v)}"
+  + ".mcard.v-iconn .mcard-seg .seg.on,.mcard.v-preqin .mcard-seg .seg.on{background:var(--v)}"
+  + ".mcard.v-iconn .mcard-unk,.mcard.v-preqin .mcard-unk{background:var(--v-soft);color:var(--v)}"
+  + ".mcard.v-iconn .btn:not(.btn-quiet),.mcard.v-preqin .btn:not(.btn-quiet){background:var(--v);border-color:var(--v);color:#fff}"
+  + ".mcard-src{align-self:flex-start;margin:0 0 8px;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:600;background:var(--v-soft);color:var(--v)}"
+  + ".mcard-src-facts{margin-top:12px;padding-top:10px;border-top:1px solid var(--rule);display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--ink-2)}"
+  + ".mcard-src-l{display:flex;gap:8px}.mcard-src-l .k{flex:none;width:110px;color:var(--ink-3);font-size:12px}.mcard-src-l.bad span:last-child{color:var(--bad)}"
+  + ".src-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}"
+  + ".src-chip{border:1px solid var(--rule);background:var(--card);color:var(--ink-2);border-radius:999px;padding:5px 12px;font:inherit;font-size:13px;cursor:pointer}"
+  + ".src-chip.v-iconn.on{background:var(--iconn-purple);border-color:var(--iconn-purple);color:#fff}.src-chip.v-preqin.on{background:var(--preqin);border-color:var(--preqin);color:#fff}"
+  + ".src-q{margin-left:auto;min-width:180px;padding:6px 10px;border:1px solid var(--rule);border-radius:8px;background:var(--card);color:var(--ink);font:inherit;font-size:13px}";
   document.head.appendChild(s);
 }
 
@@ -2464,7 +2482,9 @@ function matchCard(m, opts) {
   const rej0  = opts.reject ? true : effectivelyRejected(m);
   const tone  = opts.tone || (rej0 ? 'bad' : bandTone(q));
 
-  const card = el('div', { class: 'mcard ' + tone, 'data-mid': m && m.id !== undefined && m.id !== null ? String(m.id) : '' });
+  // opts.variant: 'v-iconn' (purple) or 'v-preqin' (green) for the source tabs; none = the Opportunities colours.
+  const card = el('div', { class: 'mcard ' + tone + (opts.variant ? ' ' + opts.variant : ''), 'data-mid': m && m.id !== undefined && m.id !== null ? String(m.id) : '' });
+  if (opts.badge) card.appendChild(el('span', { class: 'mcard-src' }, opts.badge));
   card.appendChild(el('h4', { class: 'mcard-h' }, investorLabel(m)));
   card.appendChild(el('div', { class: 'mcard-sub' },
     [typeLabel(m.investor_type), countryName(m.investor_country),
@@ -2495,6 +2515,8 @@ function matchCard(m, opts) {
     contextRows(cr, m);
     card.appendChild(cr);
   }
+  // Risks (stored + the screening line) and the next step, on every card (25 Nov 2026).
+  if (!opts.noIntel) { const ib = intelBlock(m); if (ib) card.appendChild(ib); }
 
   if (opts.reasonLine) {
     const rl = el('div', { class: 'mcard-reason ' + (opts.reasonTone || 'bad') });
@@ -4794,7 +4816,7 @@ const MANDATE_LIST_COLS = [
   'linkedin_url', 'linkedin_urls', 'emails', 'contact_id', 'created_at', 'source_email_date',
   'alert_date', 'published_at', 'approved_at', 'approved_by', 'seen_at', 'wi_enriched_at',
   'source_page', 'source_kind', 'validation_status', 'verdict_source',
-  'is_tech_investor', 'tech_signal', 'focus_checks'
+  'is_tech_investor', 'tech_signal', 'focus_checks', 'risks', 'recommended_next_action'
 ].join(',');
 
 // The whole row as the database holds it now. Every verdict or field write
@@ -4869,10 +4891,10 @@ async function openOpportunityCount() {
 let OPPS_ROWS = null, OPPS_AT = 0, OPPS_LOADING = null, oppsReuse = false;
 function loadOpportunities() {
   if (OPPS_LOADING) return OPPS_LOADING;
-  OPPS_LOADING = openOpportunities(
+  OPPS_LOADING = Promise.all([openOpportunities(
     (verdict, limit) => readAllRows('wi_mandates',
       'select=' + MANDATE_LIST_COLS + '&' + verdict + '&order=id.desc', 'wi.mandates.list', { limit: limit }, limit)
-  ).then(rows => { OPPS_ROWS = rows; OPPS_AT = Date.now(); return rows; })
+  ), loadScreening()]).then(([rows]) => { OPPS_ROWS = rows; OPPS_AT = Date.now(); return rows; })
    .finally(() => { OPPS_LOADING = null; });
   return OPPS_LOADING;
 }
@@ -10410,13 +10432,245 @@ function importIconnections() {
   go('iconn');
 }
 
-// Placeholder views (17 Nov 2026): no data is read yet.
-RENDER.oppsiconn = function (body) {
-  body.appendChild(empty('Nothing here yet', 'iConnections allocators will be listed here.'));
+/* Source cards (25 Nov 2026): the iConnections (purple) and Preqin (green) tabs. Both use matchCard
+   with a variant, so the layout, the criteria meter and rows, the fit and the verdict are the
+   Opportunities card's own. A firm matched to an Opportunity shows that Opportunity (its verdict comes
+   from the same scoring); an unmatched firm is evaluated from its staged row with the same critOf /
+   critStatus, and says it is not in Opportunities (uploads never create Opportunities). Read only. */
+const SOURCE_VIEWS = {
+  oppsiconn: { kind: 'iconn', label: 'iConnections', cls: 'v-iconn', links: 'iconn_approved_links', rejections: 'iconn_wi_rejections' },
+  preqin:    { kind: 'preqin', label: 'Preqin', cls: 'v-preqin', links: 'preqin_approved_links', rejections: 'preqin_wi_rejections' }
 };
-RENDER.preqin = function (body) {
-  body.appendChild(empty('Nothing here yet', 'Preqin investors will be listed here.'));
-};
+const SRC = {};   // per tab: { rows, mand, links, rej, filter, q, loading, error }
+
+async function selectAll(table, query, cap) {
+  const out = [];
+  for (let off = 0; off < (cap || 5000); off += 1000) {
+    const rows = await supaSelect(table, query + '&limit=1000&offset=' + off);
+    out.push(...(rows || []));
+    if (!rows || rows.length < 1000) break;
+  }
+  return out;
+}
+
+// One card per firm, the way the iConnections matcher folds a contacts export: the newest active run's
+// rows for the same firm key, contacts summed and people merged.
+function foldSourceRows(rows, runs) {
+  const latest = {};
+  const runOrder = (id) => { const r = runs && runs[id]; return r ? [String(r.last_matched_at || ''), Number(id)] : ['', Number(id)]; };
+  for (const r of rows) {
+    const key = String(r.firm_key || r.norm_name || r.name || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    if (!key) continue;
+    const cur = latest[key];
+    if (!cur) { latest[key] = { ...r, people: [...(r.people || [])], contacts: r.contacts || 1, _key: key }; continue; }
+    const [a1, a2] = runOrder(cur.run_id), [b1, b2] = runOrder(r.run_id);
+    if (b1 > a1 || (b1 === a1 && b2 > a2)) { latest[key] = { ...r, people: [...(r.people || [])], contacts: r.contacts || 1, _key: key }; continue; }
+    if (r.run_id !== cur.run_id) continue;
+    cur.contacts = (cur.contacts || 1) + (r.contacts || 1);
+    for (const p of r.people || []) if (!cur.people.includes(p)) cur.people.push(p);
+    for (const k of ['domain', 'aum_text', 'investor_type', 'country', 'matched_id', 'matched_name', 'matched_fit_reason'])
+      if ((cur[k] === null || cur[k] === undefined || cur[k] === '') && r[k]) cur[k] = r[k];
+  }
+  return Object.values(latest);
+}
+
+// The staged row as a mandate-shaped object, so the Opportunities scoring reads it unchanged.
+function sourceMandate(r) {
+  const lo = r.aum_low === null || r.aum_low === undefined ? null : Number(r.aum_low);
+  const one = lo !== null && Number(r.aum_high) === lo ? lo : null;
+  return {
+    id: null, investor_name: r.name, organization_name: null, investor_type: r.investor_type || null,
+    investor_country: r.country || null, investor_city: r.city || null,
+    aum_usd: one, aum_band: one ? null : (r.aum_text || null),
+    strategies: r.strategies || [], asset_classes: r.asset_classes || [],
+    ticket_min_usd: r.ticket_min_usd || null, ticket_max_usd: r.ticket_max_usd || null,
+    intention_summary: r.summary || '', evidence: {}, qualification: 'needs_data', _staged: true
+  };
+}
+
+async function loadSource(tab) {
+  const V = SOURCE_VIEWS[tab];
+  const S = SRC[tab] = SRC[tab] || { filter: 'all', q: '' };
+  S.loading = true; S.error = null;
+  try {
+    await null;   // never redraw inside the render that started the load
+    if (DEMO) { Object.assign(S, demoSourceData(V.kind)); return; }
+    let rows = [];
+    if (V.kind === 'iconn') {
+      const runs = await supaSelect('iconnections_import_runs', 'select=id,import_no,last_matched_at&hidden_at=is.null');
+      const byRun = Object.fromEntries((runs || []).map(r => [r.id, r]));
+      if (runs && runs.length) {
+        const all = await selectAll('iconnections_import_rows', 'select=run_id,row_no,import_no,name,domain,aum_text,aum_low,aum_high,investor_type,country,norm_name,'
+          + 'bucket,match_method,matched_id,matched_name,matched_status,matched_fit,matched_fit_reason,people,contacts,candidates'
+          + '&run_id=in.(' + runs.map(r => r.id).join(',') + ')&order=run_id.desc,row_no.asc');
+        rows = foldSourceRows(all.filter(r => byRun[r.run_id] && r.import_no === byRun[r.run_id].import_no), byRun);
+      }
+    } else {
+      rows = foldSourceRows(await selectAll('preqin_import_rows', 'select=*&deleted_at=is.null&order=name.asc'), null);
+    }
+    const ids = [...new Set(rows.map(r => Number(r.matched_id)).filter(Number.isFinite))];
+    const mand = {};
+    for (let i = 0; i < ids.length; i += 100) {
+      for (const m of await supaSelect('wi_mandates', 'select=' + MANDATE_LIST_COLS + '&id=in.(' + ids.slice(i, i + 100).join(',') + ')') || []) mand[m.id] = m;
+    }
+    const links = {}, rej = {};
+    try { for (const l of await supaSelect(V.links, 'select=firm_key,wi_investor_id,approved_by,approved_at&revoked_at=is.null') || []) links[l.firm_key] = l; } catch (_) { /* no access: no link line */ }
+    try { for (const x of await supaSelect(V.rejections, 'select=firm_key,status,note') || []) rej[x.firm_key] = x; } catch (_) { /* same */ }
+    Object.assign(S, { rows, mand, links, rej });
+    await loadScreening();
+  } catch (e) {
+    S.error = e && e.message === 'NO_SUPABASE' ? 'Sign in to see this list.' : String((e && e.message) || e);
+  } finally {
+    S.loading = false;
+    if (current === tab) go(tab, { keepScroll: true });
+  }
+}
+
+function sourceCard(tab, f, S) {
+  const V = SOURCE_VIEWS[tab];
+  const mand = f.matched_id ? S.mand[f.matched_id] : null;
+  const m = mand || sourceMandate(f);
+  const link = S.links[f._key], rej = S.rej[f._key];
+  const facts = el('div', { class: 'mcard-src-facts' });
+  const line = (k, v, cls) => { if (v) facts.appendChild(el('div', { class: 'mcard-src-l' + (cls ? ' ' + cls : '') }, el('span', { class: 'k' }, k), el('span', null, v))); };
+  line('Match', mand ? 'Opportunity: ' + investorLabel(mand) + (f.match_method ? ' (' + f.match_method + ')' : '')
+    : f.bucket === 'review' ? 'Possible match: check on the ' + V.label + ' card before linking'
+    : 'Not in Opportunities. Staged only; never added automatically.');
+  const ppl = (f.people || []).filter(Boolean);
+  line('People', ppl.length ? ppl.slice(0, 4).join(', ') + (ppl.length > 4 ? ' and ' + (ppl.length - 4) + ' more' : '') : '');
+  line(V.label + ' AUM', f.aum_text && !(mand && aumText(mand)) ? cleanText(f.aum_text) : '');
+  line('Website', f.domain || '');
+  if (link) line('With Intelligence', 'Profile ' + link.wi_investor_id + ' linked' + (link.approved_by ? ', approved by ' + link.approved_by : ''));
+  if (rej) line('Status', rej.status === 'hidden' ? 'Hidden: rejected via With Intelligence' : 'Rejection ' + rej.status, rej.status === 'hidden' ? 'bad' : '');
+  const acts = [];
+  if (mand) acts.push({ label: 'View the Opportunity', primary: true, run: () => { markSeen(mand); openMandate(mand); } });
+  if (V.kind === 'iconn') acts.push({ label: 'Open the matcher', run: () => importIconnections() });
+  return matchCard(m, {
+    variant: V.cls, badge: V.label, extra: [facts], actions: acts, noComments: !mand,
+    tone: mand ? undefined : 'signal',
+    reasonLine: mand ? null : 'Scored from the ' + V.label + ' row alone: the criteria it does not state show as "Not stated".',
+    reasonLabel: 'Not an Opportunity', reasonTone: 'signal'
+  });
+}
+
+function renderSource(tab, body) {
+  clear(body);
+  ensureMatchCss();
+  const V = SOURCE_VIEWS[tab];
+  const S = SRC[tab];
+  if (!S || (!S.rows && !S.error)) {
+    body.appendChild(el('p', { class: 'muted' }, 'Loading ' + V.label + '…'));
+    if (!S || !S.loading) loadSource(tab);
+    return;
+  }
+  if (S.error) { body.appendChild(empty('Could not load ' + V.label, S.error)); return; }
+  if (!S.rows.length) {
+    body.appendChild(empty('Nothing here yet', V.label + (V.kind === 'iconn' ? ' allocators' : ' investors')
+      + ' will be listed here once Grok sends a file (Grok Ingest, dry run first).'));
+    return;
+  }
+  const isMatched = (f) => !!(f.matched_id && S.mand[f.matched_id]);
+  const FILTERS = [['all', 'All', () => true], ['matched', 'Matched to an Opportunity', isMatched],
+                   ['review', 'Possible match', (f) => !isMatched(f) && f.bucket === 'review'],
+                   ['none', 'Not in Opportunities', (f) => !isMatched(f) && f.bucket !== 'review']];
+  const bar = el('div', { class: 'src-bar' });
+  for (const [k, label, fn] of FILTERS) {
+    const n = S.rows.filter(fn).length;
+    bar.appendChild(el('button', { class: 'src-chip ' + V.cls + (S.filter === k ? ' on' : ''),
+      onclick: () => { S.filter = k; go(tab, { keepScroll: true }); } }, label + ' · ' + n));
+  }
+  const search = el('input', { class: 'src-q', type: 'search', placeholder: 'Find a firm', value: S.q || '' });
+  search.addEventListener('input', () => { S.q = search.value; drawGrid(); });
+  bar.appendChild(search);
+  body.appendChild(bar);
+  const grid = el('div', { class: 'matchgrid' });
+  body.appendChild(grid);
+  const drawGrid = () => {
+    clear(grid);
+    const fn = (FILTERS.find(x => x[0] === S.filter) || FILTERS[0])[2];
+    const q = String(S.q || '').toLowerCase().trim();
+    const list = S.rows.filter(fn).filter(f => !q || String(f.name || '').toLowerCase().includes(q));
+    // Matched first, best fit first (the Opportunities order); then the rest by name.
+    list.sort((a, b) => (isMatched(b) - isMatched(a))
+      || ((isMatched(b) ? sortFit(S.mand[b.matched_id]) || 0 : 0) - (isMatched(a) ? sortFit(S.mand[a.matched_id]) || 0 : 0))
+      || String(a.name).localeCompare(String(b.name)));
+    for (const f of list.slice(0, 300)) grid.appendChild(sourceCard(tab, f, S));
+    if (list.length > 300) grid.appendChild(el('p', { class: 'muted' }, (list.length - 300) + ' more: narrow the list with the search box.'));
+    if (!list.length) grid.appendChild(el('p', { class: 'muted' }, 'No firm matches.'));
+  };
+  drawGrid();
+}
+RENDER.oppsiconn = function (body) { renderSource('oppsiconn', body); };
+RENDER.preqin = function (body) { renderSource('preqin', body); };
+
+// Sample data for demo mode: one firm matched to a sample Opportunity, one possible match, one not matched.
+function demoSourceData(kind) {
+  const ex = kind === 'iconn'
+    ? [{ name: 'Cheviot Asset Management', firm_key: 'cheviot asset management', matched_id: 479, bucket: 'matched', match_method: 'exact',
+         people: ['Sample Person', 'Second Person'], aum_text: '$1-5bn', domain: 'cheviot.co.uk', investor_type: 'Multi-Family Office', country: 'GB' },
+       { name: 'Harbour Lane Partners', firm_key: 'harbour lane partners', bucket: 'review', people: ['Sample Contact'], aum_text: '$500m-1bn',
+         investor_type: 'Family Office', country: 'US' },
+       { name: 'Northgate Endowment', firm_key: 'northgate endowment', bucket: 'none', aum_low: 2.5e9, aum_high: 2.5e9, aum_text: '2.5bn',
+         investor_type: 'Endowment', country: 'US', people: [] }]
+    : [{ name: 'Wealthspire Advisors', firm_key: 'wealthspire advisors', matched_id: 482, bucket: 'matched', match_method: 'exact',
+         aum_text: '$10-25bn', domain: 'wealthspire.com', investor_type: 'Wealth Manager', country: 'US', people: ['Sample Person'] },
+       { name: 'Alder Street Pension Fund', firm_key: 'alder street pension fund', bucket: 'none', aum_low: 4e9, aum_high: 4e9, aum_text: '4bn',
+         investor_type: 'Public Pension Fund', country: 'GB', strategies: ['Long/Short Equity'], ticket_min_usd: 5e6, ticket_max_usd: 25e6, people: [] }];
+  const D = { 482: { id: 482, investor_name: 'Wealthspire Advisors', investor_country: 'US', investor_city: 'New York', investor_type: 'wealth manager',
+                     strategies: '["equity_long_short"]', ticket_min_usd: '500000', qualification: 'uncertain', fit_score: '0.71',
+                     fit_reason: 'Eligible on strategy and domicile; appetite not stated', missing_hard_fields: '["emerging_managers"]' },
+              479: { id: 479, investor_name: 'Cheviot Asset Management', investor_country: 'GB', investor_city: 'London', investor_type: 'multi family office',
+                     strategies: '["equity_long_short"]', ticket_min_usd: '1000000', qualification: 'matched', fit_score: '0.86',
+                     fit_reason: 'UK MFO, equity L/S, open to emerging managers', missing_hard_fields: '[]' } };
+  return { rows: ex.map(r => ({ ...r, _key: r.firm_key })), mand: D,
+           links: kind === 'iconn' ? { 'cheviot asset management': { wi_investor_id: '12345', approved_by: 'demo' } } : {}, rej: {} };
+}
+
+/* The screening line (screening_params, one row): shown as risks on every card, never scored. */
+let SCREENING = null;
+async function loadScreening() {
+  if (SCREENING || DEMO) return SCREENING;
+  try { SCREENING = ((await supaSelect('screening_params', 'select=*&limit=1')) || [])[0] || null; } catch (_) { SCREENING = null; }
+  return SCREENING;
+}
+function screeningRisks(m, sp) {
+  if (!sp) return [];
+  const out = [];
+  const tmax = Number(m && m.ticket_max_usd), tmin = Number(m && m.ticket_min_usd);
+  const floor = Number(sp.min_useful_ticket), fund = Number(sp.fund_aum_usd), pct = Number(sp.max_investor_pct);
+  if (floor > 0 && tmax > 0 && tmax < floor) out.push('Largest ticket ' + money(tmax) + ', below the ' + money(floor) + ' useful minimum');
+  if (fund > 0 && pct > 0 && tmin > 0 && tmin > fund * pct)
+    out.push('Smallest ticket ' + money(tmin) + ' is over ' + Math.round(pct * 100) + '% of a ' + money(fund) + ' fund');
+  return out;
+}
+function risksOf(m) {
+  let stored = m && m.risks;
+  if (typeof stored === 'string') { try { stored = JSON.parse(stored); } catch (_) { stored = [stored]; } }
+  const list = (Array.isArray(stored) ? stored : []).map(x => String(x || '').trim()).filter(Boolean);
+  const hasFloor = list.some(x => /floor|minimum/i.test(x));
+  for (const r of screeningRisks(m, SCREENING)) if (!(hasFloor && /useful minimum/.test(r))) list.push(r);
+  return [...new Set(list)];
+}
+// The next step: the stored recommended_next_action, or one read off the verdict and the criteria.
+function nextStepOf(m) {
+  if (m && m.recommended_next_action) return String(m.recommended_next_action);
+  const q = bandOf(m);
+  if (q === 'rejected' || effectivelyRejected(m)) return '';
+  if (q === 'matched') return m.approved_at ? 'Approved: plan the outreach.' : 'Check the evidence and approve for outreach.';
+  const stat = critStatus(m);
+  const open = MATCH_CRITERIA.filter((_, i) => stat[i] === 'unknown');
+  if (m && m._staged) return open.length ? 'Find the ' + open.join(', ').toLowerCase() + ' on With Intelligence before adding it.' : 'Compare with Opportunities before adding it.';
+  if (open.length) return 'Confirm ' + open.join(' and ').toLowerCase() + ' (profile quote or a call).';
+  return 'Review the criteria and decide.';
+}
+function intelBlock(m) {
+  const risks = risksOf(m), next = nextStepOf(m);
+  if (!risks.length && !next) return null;
+  const box = el('div', { class: 'mcard-intel' });
+  if (risks.length) box.appendChild(el('div', { class: 'mcard-intel-l risk' }, el('span', { class: 'k' }, 'Risks'), el('span', null, risks.join(' · '))));
+  if (next) box.appendChild(el('div', { class: 'mcard-intel-l' }, el('span', { class: 'k' }, 'Next step'), el('span', null, next)));
+  return box;
+}
 
 RENDER.iconn = function (body) {
   clear(body);

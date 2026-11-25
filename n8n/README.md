@@ -158,3 +158,17 @@ n8n was unreachable when this was approved. Step 1 was published on 17 Nov 2026 
   no country bonus, no hire score, every review capped at 0.74).
 - "Apply Taranis Hard Criteria" <- `wi01-apply-hard-criteria.js` (People alerts scored on their evidence, no hire band;
   the "Load Investor Evidence" wiring from step 2 kept). Saved draft checked equal to the repo copies before publishing.
+
+## 25 Nov 2026: "Grok Ingest → Web App" (fbWUxznPyfYKG0C8) - CREATED, NOT PUBLISHED
+- New workflow (no earlier version, nothing live changed). Webhook POST /webhook/grok-ingest with the same Header Auth
+  credential as the Grok gateway (x-api-key). Undo: archive the workflow; the database side is in
+  `../schema-31-preqin-and-ingest.sql` (its UNDO block).
+- Nodes: Grok Ingest -> Parse Request (`grok-ingest-parse.js`) -> Route (error / Excel file / JSON rows) ->
+  Read Excel (Extract From File, xlsx, first sheet) -> Normalize Rows (`grok-ingest-normalize.js`) -> Rows OK? ->
+  Run Ingest (`select grok_fn.ingest($1..$6)`, credential "Postgres account") -> Package (`grok-ingest-package.js`) -> Reply.
+  Every node's error output goes to Reply (the caller always gets an answer).
+- Contract: dry run unless `dry_run: false` AND the `plan_id` from the dry run of the same rows; fills blanks only;
+  Opportunities through grok_fn.save (wi_fill_log, verdict guard, save_undo), staging rows logged in ingest_log;
+  field_sources stamped; uploads never create Opportunities.
+- Tested 25 Nov (dry runs only, nothing written): JSON rows, a real .xlsx, a write with a wrong plan_id (refused).
+  Tests: `tests/grok-ingest.test.mjs`.

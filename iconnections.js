@@ -443,6 +443,7 @@
     KOR: 'KR', LUX: 'LU', IRL: 'IE', BEL: 'BE', AUT: 'AT', ZAF: 'ZA', MEX: 'MX', EGY: 'EG', TUR: 'TR'
   };
   let COUNTRY_NAMES = null, COUNTRY_CODES = null;
+  const NOT_COUNTRY = new Set(['UK', 'EU', 'EZ', 'UN', 'QO', 'XA', 'XB', 'ZZ']);
   function countryNames() {
     if (COUNTRY_NAMES) return COUNTRY_NAMES;
     COUNTRY_NAMES = {};
@@ -452,8 +453,10 @@
       for (let a = 65; a <= 90; a++) for (let b = 65; b <= 90; b++) {
         const code = String.fromCharCode(a, b);
         const label = dn.of(code);
-        if (label && label !== code) {
-          COUNTRY_NAMES[normHeader(label).replace(/[()$%]/g, '').trim()] = code;
+        // Intl also names pseudo-regions (UK, EU, UN...): they never replace the real code (United Kingdom = GB).
+        if (label && label !== code && !NOT_COUNTRY.has(code)) {
+          const k = normHeader(label).replace(/[()$%]/g, '').trim();
+          COUNTRY_NAMES[k] = code;
           COUNTRY_CODES.add(code);
         }
       }

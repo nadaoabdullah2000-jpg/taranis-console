@@ -32,7 +32,7 @@ function serve() {
   return new Promise(ok => server.listen(0, '127.0.0.1', () => ok(server)));
 }
 
-test('iConnections, its Approved sub-tab and Preqin open their own empty panels', { skip: !chromium && 'Playwright not available' }, async () => {
+test('iConnections and Preqin tabs list source cards in their own accent; Opportunities keeps its colours', { skip: !chromium && 'Playwright not available' }, async () => {
   const server = await serve();
   const browser = await chromium.launch();
   try {
@@ -54,18 +54,34 @@ test('iConnections, its Approved sub-tab and Preqin open their own empty panels'
       [id, document.querySelector('.navbtn[data-tab="' + id + '"]').style.paddingLeft])));
     assert.deepEqual(pad, { oppsiconn: '42px', preqin: '42px' });
 
-    for (const [id, title, line] of [
-      ['oppsiconn', 'iConnections', 'iConnections allocators will be listed here.'],
-      ['preqin', 'Preqin', 'Preqin investors will be listed here.']]) {
+    // 25 Nov 2026: the two tabs list source cards (demo data here), each in its own accent.
+    for (const [id, title, cls, badge, n] of [
+      ['oppsiconn', 'iConnections', 'v-iconn', 'iConnections', 3],
+      ['preqin', 'Preqin', 'v-preqin', 'Preqin', 2]]) {
       await p.click('.navbtn[data-tab="' + id + '"]');
-      await p.waitForFunction(t => document.getElementById('pg-title').textContent === t
-        && document.querySelector('#pg-body .empty'), title);
-      const got = await p.evaluate(() => ({
-        current, line: document.querySelector('#pg-body .empty p').textContent,
+      await p.waitForFunction(([t, c]) => document.getElementById('pg-title').textContent === t
+        && document.querySelector('#pg-body .mcard.' + c), [title, cls]);
+      const got = await p.evaluate((c) => ({
+        current, cards: document.querySelectorAll('#pg-body .mcard.' + c).length,
+        badge: document.querySelector('#pg-body .mcard .mcard-src').textContent,
+        accent: getComputedStyle(document.querySelector('#pg-body .mcard.' + c)).borderTopColor,
         on: [...document.querySelectorAll('.navbtn[aria-current="page"]')].map(b => b.getAttribute('data-tab'))
-      }));
-      assert.deepEqual(got, { current: id, line, on: [id] });
+      }), cls);
+      assert.deepEqual({ ...got, accent: undefined }, { current: id, cards: n, badge, accent: undefined, on: [id] });
+      assert.notEqual(got.accent, 'rgba(0, 0, 0, 0)');
     }
+    const accents = await p.evaluate(() => [...document.querySelectorAll('#pg-body .mcard')].map(c => c.className));
+    assert.ok(accents.every(c => /v-preqin/.test(c)));
+    // The Opportunities card (no variant) keeps its own colours and has no source badge; it gains the
+    // risks / next step lines, which the source cards share.
+    const opp = await p.evaluate(() => {
+      const c = matchCard({ id: 1, investor_name: 'Sample', qualification: 'uncertain', strategies: '["equity_long_short"]',
+                            ticket_max_usd: 200000 }, { noComments: true });
+      return { cls: c.className, badge: !!c.querySelector('.mcard-src'), intel: c.querySelector('.mcard-intel') ? c.querySelector('.mcard-intel').innerText : '' };
+    });
+    assert.equal(opp.cls, 'mcard signal', 'Opportunities cards keep their own colours');
+    assert.equal(opp.badge, false);
+    assert.match(opp.intel, /Next step/);
     assert.deepEqual(errs, []);
   } finally {
     await browser.close();
