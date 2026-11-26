@@ -1,0 +1,62 @@
+-- repair-haven-names-2026-11-26.sql: PREPARED, NOT APPLIED. Needs the user's choice of option first.
+--
+-- What the data shows (checked 26 Nov 2026):
+--   * The exact stray value "Haven Wealth Advisors" in organization_name is on 3069 and 3383 only (plus 3597, the real
+--     Haven Wealth Advisors row, which is untouched by everything below). No other wi_mandates row carries it.
+--   * It was NOT copied from 3597: 3069 was created 10 Nov, 3383 on 17 Nov, 3597 on 24 Nov.
+--   * On both rows organization_name is the CORRECT field. Their own intention_summary reads
+--     "Haven Wealth Advisors - Profile alert". The WRONG field is investor_name:
+--       3069  investor_name "JP Morgan Private Bank": set at intake by the WI 01 parser (no fill-log line).
+--       3383  investor_name "California State Teachers' Retirement System (CalSTRS)": WI 01c backfill (fixed),
+--             19 Nov 05:47, OVERWROTE "Haven Wealth Advisors" and attached CalSTRS's With Intelligence profile
+--             (2570: aum_usd 421.54bn, aum_band "> $50bn", city West Sacramento, type Public D.B., wi_summary, and
+--             view_investor_url replaced).
+--   * Nulling organization_name (as asked) would delete the only correct identity on both rows, so it is held.
+--
+-- WIDER ISSUE (report only, no fix here): WI 01c backfill (fixed) overwrote non-blank values 17-20 Nov, against its
+-- fill-blanks-only rule: investor_name on 19 rows, view_investor_url on 34. List them with:
+--   select l.mandate_id, l.field, l.old_value, l.new_value, l.filled_at from wi_fill_log l
+--    where l.source like 'WI 01c backfill (fixed)%' and l.old_value is not null and btrim(l.old_value) <> ''
+--    order by l.filled_at, l.mandate_id;
+--   Some are fine (MassPRIM, SJP, LBHF, Swansea: fuller names), several attached the wrong investor
+--   (Connection Capital -> Deutsche AM, Northwell -> McKnight, Merced -> ERSRI, Santa Barbara -> MassPRIM, ...).
+--   No such overwrite since 20 Nov.
+--
+-- DRY RUN (read only):
+select id, investor_name, organization_name, left(intention_summary, 60) summary, aum_usd, investor_city, investor_type,
+       evidence ->> 'wi_investor_id' wi, view_investor_url, new_qualification, verdict_source
+  from wi_mandates where id in (3069, 3383, 3597) order by id;
+
+-- ===== OPTION A (as originally asked; NOT recommended): null organization_name on 3069 and 3383 =====
+-- begin;
+-- create table wi_mandates_backup_20261126_haven as select * from wi_mandates where id in (3069, 3383);
+-- insert into wi_fill_log (mandate_id, investor_name, field, old_value, new_value, source)
+--   select id, investor_name, 'organization_name', organization_name, null,
+--          'repair-haven-names-2026-11-26 option A, approved by the user <date>' from wi_mandates where id in (3069, 3383);
+-- update wi_mandates set organization_name = null
+--  where id in (3069, 3383) and organization_name = 'Haven Wealth Advisors' and coalesce(verdict_source, '') <> 'manual';
+-- commit;
+-- UNDO A: update wi_mandates m set organization_name = b.organization_name from wi_mandates_backup_20261126_haven b where b.id = m.id;
+
+-- ===== OPTION B (recommended): fix the wrong investor_name; undo WI 01c's CalSTRS fill on 3383 =====
+-- begin;
+-- create table wi_mandates_backup_20261126_haven as select * from wi_mandates where id in (3069, 3383);
+-- -- 3069: the alert is Haven Wealth Advisors' profile alert; investor_name follows organization_name.
+-- insert into wi_fill_log (mandate_id, investor_name, field, old_value, new_value, source)
+--   values (3069, 'Haven Wealth Advisors', 'investor_name', 'JP Morgan Private Bank', 'Haven Wealth Advisors',
+--           'repair-haven-names-2026-11-26 option B (name from the row''s own alert), approved by the user <date>');
+-- update wi_mandates set investor_name = 'Haven Wealth Advisors' where id = 3069 and investor_name = 'JP Morgan Private Bank';
+-- -- 3383: put back every value WI 01c wrote on 19 Nov (old_value from wi_fill_log; blanks go back to null).
+-- insert into wi_fill_log (mandate_id, investor_name, field, old_value, new_value, source)
+--   select 3383, 'Haven Wealth Advisors', l.field, l.new_value, l.old_value,
+--          'repair-haven-names-2026-11-26 option B (undo WI 01c 19 Nov wrong profile 2570), approved by the user <date>'
+--     from wi_fill_log l where l.mandate_id = 3383 and l.source like 'WI 01c backfill (fixed)%';
+-- update wi_mandates set investor_name = 'Haven Wealth Advisors', aum_usd = null, aum_band = null, investor_country = null,
+--        investor_city = null, investor_type = null,
+--        view_investor_url = (select old_value from wi_fill_log where mandate_id = 3383 and field = 'view_investor_url'
+--                               and source like 'WI 01c backfill (fixed)%' order by filled_at limit 1),
+--        evidence = case when evidence ->> 'wi_investor_id' = '2570' then evidence - 'wi_investor_id' - 'wi_summary' else evidence end
+--  where id = 3383 and investor_name like 'California State Teachers%';
+-- commit;
+-- Afterwards 3069, 3383 and 3597 are three alerts of one investor: whether to merge them is a separate decision.
+-- UNDO B: restore the touched columns from wi_mandates_backup_20261126_haven (update ... from backup where b.id = m.id).

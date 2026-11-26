@@ -128,10 +128,12 @@ create policy console_read on screening_params for select using (is_console_user
 create or replace function grok_fn.firm_key(n text) returns text language sql immutable as $$
   select nullif(lower(regexp_replace(btrim(coalesce(n, '')), '\s+', ' ', 'g')), '')
 $$;
--- loose_key: for matching to Opportunities: no "(ABBR)", "&" = "and", no punctuation, no leading "the".
+-- loose_key: for matching to Opportunities: no bracketed abbreviation ("(ERS)"), "&" = "and", no punctuation,
+-- no leading "the". A bracketed qualifier with lower-case words ("(hedge funds)", "(Defined Benefit)") is kept:
+-- it tells different investors apart (25 Nov 2026: the three "Unidentified: Peruvian MFO (...)" rows).
 create or replace function grok_fn.loose_key(n text) returns text language sql immutable as $$
   select nullif(btrim(regexp_replace(regexp_replace(regexp_replace(regexp_replace(
-           lower(coalesce(n, '')), '\([^)]*\)', ' ', 'g'), '&', ' and ', 'g'), '[^a-z0-9]+', ' ', 'g'), '^\s*the\s+', '')), '')
+           lower(regexp_replace(coalesce(n, ''), '\(([^)a-z]*)\)', ' ', 'g')), '&', ' and ', 'g'), '[^a-z0-9]+', ' ', 'g'), '^\s*the\s+', ''), '\s+', ' ', 'g')), '')
 $$;
 
 -- Name lookups use these expression indexes (additive; no data changes).
@@ -245,9 +247,13 @@ begin
         skp := skp || jsonb_build_object('name', nm, 'reason', 'Not in Opportunities. Uploads never create Opportunities: send it with discover (it needs a With Intelligence id).',
                                          'wi_id', wi); continue;
       end if;
+      -- CLAUDE.md rule 4: Andrew Carnegie (1358) is never changed by anything automatic.
+      if (m ->> 'id')::bigint = 1358 then
+        skp := skp || jsonb_build_object('name', nm, 'id', m -> 'id', 'reason', 'Protected row (Andrew Carnegie, 1358): never changed by an upload.'); continue;
+      end if;
       fld := jsonb_strip_nulls(jsonb_build_object(
         'investor_type', r -> 'investor_type', 'country', r -> 'country', 'city', r -> 'city',
-        'aum_usd', to_jsonb(aum), 'aum_band', case when aum is null then r -> 'aum_text' end,
+        'aum_usd', to_jsonb(aum), 'aum_band', case when aum is null and r ? 'aum_low' then r -> 'aum_text' end,
         'asset_classes', r -> 'asset_classes', 'strategies', r -> 'strategies',
         'ticket_min_usd', r -> 'ticket_min_usd', 'ticket_max_usd', r -> 'ticket_max_usd', 'min_manager_aum_usd', r -> 'min_manager_aum_usd',
         'open_to_emerging_managers', r -> 'open_to_emerging_managers', 'emerging_evidence', r -> 'emerging_evidence',

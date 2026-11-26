@@ -103,3 +103,14 @@ test('rows with different headers are each read with their own; "250" as text wi
   assert.deepEqual(out.unmapped, []);
   assert.deepEqual(out.columns.aum, ['AUM (USD mn)', 'AUM']);
 });
+
+test('the Grok Investors sheet (25 Nov real export): Profile link is the With Intelligence URL; iConnections columns are not the firm name', () => {
+  const out = normalize({ source: 'opportunities', has_file: false, rows: [
+    { 'Row': 1, 'With Intelligence id': '2147326330', 'Investor name': 'AARP', 'Profile link': 'https://platform.withintelligence.com/explore/investors/2147326330',
+      'Country': 'US', 'City': 'Washington', 'Type': 'Non-Profit Organization', 'AUM band': '$2.5bn - $5bn', 'iConnections firm name': 'AARP Foundation' }] });
+  const r = out.rows[0];
+  assert.equal(r.name, 'AARP');
+  assert.equal(r.wi_id, '2147326330');
+  assert.equal(r.wi_url, 'https://platform.withintelligence.com/explore/investors/2147326330');
+  assert.equal(r.aum_low, 2.5e9); assert.equal(r.aum_high, 5e9);
+});

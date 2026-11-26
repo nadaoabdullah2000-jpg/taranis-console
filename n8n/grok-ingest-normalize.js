@@ -142,7 +142,7 @@ const FIELDS = [
   ['tech_evidence', ['tech evidence', 'tech_evidence', 'technology evidence'], []],
   ['summary', ['summary', 'description', 'profile', 'investor profile', 'about', 'overview', 'background'], []],
   ['wi_id', ['wi id', 'wi_id', 'with intelligence id', 'withintelligence id'], []],
-  ['wi_url', ['wi url', 'wi_url', 'with intelligence url', 'with intelligence profile', 'wi profile', 'profile url', 'profile_url'], [/withintelligence\.com/]],
+  ['wi_url', ['wi url', 'wi_url', 'with intelligence url', 'with intelligence profile', 'with intelligence link', 'wi profile', 'wi link', 'profile url', 'profile_url', 'profile link'], [/withintelligence\.com/, /^(with intelligence|wi) (profile|link|url)/]],
   ['preqin_id', ['preqin id', 'preqin_id', 'firm id', 'preqin firm id'], []],
   ['people', ['people', 'contacts', 'contact', 'contact name', 'contact names', 'key contacts', 'contact person', 'full name', 'person'], [/\bcontacts?\b/]],
   ['contact_email', ['email', 'e mail', 'contact email', 'email address'], [/\be ?mail\b/]],

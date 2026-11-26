@@ -15,7 +15,16 @@
 --   the November backups stay where the repair files' UNDO statements expect them.
 -- Part 4 (NOT recommended; only if you decide the data can go): DROP statements, commented out.
 --
+-- DRY TEST 26 Nov 2026 (applied inside a transaction, then rolled back; RLS state afterwards checked unchanged):
+--   console, signed in as a console user: wi_mandates 2832, iconnections_import_runs 2, _rows 388, iconn_approved_links 23,
+--     iconn_wi_rejections 2, preqin_import_rows 0, screening_params 1: identical before/after. Helper tables and backups
+--     (never read by app.js): readable before (378 / 82 rows), 0 rows / denied after: the exposure this closes.
+--   Grok gateway (grok_fn.* run as grok_reader): todo, missing_summary, schema_info, ro_query identical; discover_status
+--     and discover_known EMPTY under the original proposal, identical once grok_reader_read (below) is added.
+--   n8n (connects as postgres, BYPASSRLS): wi_hf_targets 378, wi_hf_reads 381, hf_probe 34, group_message_queue 2,
+--     grok.wi_discovered 105: identical. taranis_bot could not be assumed from the test session; nothing connects as it.
 -- UNDO (Part 1-2): alter table <t> disable row level security; drop policy automation_full on <t>;
+--                  drop policy grok_reader_read on grok.wi_discovered;
 -- UNDO (Part 3):   alter table archive.<t> set schema public;
 
 begin;
@@ -46,6 +55,9 @@ alter table public.wi_nolink_groups enable row level security;
 create policy automation_full on public.wi_nolink_groups to taranis_bot using (true) with check (true);
 alter table grok.wi_discovered enable row level security;
 create policy automation_full on grok.wi_discovered to taranis_bot using (true) with check (true);
+-- 26 Nov 2026 dry test: Grok's discover_status / discover_known run as grok_reader (security definer) and read this
+-- table; without this policy they return nothing. With it their output is identical to today's.
+create policy grok_reader_read on grok.wi_discovered for select to grok_reader using (true);
 
 -- Part 1: backups and snapshots (77 tables): RLS on, no policy = no API access for anyone.
 alter table public.report_leads_snap_20261008 enable row level security;
