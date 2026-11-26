@@ -1,0 +1,114 @@
+-- repair-wi01c-overwrites-2026-11-26.sql: DRAFT FOR REVIEW. NOT APPLIED.
+--
+-- Scope: every value WI 01c backfill (fixed) wrote over a non-blank value, 17-20 Nov 2026 (it must fill blanks only):
+--   investor_name on 19 rows, view_investor_url on 34 rows (34 rows in all). Writer for every line below:
+--   workflow WI 01c (rebuilt daily backfill, 05:47 UTC), wi_fill_log source "WI 01c backfill (fixed), With Intelligence
+--   profile". Cause (seen on 3383, see repair-haven-names-2026-11-26.sql): the row's stored "View investor" link was a
+--   neighbouring digest item's link; WI 01c followed it and took that other investor's profile, name included.
+--   No such overwrite since 20 Nov.
+--
+-- ====================================================================================================================
+-- GROUP 1, HIGH PRIORITY: WRONG INVESTOR ATTACHED (14 rows). The row's own alert text is about a different firm.
+-- Every value of that WI 01c run is from the wrong investor. Repair: undo the whole run on the row.
+--   row   when          alert text (the row's own)                          became (wrong profile, WI id)
+--   3278  17 Nov 05:47  "Eyes managers with restricted access..." (Connection Capital)  Deutsche Asset Management (-1218459846)
+--   3284  17 Nov 05:47  "Merced County ERA (MCERA) - Profile alert"         Employees' Retirement System of Rhode Island (2789)
+--   3286  17 Nov 05:47  "NYCRS loses its head of HFs"                       Deutsche Asset Management (-1218459846)
+--   3300  19 Nov 05:48  "Canadian MFO names new co-CIO"                     Real Tech Capital, a US single-family office (2147355645)
+--   3301  19 Nov 05:48  "Firethorn Wealth considering healthcare PE strats" Korea Post Savings (2147271800)
+--   3304  19 Nov 05:48  "Chicago family sees two investment-team exits"    JP Morgan Private Bank (2147327237)
+--   3305  19 Nov 05:48  "Canadian MFO names new co-CIO"                     Real Tech Capital (2147355645)
+--   3320  19 Nov 05:47  Santa Barbara County ERS item (Permian Investment)   MassPRIM (2732)
+--   3322  19 Nov 05:47  "...taps Texas Treasury for senior PM..." (Arizona Public)  JP Morgan Private Bank (2147327237)
+--   3323  19 Nov 05:47  "Merced County ERA (MCERA) - Profile alert"         ERSRI (2789)
+--   3341  19 Nov 05:47  "Northwell Health taps director of investments"     McKnight Foundation (4609)
+--   3342  19 Nov 05:47  "Tufts co-CIO joins Ewing Marion Kauffman Fdn"      Northwell Health, Inc. (2147318318)
+--   3355  19 Nov 05:47  "ODDO BHF portfolio head to lead Berenberg team"    OPTrust (615855604)
+--   3356  19 Nov 05:47  "Saudi LP taps ex-Korean SWF fund selector"         Joh Berenberg Gossler & Co KG (2147346291)
+-- Per-row before -> after of that run (from wi_fill_log; "∅" = blank before):
+--   3278 aum_band ∅->"> $50bn"; aum_usd ∅->1,387,042,570,000; city ∅->Frankfurt am Main; country ∅->DE; name Connection Capital->Deutsche AM; type ∅->Manager of Managers; link tracker->profile; wi_summary ∅->profile text
+--   3284 aum_band ∅->"$10bn - $15bn"; aum_usd ∅->13,610,600,000; city ∅->Warwick; country ∅->US; name MCERA->ERSRI; type ∅->Public D.B.; link; wi_summary
+--   3286 aum_band ∅->"> $50bn"; city ∅->Frankfurt am Main; country ∅->DE; name "NYCRS loses its head of HFs"->Deutsche AM; link; wi_summary
+--   3300 aum_band ∅->"$30m - $50m"; family_names ∅->"Cruz, Brandon"; city ∅->Chicago; name Canadian MFO->Real Tech Capital; type ∅->Single-Family Office; link; wi_summary
+--   3301 aum_usd ∅->69,883,460,000; city ∅->Seoul; country ∅->KR; name Firethorn Wealth->Korea Post Savings; type ∅->Operating Fund; link; wi_summary
+--   3304 aum_band ∅->"> $50bn"; aum_usd ∅->1,559,000,000,000; city ∅->New York; country ∅->US; name "Chicago family sees two investment"->JP Morgan Private Bank; type ∅->Private Bank; link; wi_summary
+--   3305 as 3300
+--   3320 city ∅->Boston; name SBCERS->MassPRIM; link; wi_summary
+--   3322 aum_band ∅->"> $50bn"; aum_usd ∅->1,559,000,000,000; city ∅->New York; name "Arizona Public"->JP Morgan Private Bank; type ∅->Private Bank; link; wi_summary
+--   3323 city ∅->Warwick; name MCERA->ERSRI; link; wi_summary
+--   3341 aum_band ∅->"$2.5bn - $5bn"; city ∅->Minneapolis; country ∅->US; name Northwell Health->McKnight Foundation; type ∅->Foundation; link; wi_summary
+--   3342 aum_usd ∅->2,839,900,000; city ∅->Westbury; country ∅->US; name "Tufts co"->Northwell Health, Inc.; type ∅->Corporate D.B.; link; wi_summary
+--   3355 aum_band ∅->"$15bn - $25bn"; aum_usd ∅->19,809,040,000; name "ODDO BHF portfolio head"->OPTrust; type ∅->Public D.B.; link; wi_summary
+--   3356 aum_band ∅->"$25bn - $50bn"; city ∅->Hamburg; name "Saudi LP"->Joh Berenberg Gossler & Co KG; type ∅->Private Bank; link; wi_summary
+--   Also (not in wi_fill_log, WI 01c did not log it): evidence.wi_investor_id = the wrong profile id above, on all 14.
+-- Notes for review:
+--   * investor_name goes back to the pre-run value, which equals organization_name on all 14. Several are headline
+--     fragments ("NYCRS loses its head of HFs", "Tufts co", "Arizona Public"): the 22 Nov rename dry run deals with those.
+--   * view_investor_url goes to NULL, not back to the old tracker link: that link resolves to the wrong investor (it is
+--     what WI 01c followed), so restoring it would let the next WI 01c run re-attach the same wrong profile.
+--   * All 14 verdicts are automatic (none manual).
+--   * TESTED 26 Nov in a rolled-back transaction: 106 log lines; all 14 verdicts and scores unchanged (3278 low/0.2,
+--     3284 and 3286 needs_data, 3320 uncertain/0.6, 3323 low/0.2, the other 9 rejected/0); names back, wrong-profile
+--     values and wi_investor_id gone. Values left on 3286 (AUM 325bn), 3320 (11.4bn), 3323 (9m), 3341 (2.8bn) and
+--     3355 (city Hamburg) were set at intake from the alert itself, not by WI 01c (audit_log), so they are untouched here.
+--
+-- GROUP 2, KEEP: same investor, fuller name (4 rows). Profile matches the row; no repair proposed.
+--   3432 MassPRIM -> Massachusetts Pension Reserves Investment Management Board (MassPRIM) (2732)
+--   3433 Hammersmith & Fulham Pension Fund -> London Borough of Hammersmith & Fulham Pension Fund (LBHF) (3536)
+--   3434 Swansea Pension Fund's -> Swansea City and County Pension Fund (3873)
+--   3448 St James's Place -> St. James's Place Wealth Management (SJP) (663247975)
+--   (3432 and 3448 are in the pending duplicates repair.)
+-- GROUP 3, KEEP: link only, tracker -> the same investor's profile (15 rows); name unchanged, profile text names the firm.
+--   3287, 3325 The Olayan Group; 3303, 3315 CliftonLarsonAllen Wealth Advisors; 3429, 3442, 3443, 3444, 3445, 3446, 3447
+--   Mariner Wealth Advisors; 3430 Sega Sammy Holdings; 3431 Lion Corporation; 3440, 3441 Banco LJ Carregosa.
+-- GROUP 4, DONE: 3383 Haven Wealth Advisors (repair-haven-names-2026-11-26.sql, applied 26 Nov).
+-- ====================================================================================================================
+
+-- DRY RUN (read only): what would change, with verdicts.
+select m.id, m.investor_name, m.organization_name, m.evidence ->> 'wi_investor_id' wi, m.new_qualification, m.verdict_source
+  from wi_mandates m where m.id in (3278,3284,3286,3300,3301,3304,3305,3320,3322,3323,3341,3342,3355,3356) order by m.id;
+
+-- APPLY (only after approval):
+-- begin;
+-- create table wi_mandates_backup_20261126_wi01c as select * from wi_mandates
+--  where id in (3278,3284,3286,3300,3301,3304,3305,3320,3322,3323,3341,3342,3355,3356);
+-- create temp table run_lines on commit drop as
+--   select distinct on (l.mandate_id, l.field) l.mandate_id, l.field, l.old_value, l.new_value
+--     from wi_fill_log l
+--     join (select mandate_id, min(filled_at) t from wi_fill_log
+--            where source like 'WI 01c backfill (fixed)%' and field = 'investor_name' and old_value is not null
+--              and mandate_id in (3278,3284,3286,3300,3301,3304,3305,3320,3322,3323,3341,3342,3355,3356) group by mandate_id) r
+--       on r.mandate_id = l.mandate_id and r.t = l.filled_at
+--    where l.source like 'WI 01c backfill (fixed)%'
+--    order by l.mandate_id, l.field;
+-- insert into wi_fill_log (mandate_id, investor_name, field, old_value, new_value, source)
+-- select b.id, b.organization_name, x.field, x.cur, x.back,
+--        'repair-wi01c-overwrites-2026-11-26: undo WI 01c wrong-profile run (link was another item''s), approved by the user <date>'
+--   from wi_mandates_backup_20261126_wi01c b
+--   cross join lateral (
+--     select rl.field,
+--            case rl.field when 'aum_band' then b.aum_band when 'aum_usd' then b.aum_usd::text when 'investor_city' then b.investor_city
+--              when 'investor_country' then b.investor_country when 'investor_name' then b.investor_name when 'investor_type' then b.investor_type
+--              when 'view_investor_url' then b.view_investor_url else left(b.evidence ->> rl.field, 300) end cur,
+--            case rl.field when 'investor_name' then rl.old_value else null end back
+--       from run_lines rl where rl.mandate_id = b.id
+--     union all select 'evidence.wi_investor_id', b.evidence ->> 'wi_investor_id', null) x;
+-- update wi_mandates m set
+--        investor_name    = case when exists (select 1 from run_lines r where r.mandate_id = m.id and r.field = 'investor_name') then (select old_value from run_lines r where r.mandate_id = m.id and r.field = 'investor_name') else m.investor_name end,
+--        aum_band         = case when exists (select 1 from run_lines r where r.mandate_id = m.id and r.field = 'aum_band') then null else m.aum_band end,
+--        aum_usd          = case when exists (select 1 from run_lines r where r.mandate_id = m.id and r.field = 'aum_usd') then null else m.aum_usd end,
+--        investor_city    = case when exists (select 1 from run_lines r where r.mandate_id = m.id and r.field = 'investor_city') then null else m.investor_city end,
+--        investor_country = case when exists (select 1 from run_lines r where r.mandate_id = m.id and r.field = 'investor_country') then null else m.investor_country end,
+--        investor_type    = case when exists (select 1 from run_lines r where r.mandate_id = m.id and r.field = 'investor_type') then null else m.investor_type end,
+--        view_investor_url = null,
+--        evidence = m.evidence - 'wi_investor_id' - 'wi_summary' - 'family_names'
+--  where m.id in (3278,3284,3286,3300,3301,3304,3305,3320,3322,3323,3341,3342,3355,3356)
+--    and coalesce(m.verdict_source, '') <> 'manual';
+-- commit;
+-- (Every field reset above was blank before the run: all old_value are null except investor_name and the link.)
+--
+-- UNDO:
+-- update wi_mandates m set investor_name = b.investor_name, aum_band = b.aum_band, aum_usd = b.aum_usd,
+--        investor_city = b.investor_city, investor_country = b.investor_country, investor_type = b.investor_type,
+--        view_investor_url = b.view_investor_url, evidence = b.evidence
+--   from wi_mandates_backup_20261126_wi01c b where b.id = m.id;
