@@ -202,7 +202,7 @@ declare
                        'asset_classes', 'ticket_min_usd', 'ticket_max_usd', 'wi_id', 'preqin_id', 'summary', 'people',
                        'contacts_detail', 'email_domains'];
   icols text[] := array['domain', 'aum_text', 'aum_low', 'aum_high', 'investor_type', 'country', 'people', 'contacts_detail', 'email_domains'];
-  col text; sets text[]; n_upd int := 0; alias jsonb := '{}';
+  col text; sets text[]; n_upd int := 0; alias jsonb := '{}'; rev jsonb := '[]';
 begin
   if p_source not in ('opportunities', 'iconnections', 'preqin') then raise exception 'source is opportunities, iconnections or preqin.'; end if;
   if p_rows is null or jsonb_typeof(p_rows) <> 'array' or jsonb_array_length(p_rows) = 0 then raise exception 'Give rows: a list.'; end if;
@@ -261,10 +261,18 @@ begin
       if fld = '{}'::jsonb and wi is null then skp := skp || jsonb_build_object('name', nm, 'id', m -> 'id', 'reason', 'No fields to fill.'); continue; end if;
       items := items || jsonb_strip_nulls(jsonb_build_object('id', (m ->> 'id'), 'wi_id', wi, 'fields', fld, '_name', nm, '_match', m));
 
-    -- 4c. iConnections: fill blanks on the firm's row in the active import; new firms go into a new run.
+    -- 4c. iConnections, LINK-ONLY (26 Nov 2026): fill blanks on the firm's row in the active import. A firm not in
+    --     the import is NOT added: it is staged in ingest_review for a person to link or dismiss.
+    --     Match: exact firm key, then the firm's linked With Intelligence id, then the loose name (one firm only).
     elsif p_source = 'iconnections' then
       select * into firm from grok.iconn_firms f where f.firm_key = grok_fn.firm_key(nm) limit 1;
-      if found then
+      if not found and wi is not null then
+        select * into firm from grok.iconn_firms f where f.wi_investor_id = wi order by f.firm_key limit 1;
+      end if;
+      if not found and (select count(*) from grok.iconn_firms f where grok_fn.loose_key(f.firm_name) = grok_fn.loose_key(nm)) = 1 then
+        select * into firm from grok.iconn_firms f where grok_fn.loose_key(f.firm_name) = grok_fn.loose_key(nm);
+      end if;
+      if firm.firm_key is not null then
         select x.* into latest from iconnections_import_rows x join iconnections_import_runs u on u.id = x.run_id and u.import_no = x.import_no and u.hidden_at is null
          where coalesce(nullif(x.norm_name, ''), lower(x.name)) = firm.firm_key order by u.last_matched_at desc nulls last, x.run_id desc, x.row_no limit 1;
         lr := to_jsonb(latest); changes := '[]'; sets := '{}';
@@ -296,30 +304,17 @@ begin
         end if;
         upd := upd || jsonb_build_object('name', nm, 'firm_key', firm.firm_key, 'changes', changes);
       else
-        if run_id is null and not p_dry_run then
-          insert into iconnections_import_runs (id, file_sha256, file_name, sheet_name, columns, import_no, row_count, created_by, matched_by)
-          values ((select coalesce(max(id), 0) + 1 from iconnections_import_runs), encode(sha256(convert_to(plan || '|iconn', 'UTF8')), 'hex'),
-                  coalesce(p_file ->> 'file_name', 'Grok upload'), p_file ->> 'sheet_name', coalesce(p_file -> 'columns', '{}'), 1,
-                  jsonb_array_length(p_rows), p_by, 'Grok ingest')
-          returning id into run_id;
+        if (select count(*) from ingest_review v where v.source = p_source and v.firm_key = grok_fn.firm_key(nm) and v.status = 'to_review') > 0 then
+          skp := skp || jsonb_build_object('name', nm, 'reason', 'Not in the iConnections import; already waiting for review.');
+          continue;
         end if;
-        row_no := row_no + 1;
         if not p_dry_run then
-          insert into iconnections_import_rows (run_id, row_no, import_no, contacts, raw, name, domain, aum_text, aum_low, aum_high, investor_type, country,
-                 norm_name, bucket, match_method, confidence, matched_id, matched_name, matched_status, matched_fit, matched_fit_reason,
-                 people, contacts_detail, email_domains, candidates)
-          values (run_id, row_no, 1, greatest(1, coalesce(jsonb_array_length(r -> 'people'), 1)), coalesce(r -> 'raw', r), nm, r ->> 'domain', r ->> 'aum_text',
-                 (r ->> 'aum_low')::numeric, (r ->> 'aum_high')::numeric, r ->> 'investor_type', r ->> 'country', grok_fn.firm_key(nm),
-                 case m ->> 'status' when 'matched' then 'matched' when 'conflict' then 'review' else 'none' end,
-                 case when m ->> 'how' in ('exact', 'alias') then m ->> 'how' end, case when m ->> 'status' = 'matched' then 'Grok ingest' end,
-                 (m ->> 'id')::bigint, m ->> 'name', m ->> 'verdict', (m ->> 'fit')::numeric, m ->> 'reason',
-                 (select array_agg(x) from jsonb_array_elements_text(r -> 'people') x), r -> 'contacts_detail',
-                 (select array_agg(x) from jsonb_array_elements_text(r -> 'email_domains') x), m -> 'candidates');
+          insert into ingest_review (run_tag, source, firm_key, name, wi_id, opportunity_id, match, row_data, by_whom)
+          values (tag, p_source, grok_fn.firm_key(nm), nm, wi, (m ->> 'id')::bigint, m, r, p_by);
           insert into ingest_log (run_tag, source, target_table, target_id, firm, field, new_value, by_whom)
-          values (tag, p_source, 'iconnections_import_rows', run_id || ':' || row_no, nm, 'row', left(r::text, 2000), p_by);
+          values (tag, p_source, 'ingest_review', currval(pg_get_serial_sequence('ingest_review', 'id'))::text, nm, 'staged_for_review', left(r::text, 2000), p_by);
         end if;
-        ins := ins || jsonb_build_object('name', nm, 'match', m ->> 'status', 'opportunity', m -> 'id', 'verdict', m -> 'verdict');
-        if m ->> 'status' = 'conflict' then con := con || jsonb_build_object('name', nm, 'reason', 'Staged; several Opportunities match: choose one on the card.', 'candidates', m -> 'candidates'); end if;
+        rev := rev || jsonb_build_object('name', nm, 'wi_id', wi, 'match', m ->> 'status', 'opportunity', m -> 'id', 'verdict', m -> 'verdict');
       end if;
 
     -- 4d. Preqin: one live row per firm; fill blanks on it, or add it.
@@ -423,8 +418,9 @@ begin
   return jsonb_build_object('source', p_source, 'dry_run', p_dry_run, 'plan_id', plan,
     'run', case when not p_dry_run then tag end, 'save_runs', to_jsonb(save_tags),
     'summary', jsonb_build_object('inserted', jsonb_array_length(ins), 'updated', jsonb_array_length(upd),
-                                  'skipped', jsonb_array_length(skp), 'conflicts', jsonb_array_length(con)),
-    'inserted', ins, 'updated', upd, 'skipped', skp, 'conflicts', con,
+                                  'skipped', jsonb_array_length(skp), 'conflicts', jsonb_array_length(con),
+                                  'staged_for_review', jsonb_array_length(rev)),
+    'inserted', ins, 'updated', upd, 'skipped', skp, 'conflicts', con, 'staged_for_review', rev,
     'note', case when p_dry_run then 'Dry run: nothing was written. To write exactly this, send the same rows with dry_run false and this plan_id.'
                  else 'Written. Opportunities changes: wi_fill_log (save_runs; undo with save_undo). Staging changes: ingest_log run ' || tag || '.' end);
 end $$;
