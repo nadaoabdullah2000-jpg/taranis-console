@@ -10742,13 +10742,13 @@ function allocatorCard(a) {
   kv(list, 'Emerging managers', yesNoBadge(a.emerging));
   kv(list, 'Is space', yesNoBadge(a.is_space));
   kv(list, 'Space signal', fieldOr(a.space_signal));
-  kv(list, 'Wi match status', fieldOr(a.wi_match_status));
-  kv(list, 'Wi match note', fieldOr(a.wi_match_note));
-  kv(list, 'Wi match checked at', fieldOr(a.wi_match_checked_at, (v) => document.createTextNode(ymd(v))));
-  kv(list, 'Hf evidence', fieldOr(a.hf_evidence));
-  kv(list, 'Hf evidence note', fieldOr(a.hf_evidence_note));
-  kv(list, 'Hf evidence source', fieldOr(a.hf_evidence_source));
-  kv(list, 'Hf checked at', fieldOr(a.hf_checked_at, (v) => document.createTextNode(ymd(v))));
+  kv(list, 'WI match status', fieldOr(a.wi_match_status));
+  kv(list, 'WI match note', fieldOr(a.wi_match_note));
+  kv(list, 'WI match checked at', fieldOr(a.wi_match_checked_at, (v) => document.createTextNode(ymd(v))));
+  kv(list, 'HF evidence', fieldOr(a.hf_evidence));
+  kv(list, 'HF evidence note', fieldOr(a.hf_evidence_note));
+  kv(list, 'HF evidence source', fieldOr(a.hf_evidence_source));
+  kv(list, 'HF checked at', fieldOr(a.hf_checked_at, (v) => document.createTextNode(ymd(v))));
   kv(list, 'iConnections', a.iconn_url ? extLink(a.iconn_url, a.iconn_url) : notStated());
   kv(list, 'iConnections Preqin', a.preqin_url ? extLink(a.preqin_url, a.preqin_url) : el('span', { class: 'alc-muted' }, 'Not confirmed'));
   kv(list, 'iConnections notes', fieldOr(a.iconn_notes));
@@ -10817,7 +10817,7 @@ function ensureAllocCss() {
   + '.alc-reviewbox summary{cursor:pointer;font-weight:600;color:var(--ink)}'
   + '.alc-reviewbox li{margin:4px 0;font-size:13px;overflow-wrap:anywhere}'
   // iConnections cards: purple, white text.
-  + '.icn-card{background:var(--iconn-purple);color:#fff;border-radius:12px;padding:16px 18px;box-shadow:0 1px 2px rgba(16,35,58,.06),0 6px 16px rgba(16,35,58,.10)}'
+  + '.icn-card{background:#5E3594;color:#fff;border-radius:12px;padding:16px 18px;box-shadow:0 1px 2px rgba(16,35,58,.06),0 6px 16px rgba(16,35,58,.10)}'
   + '.icn-card a{color:#fff;text-decoration:underline;text-underline-offset:2px;overflow-wrap:anywhere}'
   + '.icn-card h4{margin:0;font-family:var(--font-display);font-size:17px;font-weight:400;color:#fff;overflow-wrap:anywhere}'
   + '.icn-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}'
