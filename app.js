@@ -1379,6 +1379,9 @@ const TABS = [
   // Empty for now (17 Nov 2026): directly under iConnections, at the same level.
   { id: 'preqin',   icon: '◈', label: 'Preqin',        title: 'Preqin', group: 'wi', sub2: true,
     sub: 'Investors from Preqin.' },
+  // 26 Nov 2026: the enriched allocator file, in four tiers (Strong, Tech, Emerging Managers, Opportunities).
+  { id: 'allocators', icon: '\u25A6', label: 'Allocators',   title: 'Allocators', group: 'wi',
+    sub: 'The enriched allocator file: Strong first, then Tech, Emerging Managers and the other opportunities.' },
   { id: 'rejected', icon: '\u25BD', label: 'Rejected',      title: 'Rejected', group: 'wi',
     sub: 'Screened out on two or more criteria. Kept so you can see what was turned away, and why.' },
   { id: 'hedgefunds', icon: '\u25C6', label: 'Hedge funds', title: 'Hedge funds in the alerts', group: 'wi',
@@ -10600,8 +10603,433 @@ function renderSource(tab, body) {
   };
   drawGrid();
 }
-RENDER.oppsiconn = function (body) { renderSource('oppsiconn', body); };
 RENDER.preqin = function (body) { renderSource('preqin', body); };
+// 26 Nov 2026: the iConnections tab shows the enriched allocator file's iConnections records (renderIconnAllocators).
+RENDER.oppsiconn = function (body) { renderIconnAllocators(body); };
+
+/* ================================================================== Allocators (26 Nov 2026)
+   The enriched allocator file (tab "Enriched", read by enriched.js), stored in table allocators and read through
+   allocators_view (each allocator with its Opportunity, matched by With Intelligence id). One card per allocator,
+   in four tiers: 1 Strong (green), 2 Tech (teal), 3 Emerging Managers (orange), 4 Opportunities (grey); within a
+   tier the stored fit score first (best first), then the name. Full text everywhere; every URL, e-mail address and
+   LinkedIn profile is a real link. Read only, except the upload, which dry-runs first and writes on confirmation. */
+const ALLOC = { rows: null, loading: false, error: null, filter: 'all', q: '', upload: null };
+const TIER_META = {
+  1: { label: 'Strong', cls: 't1' }, 2: { label: 'Tech', cls: 't2' },
+  3: { label: 'Emerging Managers', cls: 't3' }, 4: { label: 'Opportunities', cls: 't4' }
+};
+const ymd = (v) => { if (!v) return ''; const s = String(v); const m = /^(\d{4}-\d{2}-\d{2})/.exec(s); if (m) return m[1];
+  const d = new Date(s); return isNaN(d) ? s : d.toISOString().slice(0, 10); };
+const allocSort = (a, b) => (a.tier - b.tier)
+  || ((b.fit_score === null || b.fit_score === undefined ? -1 : Number(b.fit_score)) - (a.fit_score === null || a.fit_score === undefined ? -1 : Number(a.fit_score)))
+  || String(a.name).localeCompare(String(b.name));
+
+// Text -> nodes, with every URL, e-mail address and phone number as a real link; line breaks kept; nothing cut.
+const LINK_RE = /(https?:\/\/[^\s<>"')\]]+|www\.[^\s<>"')\]]+|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/g;
+function linkText(text, opts) {
+  const span = el('span', { class: 'alc-text' + (opts && opts.cls ? ' ' + opts.cls : '') });
+  const s = text === null || text === undefined ? '' : String(text);
+  let last = 0, m;
+  LINK_RE.lastIndex = 0;
+  while ((m = LINK_RE.exec(s))) {
+    if (m.index > last) span.appendChild(document.createTextNode(s.slice(last, m.index)));
+    let u = m[0].replace(/[.,;:]+$/, '');
+    const tail = m[0].slice(u.length);
+    const href = u.includes('@') && !/^https?:/i.test(u) ? 'mailto:' + u : (/^www\./i.test(u) ? 'https://' + u : u);
+    span.appendChild(el('a', { href, target: '_blank', rel: 'noopener noreferrer' }, u));
+    if (tail) span.appendChild(document.createTextNode(tail));
+    last = m.index + m[0].length;
+  }
+  if (last < s.length) span.appendChild(document.createTextNode(s.slice(last)));
+  return span;
+}
+const extLink = (href, label) => href ? el('a', { href, target: '_blank', rel: 'noopener noreferrer' }, label || href) : null;
+// With Intelligence profile text is HTML: keep its paragraphs as text, full length.
+function bioText(html) {
+  if (!html) return '';
+  const d = document.createElement('div'); d.innerHTML = String(html).replace(/<\/p>\s*<p>/gi, '\n\n').replace(/<br\s*\/?>/gi, '\n');
+  return (d.textContent || '').replace(/\n{3,}/g, '\n\n').trim();
+}
+const yesNoBadge = (v) => {
+  const s = v === true ? 'Yes' : v === false ? 'No' : (v || 'Not stated');
+  return el('span', { class: 'alc-yn ' + (s === 'Yes' ? 'yes' : s === 'No' ? 'no' : 'unk') }, s);
+};
+function tierBadge(t) { const m = TIER_META[t] || TIER_META[4]; return el('span', { class: 'alc-tier ' + m.cls }, m.label); }
+function fitChip(a) {
+  const f = a.fit_score === null || a.fit_score === undefined ? null : Number(a.fit_score);
+  const tone = f === null ? 'unk' : f >= 0.9 ? 'hi' : f >= 0.55 ? 'mid' : 'lo';
+  return el('span', { class: 'alc-fit ' + tone, title: a.verdict ? 'Opportunity verdict: ' + a.verdict : 'Not scored: not in Opportunities' },
+    f === null ? 'Not scored' : (Math.round(f * 1000) / 10) + '%');
+}
+const notStated = () => el('span', { class: 'alc-muted' }, 'Not stated');
+const fieldOr = (v, fn) => (v === null || v === undefined || v === '' || (Array.isArray(v) && !v.length)) ? notStated() : (fn ? fn(v) : linkText(v));
+const strategiesText = (s) => {
+  let v = s; if (typeof v === 'string') { try { v = JSON.parse(v); } catch (_) { return v; } }
+  return Array.isArray(v) ? v.map(x => String(x).replace(/&nbsp;/g, ' ').trim()).filter(Boolean).join(', ') : String(v || '');
+};
+
+function allocSub(title, cls, kids) {
+  const box = el('section', { class: 'alc-sub' + (cls ? ' ' + cls : '') });
+  box.appendChild(el('h5', { class: 'alc-sub-h' }, title));
+  for (const k of [].concat(kids)) if (k) box.appendChild(k);
+  return box;
+}
+function personCard(c) {
+  const p = el('div', { class: 'alc-person' });
+  p.appendChild(el('span', { class: 'alc-av', 'aria-hidden': 'true' }, String(c.name || '?').trim().charAt(0).toUpperCase()));
+  const body = el('div', { class: 'alc-person-b' });
+  body.appendChild(el('b', null, c.name || 'Unnamed'));
+  if (c.title) body.appendChild(el('div', { class: 'alc-role' }, c.title));
+  const links = el('div', { class: 'alc-plinks' });
+  if (c.email) links.appendChild(el('a', { href: 'mailto:' + c.email }, c.email));
+  if (c.linkedin) links.appendChild(extLink(c.linkedin, 'LinkedIn'));
+  if (c.iconnections) links.appendChild(extLink(c.iconnections, 'iConnections'));
+  if (c.phone) links.appendChild(el('a', { href: 'tel:' + String(c.phone).replace(/[^\d+]/g, '') }, c.phone));
+  for (const u of c.links || []) links.appendChild(extLink(u));
+  if (c.extra) links.appendChild(linkText(c.extra));
+  if (links.childNodes.length) body.appendChild(links);
+  p.appendChild(body);
+  return p;
+}
+function kv(list, label, valueNode) {
+  list.appendChild(el('div', { class: 'alc-kv' }, el('span', { class: 'k' }, label), el('span', { class: 'v' }, valueNode)));
+}
+
+function allocatorCard(a) {
+  const card = el('article', { class: 'alc-card', 'data-alloc': String(a.id) });
+  // A: summary
+  const head = el('div', { class: 'alc-head' });
+  head.appendChild(el('h4', { class: 'alc-name' }, a.name));
+  head.appendChild(tierBadge(a.tier));
+  if (a.needs_review) head.appendChild(el('span', { class: 'alc-review', title: (a.review_reasons || []).join('; ') }, 'Needs review'));
+  const loc = [a.investor_city, a.investor_country ? countryName(a.investor_country) : null].filter(Boolean).join(', ');
+  const aum = a.aum_usd ? money(a.aum_usd) : (a.aum_band || '');
+  const sub = [a.investor_type ? typeLabel(a.investor_type) : null, loc || null, aum ? 'AUM ' + aum : null].filter(Boolean);
+  const src = ['From ' + (a.source_file || 'the enriched allocator file') + (a.source_row ? ' (row ' + a.source_row + ')' : '')];
+  src.push(a.mandate_id
+    ? 'With Intelligence profile matched by id' + (a.wi_match_status ? ' (match: ' + a.wi_match_status + ')' : '') + '; in Opportunities'
+    : 'With Intelligence profile linked by id; not in Opportunities');
+  const summary = [
+    head,
+    el('div', { class: 'alc-meta' }, sub.length ? sub.join('  ·  ') : 'Type, location and AUM not stated'),
+    el('div', { class: 'alc-src' }, src.join('; '), a.wi_url ? el('span', null, ' · ', extLink(a.wi_url, 'With Intelligence profile')) : null)
+  ];
+  const bio = bioText(a.wi_summary);
+  summary.push(bio ? el('p', { class: 'alc-bio' }, linkText(bio)) : el('p', { class: 'alc-bio alc-muted' }, 'No With Intelligence profile description stored (not in Opportunities).'));
+  const grid = el('div', { class: 'alc-grid' });
+  kv(grid, 'Min ticket', fieldOr(a.ticket_min_usd, money));
+  kv(grid, 'Max ticket', fieldOr(a.ticket_max_usd, money));
+  kv(grid, 'Min manager AUM', fieldOr(a.min_manager_aum_usd, money));
+  kv(grid, 'Fit score', el('span', null, fitChip(a), a.fit_status ? el('span', { class: 'alc-muted' }, '  File: ' + a.fit_status) : null));
+  kv(grid, 'Strategies', fieldOr(strategiesText(a.strategies)));
+  summary.push(grid);
+  card.appendChild(allocSub('Summary', 'alc-a', summary));
+  // B: intentions
+  card.appendChild(allocSub('Intentions', 'alc-b alc-up', a.intention || a.intention_summary
+    ? [a.intention ? linkText(a.intention, { cls: 'alc-pre' }) : null,
+       a.intention_summary && a.intention_summary !== a.intention ? el('p', { class: 'alc-int2' }, el('span', { class: 'k' }, 'From the alert: '), linkText(a.intention_summary)) : null]
+    : el('p', { class: 'alc-muted' }, 'Only the summary above was stated.')));
+  // C: contact persons
+  const people = Array.isArray(a.contacts) ? a.contacts : [];
+  card.appendChild(allocSub('Contact persons', 'alc-c', people.length
+    ? el('div', { class: 'alc-people' }, people.map(personCard))
+    : el('p', { class: 'alc-muted' }, 'No contact named in the alert')));
+  // D: other details
+  const list = el('div', { class: 'alc-list' });
+  kv(list, 'Ticket currency', fieldOr(a.ticket_currency));
+  kv(list, 'Technology investor', yesNoBadge(a.tech));
+  kv(list, 'Technology note', fieldOr(a.tech_signal));
+  kv(list, 'Emerging managers', yesNoBadge(a.emerging));
+  kv(list, 'Is space', yesNoBadge(a.is_space));
+  kv(list, 'Space signal', fieldOr(a.space_signal));
+  kv(list, 'Wi match status', fieldOr(a.wi_match_status));
+  kv(list, 'Wi match note', fieldOr(a.wi_match_note));
+  kv(list, 'Wi match checked at', fieldOr(a.wi_match_checked_at, (v) => document.createTextNode(ymd(v))));
+  kv(list, 'Hf evidence', fieldOr(a.hf_evidence));
+  kv(list, 'Hf evidence note', fieldOr(a.hf_evidence_note));
+  kv(list, 'Hf evidence source', fieldOr(a.hf_evidence_source));
+  kv(list, 'Hf checked at', fieldOr(a.hf_checked_at, (v) => document.createTextNode(ymd(v))));
+  kv(list, 'iConnections', a.iconn_url ? extLink(a.iconn_url, a.iconn_url) : notStated());
+  kv(list, 'iConnections Preqin', a.preqin_url ? extLink(a.preqin_url, a.preqin_url) : el('span', { class: 'alc-muted' }, 'Not confirmed'));
+  kv(list, 'iConnections notes', fieldOr(a.iconn_notes));
+  kv(list, 'I-Connections bot data', fieldOr(a.iconn_bot_data, (v) => linkText(v, { cls: 'alc-pre' })));
+  if (a.needs_review) kv(list, 'Needs review', document.createTextNode((a.review_reasons || []).join('; ')));
+  card.appendChild(allocSub('Other details', 'alc-d', list));
+  if (a.mandate_id) {
+    const acts = el('div', { class: 'acts', style: 'margin-top:12px' });
+    acts.appendChild(el('button', { class: 'btn btn-sm', onclick: () => openMandate({ id: a.mandate_id }) }, 'View the Opportunity'));
+    card.appendChild(acts);
+  }
+  return card;
+}
+
+async function loadAllocators() {
+  ALLOC.loading = true; ALLOC.error = null;
+  try {
+    await null;
+    if (DEMO) { ALLOC.rows = demoAllocators(); return; }
+    ALLOC.rows = await selectAll('allocators_view', 'select=*&order=tier.asc,name.asc', 20000);
+  } catch (e) {
+    ALLOC.error = e && e.message === 'NO_SUPABASE' ? 'Sign in to see the allocators.' : String((e && e.message) || e);
+  } finally {
+    ALLOC.loading = false;
+    if (current === 'allocators' || current === 'oppsiconn') go(current, { keepScroll: true });
+  }
+}
+function ensureAllocCss() {
+  if (document.getElementById('taranis-alloc-css')) return;
+  const s = document.createElement('style'); s.id = 'taranis-alloc-css';
+  s.textContent =
+    '.alc-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px}'
+  + '.alc-chip{border:1px solid var(--rule);background:var(--card);color:var(--ink-2);border-radius:999px;padding:5px 12px;font:inherit;font-size:13px;cursor:pointer}'
+  + '.alc-chip.on{background:var(--ink);border-color:var(--ink);color:var(--paper)}'
+  + '.alc-tierh{display:flex;align-items:center;gap:10px;margin:22px 0 10px;font-family:var(--font-display);font-size:18px;color:var(--ink)}'
+  + '.alc-cards{display:flex;flex-direction:column;gap:16px}'
+  + '.alc-card{background:var(--card);border:1px solid var(--rule);border-radius:12px;padding:18px 20px;box-shadow:0 1px 2px rgba(16,35,58,.04),0 6px 16px rgba(16,35,58,.05)}'
+  + '.alc-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}'
+  + '.alc-name{font-family:var(--font-display);font-size:18px;font-weight:400;margin:0;color:var(--ink);overflow-wrap:anywhere}'
+  + '.alc-tier{padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;color:#fff}'
+  + '.alc-tier.t1{background:var(--tier-strong)}.alc-tier.t2{background:var(--tier-tech)}.alc-tier.t3{background:var(--tier-em)}.alc-tier.t4{background:var(--tier-opp)}'
+  + '.alc-review{padding:2px 10px;border-radius:999px;font-size:12px;background:var(--signal-soft);color:var(--signal);border:1px solid var(--signal)}'
+  + '.alc-meta{font-size:13px;color:var(--ink-2)}.alc-src{font-size:12.5px;color:var(--ink-3);margin-top:3px;overflow-wrap:anywhere}'
+  + '.alc-sub{border:1px solid var(--rule);border-radius:10px;padding:14px 16px;margin-top:12px;background:var(--card)}'
+  + '.alc-sub-h{margin:0 0 8px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3);font-weight:600}'
+  + '.alc-up{box-shadow:0 -1px 2px rgba(16,35,58,.04),0 -6px 16px rgba(16,35,58,.06)}'
+  + '.alc-bio{margin:10px 0 0;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink-2)}'
+  + '.alc-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 18px;margin-top:12px}'
+  + '@media (max-width:640px){.alc-grid{grid-template-columns:1fr}}'
+  + '.alc-kv{display:flex;flex-direction:column;gap:2px;font-size:13.5px;min-width:0}.alc-kv .k{font-size:12px;color:var(--ink-3)}.alc-kv .v{color:var(--ink);overflow-wrap:anywhere}'
+  + '.alc-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 18px}@media (max-width:640px){.alc-list{grid-template-columns:1fr}}'
+  + '.alc-text a,.alc-card a{color:var(--accent);text-decoration:underline;text-underline-offset:2px;overflow-wrap:anywhere}'
+  + '.alc-pre{white-space:pre-wrap;display:block;line-height:1.55}'
+  + '.alc-int2{margin:10px 0 0;font-size:13px}.alc-int2 .k{color:var(--ink-3)}'
+  + '.alc-muted{color:var(--ink-3)}'
+  + '.alc-fit{padding:1px 8px;border-radius:6px;font-weight:600;font-variant-numeric:tabular-nums}'
+  + '.alc-fit.hi{background:var(--good-soft);color:var(--good)}.alc-fit.mid{background:var(--signal-soft);color:var(--signal)}.alc-fit.lo{background:var(--bad-soft);color:var(--bad)}.alc-fit.unk{background:var(--rule-2);color:var(--ink-3)}'
+  + '.alc-yn{padding:1px 8px;border-radius:6px;font-size:12.5px;font-weight:600}.alc-yn.yes{background:var(--good-soft);color:var(--good)}.alc-yn.no{background:var(--bad-soft);color:var(--bad)}.alc-yn.unk{background:var(--rule-2);color:var(--ink-3)}'
+  + '.alc-people{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}'
+  + '.alc-person{display:flex;gap:10px;border:1px solid var(--rule);border-radius:10px;padding:10px 12px;background:var(--card);min-width:0}'
+  + '.alc-av{flex:none;width:34px;height:34px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--accent-soft);color:var(--accent);font-weight:700}'
+  + '.alc-person-b{min-width:0;font-size:13.5px}.alc-role{color:var(--ink-3);font-size:12.5px;margin-top:1px}'
+  + '.alc-plinks{display:flex;flex-direction:column;gap:2px;margin-top:5px;font-size:12.5px;overflow-wrap:anywhere}'
+  + '.alc-q{margin-left:auto;min-width:200px;padding:6px 10px;border:1px solid var(--rule);border-radius:8px;background:var(--card);color:var(--ink);font:inherit;font-size:13px}'
+  + '.alc-reviewbox{margin-top:26px;border:1px solid var(--signal);border-radius:12px;padding:14px 16px;background:var(--signal-soft)}'
+  + '.alc-reviewbox summary{cursor:pointer;font-weight:600;color:var(--ink)}'
+  + '.alc-reviewbox li{margin:4px 0;font-size:13px;overflow-wrap:anywhere}'
+  // iConnections cards: purple, white text.
+  + '.icn-card{background:var(--iconn-purple);color:#fff;border-radius:12px;padding:16px 18px;box-shadow:0 1px 2px rgba(16,35,58,.06),0 6px 16px rgba(16,35,58,.10)}'
+  + '.icn-card a{color:#fff;text-decoration:underline;text-underline-offset:2px;overflow-wrap:anywhere}'
+  + '.icn-card h4{margin:0;font-family:var(--font-display);font-size:17px;font-weight:400;color:#fff;overflow-wrap:anywhere}'
+  + '.icn-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}'
+  + '.icn-tag{padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.35)}'
+  + '.icn-tag.t1{background:var(--tier-strong);border-color:transparent}.icn-tag.t2{background:var(--tier-tech);border-color:transparent}.icn-tag.t3{background:var(--tier-em);border-color:transparent}'
+  + '.icn-checks{display:flex;gap:14px;flex-wrap:wrap;margin:8px 0;font-size:13px}'
+  + '.icn-check{display:inline-flex;align-items:center;gap:6px}.icn-check .mk{width:18px;height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700}'
+  + '.icn-check.on .mk{background:#1E9E63;color:#fff}.icn-check.off .mk{background:rgba(255,255,255,.25);color:rgba(255,255,255,.8)}.icn-check.off{opacity:.85}'
+  + '.icn-people{display:flex;flex-direction:column;gap:6px;margin:8px 0}.icn-person{font-size:13.5px}.icn-person .role{opacity:.85;font-size:12.5px}'
+  + '.icn-notes{font-size:13px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:8px;opacity:.95}'
+  + '.icn-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}@media (max-width:640px){.icn-grid{grid-template-columns:1fr}}';
+  document.head.appendChild(s);
+}
+
+function allocFilterBar(rows, render) {
+  const bar = el('div', { class: 'alc-bar' });
+  const counts = { all: rows.length, review: rows.filter(r => r.needs_review).length };
+  for (const t of [1, 2, 3, 4]) counts['t' + t] = rows.filter(r => r.tier === t).length;
+  const chips = [['all', 'All'], ['t1', 'Strong'], ['t2', 'Tech'], ['t3', 'Emerging Managers'], ['t4', 'Opportunities'], ['review', 'Needs review']];
+  for (const [k, label] of chips) bar.appendChild(el('button', { class: 'alc-chip' + (ALLOC.filter === k ? ' on' : ''),
+    onclick: () => { ALLOC.filter = k; render(); } }, label + ' · ' + counts[k]));
+  const q = el('input', { class: 'alc-q', type: 'search', placeholder: 'Find an allocator', value: ALLOC.q || '' });
+  q.addEventListener('input', () => { ALLOC.q = q.value; render(true); });
+  bar.appendChild(q);
+  return bar;
+}
+const allocPass = (r) => (ALLOC.filter === 'all' || (ALLOC.filter === 'review' ? r.needs_review : r.tier === Number(ALLOC.filter.slice(1))))
+  && (!ALLOC.q || String(r.name).toLowerCase().includes(ALLOC.q.toLowerCase().trim()));
+
+RENDER.allocators = function (body) {
+  clear(body); ensureAllocCss();
+  const top = el('div', { class: 'alc-bar' });
+  top.appendChild(el('button', { class: 'btn btn-sm', onclick: () => pickAllocatorFile() }, 'Upload enriched file'));
+  top.appendChild(el('span', { class: 'alc-muted', style: 'font-size:12.5px' },
+    'Dry run first: nothing is written until you confirm. Grok can also send the file (n8n "Grok Allocators → Web App").'));
+  body.appendChild(top);
+  if (ALLOC.upload) body.appendChild(allocUploadPanel());
+  if (!ALLOC.rows && !ALLOC.error) { body.appendChild(el('p', { class: 'muted' }, 'Loading allocators…')); if (!ALLOC.loading) loadAllocators(); return; }
+  if (ALLOC.error) { body.appendChild(empty('Could not load the allocators', ALLOC.error)); return; }
+  if (!ALLOC.rows.length) { body.appendChild(empty('No allocators yet', 'Upload the enriched allocator file (tab "Enriched") to list them here.')); return; }
+  const rows = ALLOC.rows.slice().sort(allocSort);
+  const host = el('div');
+  const draw = (keepFocus) => {
+    clear(host);
+    host.appendChild(allocFilterBar(rows, () => draw()));
+    const shown = rows.filter(allocPass);
+    for (const t of [1, 2, 3, 4]) {
+      const inTier = shown.filter(r => r.tier === t);
+      if (!inTier.length) continue;
+      host.appendChild(el('h3', { class: 'alc-tierh' }, tierBadge(t), el('span', null, 'Tier ' + t + ' · ' + inTier.length)));
+      const list = el('div', { class: 'alc-cards' });
+      for (const r of inTier) list.appendChild(allocatorCard(r));
+      host.appendChild(list);
+    }
+    if (!shown.length) host.appendChild(el('p', { class: 'muted' }, 'No allocator matches.'));
+    // Needs Review: names and reasons only (the cards themselves stay in their tier, never repeated).
+    const rev = rows.filter(r => r.needs_review);
+    if (rev.length) {
+      const box = el('details', { class: 'alc-reviewbox' });
+      box.appendChild(el('summary', null, 'Needs review · ' + rev.length + ' (With Intelligence match not Correct, or Preqin not confirmed)'));
+      const ul = el('ul');
+      for (const r of rev) ul.appendChild(el('li', null, el('b', null, r.name), ' — ', (r.review_reasons || []).join('; ')));
+      box.appendChild(ul);
+      host.appendChild(box);
+    }
+    if (keepFocus) { const q = host.querySelector('.alc-q'); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
+  };
+  draw();
+  body.appendChild(host);
+};
+
+// The iConnections tab: allocators that have an iConnections profile in the enriched file. Purple cards.
+function iconnAllocCard(a) {
+  const card = el('article', { class: 'icn-card', 'data-alloc': String(a.id) });
+  const head = el('div', { class: 'icn-head' });
+  head.appendChild(el('h4', null, a.iconn_url ? extLink(a.iconn_url, a.name) : a.name));
+  const tags = [];
+  if (a.tier === 1) tags.push(['t1', 'Strong']);
+  if (a.tech === 'Yes') tags.push(['t2', 'Tech']);
+  if (a.emerging === 'Yes') tags.push(['t3', 'Emerging Managers']);
+  for (const [c, l] of tags) head.appendChild(el('span', { class: 'icn-tag ' + c }, l));
+  card.appendChild(head);
+  const checks = el('div', { class: 'icn-checks' });
+  const check = (on, label, title) => el('span', { class: 'icn-check ' + (on ? 'on' : 'off'), title }, el('span', { class: 'mk' }, on ? '✓' : ''), label);
+  checks.appendChild(check(a.wi_match_status === 'Correct', 'With Intelligence profile matched',
+    a.wi_match_status ? 'With Intelligence match status: ' + a.wi_match_status : 'Not in Opportunities: match not checked'));
+  checks.appendChild(check(!!a.preqin_url, 'Preqin matched', a.preqin_url ? 'iConnections Preqin profile linked' : 'No Preqin profile linked'));
+  card.appendChild(checks);
+  const people = Array.isArray(a.iconn_contacts) ? a.iconn_contacts : [];
+  const pl = el('div', { class: 'icn-people' });
+  if (people.length) for (const c of people) pl.appendChild(el('div', { class: 'icn-person' },
+    el('b', null, c.iconnections ? extLink(c.iconnections, c.name) : c.name), c.title ? el('div', { class: 'role' }, c.title) : null));
+  else pl.appendChild(el('div', { class: 'icn-person', style: 'opacity:.85' }, 'No contacts listed on iConnections'));
+  card.appendChild(pl);
+  if (a.iconn_notes) card.appendChild(el('div', { class: 'icn-notes' }, linkText(a.iconn_notes)));
+  if (a.iconn_bot_data) card.appendChild(el('div', { class: 'icn-notes' }, linkText(a.iconn_bot_data)));
+  const links = [a.wi_url ? extLink(a.wi_url, 'With Intelligence profile') : null, a.preqin_url ? extLink(a.preqin_url, 'iConnections Preqin') : null].filter(Boolean);
+  if (links.length) { const l = el('div', { class: 'icn-notes' }); links.forEach((x, i) => { if (i) l.appendChild(document.createTextNode('  ·  ')); l.appendChild(x); }); card.appendChild(l); }
+  return card;
+}
+function renderIconnAllocators(body) {
+  clear(body); ensureAllocCss();
+  if (!ALLOC.rows && !ALLOC.error) { body.appendChild(el('p', { class: 'muted' }, 'Loading iConnections…')); if (!ALLOC.loading) loadAllocators(); return; }
+  if (ALLOC.error) { body.appendChild(empty('Could not load iConnections', ALLOC.error)); return; }
+  const rows = (ALLOC.rows || []).filter(r => r.iconn_url).sort(allocSort);
+  if (!rows.length) { body.appendChild(empty('Nothing here yet', 'iConnections allocators appear here once the enriched file is uploaded.')); return; }
+  const host = el('div');
+  const draw = (keepFocus) => {
+    clear(host);
+    host.appendChild(allocFilterBar(rows, () => draw()));
+    const grid = el('div', { class: 'icn-grid' });
+    for (const r of rows.filter(allocPass)) grid.appendChild(iconnAllocCard(r));
+    host.appendChild(grid);
+    if (keepFocus) { const q = host.querySelector('.alc-q'); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
+  };
+  draw();
+  body.appendChild(host);
+}
+
+// Upload: read the file in the browser (enriched.js), dry run, show the diff, write only on confirmation.
+let enrichedReaderLoad = null;
+function loadEnrichedReader() {
+  if (window.EnrichedReader) return Promise.resolve(window.EnrichedReader);
+  if (enrichedReaderLoad) return enrichedReaderLoad;
+  enrichedReaderLoad = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = './enriched.js' + (CFG.build ? '?v=' + encodeURIComponent(CFG.build) : '');
+    s.onload = () => window.EnrichedReader ? resolve(window.EnrichedReader) : reject(new Error('The file reader did not start.'));
+    s.onerror = () => { enrichedReaderLoad = null; reject(new Error('Could not load the file reader (enriched.js).')); };
+    document.head.appendChild(s);
+  });
+  return enrichedReaderLoad;
+}
+function pickAllocatorFile() {
+  const inp = el('input', { type: 'file', accept: '.xlsm,.xlsx', style: 'display:none' });
+  inp.addEventListener('change', async () => {
+    const f = inp.files && inp.files[0];
+    if (!f) return;
+    ALLOC.upload = { state: 'reading', file: f.name };
+    go('allocators', { keepScroll: true });
+    try {
+      const R = await loadEnrichedReader();
+      const parsed = R.readEnriched(new Uint8Array(await f.arrayBuffer()));
+      const file = { file_name: f.name, sheet_name: parsed.sheet, columns: parsed.columns };
+      const dry = DEMO ? { summary: { inserted: parsed.rows.length, updated: 0, unchanged: 0, skipped: 0 }, plan_id: 'demo', dry_run: true }
+                       : await supaRpc('console_ingest_allocators', { p_rows: parsed.rows, p_dry_run: true, p_file: file });
+      ALLOC.upload = { state: 'dry', file: f.name, parsed, dry, fileMeta: file };
+    } catch (e) {
+      ALLOC.upload = { state: 'error', file: f.name, error: String((e && e.message) || e) };
+    }
+    go('allocators', { keepScroll: true });
+  });
+  document.body.appendChild(inp); inp.click(); setTimeout(() => inp.remove(), 60000);
+}
+function allocUploadPanel() {
+  const u = ALLOC.upload;
+  const box = el('div', { class: 'alc-sub', style: 'margin-bottom:16px' });
+  box.appendChild(el('h5', { class: 'alc-sub-h' }, 'Upload: ' + u.file));
+  if (u.state === 'reading' || u.state === 'writing') { box.appendChild(el('p', null, u.state === 'reading' ? 'Reading the file and running a dry run…' : 'Writing…')); return box; }
+  if (u.state === 'error') { box.appendChild(el('p', { style: 'color:var(--bad)' }, u.error)); box.appendChild(el('button', { class: 'btn btn-sm btn-quiet', onclick: () => { ALLOC.upload = null; go('allocators'); } }, 'Close')); return box; }
+  const s = (u.dry && u.dry.summary) || {};
+  if (u.state === 'done') {
+    box.appendChild(el('p', null, 'Written: ' + (s.inserted || 0) + ' new, ' + (s.updated || 0) + ' updated, ' + (s.unchanged || 0) + ' unchanged. Every change is logged (' + (u.run || '') + ').'));
+    box.appendChild(el('button', { class: 'btn btn-sm btn-quiet', onclick: () => { ALLOC.upload = null; go('allocators'); } }, 'Close'));
+    return box;
+  }
+  box.appendChild(el('p', null, 'Tab "' + u.parsed.sheet + '": ' + u.parsed.rows.length + ' allocators read'
+    + (u.parsed.duplicates.length ? ', ' + u.parsed.duplicates.length + ' repeated rows merged' : '') + '. Dry run: '
+    + (s.inserted || 0) + ' new, ' + (s.updated || 0) + ' would change, ' + (s.unchanged || 0) + ' unchanged, ' + (s.skipped || 0) + ' skipped.'));
+  if (s.tiers) box.appendChild(el('p', { class: 'alc-muted' }, 'Tiers: Strong ' + s.tiers.Strong + ', Tech ' + s.tiers.Tech + ', Emerging Managers ' + s.tiers['Emerging Managers'] + ', Opportunities ' + s.tiers.Opportunities + '.'));
+  if (u.parsed.unmapped.length) box.appendChild(el('p', { class: 'alc-muted' }, 'Columns not used: ' + u.parsed.unmapped.join(', ')));
+  const acts = el('div', { class: 'acts' });
+  acts.appendChild(el('button', { class: 'btn btn-sm', onclick: async () => {
+    u.state = 'writing'; go('allocators', { keepScroll: true });
+    try {
+      const w = DEMO ? { summary: s, run: 'demo' } : await supaRpc('console_ingest_allocators', { p_rows: u.parsed.rows, p_dry_run: false, p_plan: u.dry.plan_id, p_file: u.fileMeta });
+      ALLOC.upload = { state: 'done', file: u.file, dry: w, run: w.run }; ALLOC.rows = null;
+    } catch (e) { ALLOC.upload = { state: 'error', file: u.file, error: String((e && e.message) || e) }; }
+    go('allocators', { keepScroll: true });
+  } }, 'Write these changes'));
+  acts.appendChild(el('button', { class: 'btn btn-sm btn-quiet', onclick: () => { ALLOC.upload = null; go('allocators'); } }, 'Cancel'));
+  box.appendChild(acts);
+  return box;
+}
+
+// Demo mode: four sample allocators, one per tier (no real data).
+function demoAllocators() {
+  const base = { contacts: [], iconn_contacts: [], source_file: 'allocators_enriched_2026-11-25.xlsm' };
+  return [
+    { ...base, id: 1, name: 'Sample Endowment Fund', tier: 1, tier_label: 'Strong', tech: 'Yes', emerging: 'Yes', fit_status: 'Strong', source_row: 2,
+      wi_url: 'https://platform.withintelligence.com/explore/investors/1', iconn_url: 'https://app.iconnections.io/list/external/allocators/1',
+      preqin_url: 'https://app.iconnections.io/list/external/allocator-companies/1', mandate_id: 479, investor_type: 'endowment', investor_country: 'US',
+      investor_city: 'Boston', aum_usd: 975000000, ticket_min_usd: 5000000, ticket_max_usd: 15000000, ticket_currency: 'USD', min_manager_aum_usd: 500000000,
+      fit_score: 0.95, verdict: 'matched', strategies: ['Equity Long/Short', 'Event Driven'], wi_match_status: 'Correct', wi_match_note: 'Link opens the same investor',
+      wi_match_checked_at: '2026-11-12T10:00:00Z', hf_evidence: 'confirmed', hf_evidence_note: 'Profile asset classes include Hedge Funds', hf_evidence_source: 'audit 5 Nov 2026',
+      hf_checked_at: '2026-11-05T09:00:00Z', is_tech_investor: true, tech_signal: 'Industries of interest include technology (https://example.com/source)', is_space: false,
+      wi_summary: '<p>A sample university endowment that invests across hedge funds.</p><p>Second paragraph of the profile.</p>',
+      intention: 'Sample Endowment Fund: Equity / long-short in scope; Tech / AI angle present; Open to emerging managers.\n\nNov 2026: up to 2 new commitments over 12-18 months, Ticket $5m-$15m.',
+      contacts: [{ name: 'Sample Person', title: 'Chief Investment Officer', email: 'person@example.com', linkedin: 'https://www.linkedin.com/in/example', phone: '+1 555 010 0000' }],
+      iconn_contacts: [{ name: 'Sample Person', title: 'Chief Investment Officer', iconnections: 'https://app.iconnections.io/list/external/allocators/1' }],
+      iconn_notes: 'Its strategies include Long/Short Equity. Tech focus.', iconn_bot_data: 'iConnections Preqin: Endowment Plan; Boston, US; AUM 870M USD', needs_review: false, review_reasons: [] },
+    { ...base, id: 2, name: 'Sample Family Office', tier: 2, tier_label: 'Tech', tech: 'Yes', emerging: 'Not stated', fit_status: 'Tech', source_row: 3,
+      wi_url: 'https://platform.withintelligence.com/explore/investors/2', iconn_url: 'https://app.iconnections.io/list/external/allocators/2',
+      intention: 'Sample Family Office: Tech / AI angle present.', iconn_notes: 'Long/Short Equity', needs_review: true,
+      review_reasons: ['Not in Opportunities: With Intelligence match not checked', 'Preqin not confirmed'] },
+    { ...base, id: 3, name: 'Sample Pension Plan', tier: 3, tier_label: 'Emerging Managers', tech: 'No', emerging: 'Yes', fit_status: 'Emerging Managers', source_row: 4,
+      wi_url: 'https://platform.withintelligence.com/explore/investors/3', intention: null, needs_review: true, review_reasons: ['Preqin not confirmed'] },
+    { ...base, id: 4, name: 'Sample Wealth Manager', tier: 4, tier_label: 'Opportunities', tech: 'No', emerging: 'Not stated', fit_status: null, source_row: 5,
+      wi_url: 'https://platform.withintelligence.com/explore/investors/4', intention: 'Sample Wealth Manager: Equity / long-short in scope.',
+      needs_review: true, review_reasons: ['Not in Opportunities: With Intelligence match not checked', 'Preqin not confirmed'] }
+  ];
+}
 
 // Sample data for demo mode: one firm matched to a sample Opportunity, one possible match, one not matched.
 function demoSourceData(kind) {
